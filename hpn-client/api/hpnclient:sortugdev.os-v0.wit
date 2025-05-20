@@ -1,0 +1,27 @@
+interface hpnclient {
+    variant request {
+        send(send-request),
+        /// history of hpnclient with given node
+        history(string),
+    }
+
+    variant response {
+        send,
+        history(list<hpnclient-message>),
+    }
+
+    record send-request {
+        target: string,
+        message: string,
+    }
+
+    record hpnclient-message {
+        author: string,
+        content: string,
+    }
+}
+
+world hpnclient-sortugdev-dot-os-v0 {
+    import hpnclient;
+    include process-v1;
+}

@@ -1,0 +1,5 @@
+world hpnclient-test-sortugdev-dot-os-v0 {
+    import hpnclient;
+    import tester;
+    include process-v1;
+}

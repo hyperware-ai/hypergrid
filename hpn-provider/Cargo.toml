@@ -1,0 +1,12 @@
+[profile.release]
+lto = true
+opt-level = "s"
+panic = "abort"
+
+[workspace]
+members = [
+    "hpn-provider",
+    "test/hpn-provider-test/hpn-provider-test",
+    "target/caller-utils",
+]
+resolver = "2"

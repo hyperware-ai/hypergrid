@@ -1,0 +1,15 @@
+[
+    {
+        "process_name": "hpnclient-test",
+        "process_wasm_path": "/hpnclient-test.wasm",
+        "on_exit": "Restart",
+        "request_networking": false,
+        "request_capabilities": [
+            "hpnclient:hpnclient:sortugdev.os"
+        ],
+        "grant_capabilities": [
+            "hpnclient:hpnclient:sortugdev.os"
+        ],
+        "public": true
+    }
+]
