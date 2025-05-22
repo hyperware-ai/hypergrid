@@ -154,10 +154,8 @@ pub async fn call_provider(
             }
         }
     }
-    if !http_headers.contains_key("User-Agent") {
-        http_headers.insert("User-Agent".to_string(), source);
-    }
 
+    http_headers.insert("X-Insecure-HPN-Client-Node-Id".to_string(), source);
 
 
     kiprintln!(
