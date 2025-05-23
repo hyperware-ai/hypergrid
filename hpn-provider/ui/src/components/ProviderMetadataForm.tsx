@@ -6,6 +6,8 @@ export interface ProviderMetadataFormProps {
   setProviderName: (value: string) => void;
   providerDescription: string;
   setProviderDescription: (value: string) => void;
+  instructions: string;
+  setInstructions: (value: string) => void;
   registeredProviderWallet: string;
   setRegisteredProviderWallet: (value: string) => void;
   price: string;
@@ -17,6 +19,7 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
   nodeId,
   providerName, setProviderName,
   providerDescription, setProviderDescription,
+  instructions, setInstructions,
   registeredProviderWallet, setRegisteredProviderWallet,
   price, setPrice,
   onCopyMetadata,
@@ -149,7 +152,7 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
       {/* Price Input */}
       <div style={treeLineStyle}>
         <span style={treeCharSpanStyle}>├─</span>
-        <label htmlFor="pform-price" style={{...fieldLabelStyle, textAlign: 'left'}}>~price:</label>
+        <label htmlFor="pform-price" style={{...fieldLabelStyle, textAlign: 'left'}} className="form-label">~price:</label>
         <input 
           id="pform-price" 
           type="text"
@@ -180,7 +183,25 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
           style={{...inputStyle, resize: 'vertical'}} 
         />
       </div>
+
+      {/* Trunk Connector */}
+      <div style={trunkConnectorStyle}>
+        <span style={treeCharSpanStyle}>│</span>
+      </div>
       
+      {/* Instructions Input */}
+      <div style={{...treeLineStyle, alignItems: 'flex-start'}}>
+        <span style={treeCharSpanStyle}>├─</span>
+        <label htmlFor="pform-instructions" style={{...fieldLabelStyle, textAlign: 'left', paddingTop: '2px'}}>~instructions:</label>
+        <textarea 
+          id="pform-instructions" 
+          value={instructions} 
+          onChange={(e) => setInstructions(e.target.value)} 
+          placeholder="Instructions for the provider" 
+          rows={3}
+          style={{...inputStyle, resize: 'vertical'}} 
+        />
+      </div>
 
     </div>
   );

@@ -8,7 +8,7 @@ use hyperware_app_common::hyperware_process_lib::{
         HeaderName, HeaderValue, Method as HyperwareHttpMethod, Response as HyperwareHttpResponse,
         StatusCode,
     },
-    hypermap, Message, Request,
+    hypermap, Request,
 };
 use hyperware_app_common::send;
 use serde_json;

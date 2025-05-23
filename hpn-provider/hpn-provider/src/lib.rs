@@ -1,7 +1,7 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_process_lib::eth::Address as EthAddress;
-use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage};
+use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage, get_state};
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::str::FromStr; // Needed for EthAddress::from_str
@@ -74,6 +74,7 @@ pub struct RegisteredProvider {
     pub provider_id: String,
     pub description: String,
     // TODO: This should be an EthAddress, but that is not supported by WIT parser (yet)
+    pub instructions: String,
     // We should validate this is a valid address before storing it
     pub registered_provider_wallet: String,
     // Price per call in USDC, should be clear in HNS entry
@@ -89,8 +90,9 @@ pub struct HpnProviderState {
     pub hypermap: hypermap::Hypermap, // For Hypermap specific calls (e.g., on Base chain)
 }
 
-impl Default for HpnProviderState {
-    fn default() -> Self {
+impl HpnProviderState {
+    /// Creates a new instance of the state (always fresh/empty)
+    pub fn new() -> Self {
         let hypermap_timeout = 60; // RPC Provider timeout
 
         // Provider specifically for Hypermap, using its defined chain and address
@@ -101,9 +103,37 @@ impl Default for HpnProviderState {
         Self {
             registered_providers: Vec::new(),
             spent_tx_hashes: Vec::new(),
-            rpc_provider: provider.clone(), // Example: Default to Ethereum Mainnet (chain 1), 60s timeout
+            rpc_provider: provider.clone(),
             hypermap: hypermap::Hypermap::new(provider.clone(), hypermap_contract_address),
         }
+    }
+
+    /// Loads old state from disk, falls back to new() if none exists
+    pub fn load() -> Self {
+        match get_state() {
+            Some(bytes) => {
+                match serde_json::from_slice::<Self>(&bytes) {
+                    Ok(state) => {
+                        println!("Successfully loaded HpnProviderState from checkpoint.");
+                        state
+                    }
+                    Err(e) => {
+                        println!("Failed to deserialize saved state: {}, creating new state", e);
+                        Self::new()
+                    }
+                }
+            }
+            None => {
+                println!("No saved state found. Creating new state.");
+                Self::new()
+            }
+        }
+    }
+}
+
+impl Default for HpnProviderState {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -130,7 +160,7 @@ impl HpnProviderState {
     #[init]
     async fn initialize(&mut self) {
         println!("Initializing provider registry");
-        *self = HpnProviderState::default();
+        *self = HpnProviderState::load();
         add_to_homepage("HPN Provider Dashboard", Some(ICON), Some("/"), None);
     }
 
@@ -172,10 +202,8 @@ impl HpnProviderState {
     ) -> Result<String, String> {
 
         let mcp_request = match request {
-            req => req,
-            _ => return Err("Invalid provider request structure, got: {:?}. Please make sure to use the correct request structure for the provider call.".to_string()),
+            ProviderRequest { .. } => request,
         };
-        
         println!("Received remote call for provider: {}", mcp_request.provider_name);
 
         // --- 0. Check if provider exists at all ---
