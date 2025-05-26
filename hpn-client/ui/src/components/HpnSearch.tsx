@@ -22,33 +22,6 @@ const Main: React.FC = () => {
   }, []);
 
   useEffect;
-  // useEffect(() => {
-  //   fetchAll().then((data) => {
-  //     if ("error" in data) setSearchError("error fetching data");
-  //     else setData(data.ok);
-  //   });
-  // }, []);
-
-  // function handleSearch() {
-  //   setSearchResults([]);
-  //   setSearchError("");
-  //   console.log("lol", input);
-  //   const inp = input.toLowerCase();
-  //   for (let provlist of Object.values(data)) {
-  //     for (let prov of provlist) {
-  //       if (
-  //         prov.category.toLowerCase().includes(inp) ||
-  //         prov.description.toLowerCase().includes(inp) ||
-  //         prov.name.toLowerCase().includes(inp) ||
-  //         prov.providerName.toLowerCase().includes(inp) ||
-  //         prov.site.toLowerCase().includes(inp)
-  //       )
-  //         setSearchResults((s) => [...s, prov]);
-  //     }
-  //   }
-  //   console.log(searchResults.length, "length");
-  //   if (searchResults.length === 0) setSearchError("No providers found");
-  // }
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault();
     setSearchResults([]);

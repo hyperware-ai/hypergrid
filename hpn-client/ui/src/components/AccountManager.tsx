@@ -125,7 +125,7 @@ function AccountManager() {
          // Keep limit fields as they are
     }, [selectedWalletId]); 
 
-    // Keep handleRefresh (could maybe use fetchWalletData directly?)
+    // Keep handleRefresa (could maybe use fetchWalletData directly?)
     const handleRefresh = () => {
         setIsActionLoading(true);
         setToastMessage(null); 

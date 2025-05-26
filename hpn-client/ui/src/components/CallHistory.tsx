@@ -16,6 +16,7 @@ interface CallRecord { ... }
 // Add props interface
 interface CallHistoryProps {
     selectedAccountId: string | null;
+    isNonCollapsible?: boolean; // New prop
 }
 
 // --- API Endpoint ---
@@ -113,12 +114,12 @@ const formatArgs = (argsJson: string): React.ReactNode => {
 };
 
 // --- Component ---
-const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId }) => { // Accept props
+const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonCollapsible = false }) => { // Accept props
     const [allHistory, setAllHistory] = useState<CallRecord[]>([]); // Store all fetched history
     const [filteredHistory, setFilteredHistory] = useState<CallRecord[]>([]); // History filtered for selected account
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [isCollapsed, setIsCollapsed] = useState<boolean>(false); 
+    const [isCollapsed, setIsCollapsed] = useState<boolean>(isNonCollapsible ? false : false); 
 
     // Fetch ALL history
     const fetchHistory = useCallback(async () => {
@@ -165,31 +166,32 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId }) => { // 
 
     return (
         <div className="history-container">
-            <div className="history-header" onClick={() => setIsCollapsed(!isCollapsed)}>
-                {/* Moved collapse indicator next to title */}
-                 <h3>
-                     Call History {selectedAccountId ? `for ${truncateString(selectedAccountId, 12)}` : ''}
-                     <span className="collapse-indicator" style={{ marginLeft: '0.5em' }}> 
-                         {isCollapsed ? '[+]' : '[-]'}
-                     </span>
-                 </h3>
-                <div className="header-actions">
-                    {/* Changed refresh button style */}
-                    <button
-                         onClick={(e) => { e.stopPropagation(); fetchHistory(); }}
-                         disabled={isLoading}
-                         className="button refresh-button icon-button" // Use similar class if needed
-                         style={{padding: '0.2rem 0.5rem', fontSize: '1rem'}} // Adjust size if needed
-                         title="Refresh History"
-                     >
-                          {isLoading ? '...' : '↻'}
-                     </button>
-                    {/* Removed collapse indicator from here */}
+            {/* Header is now conditional based on isNonCollapsible */}
+            {!isNonCollapsible && (
+                <div className="history-header" onClick={() => setIsCollapsed(!isCollapsed)}>
+                    <h3>
+                        Call History {selectedAccountId ? `for ${truncateString(selectedAccountId, 12)}` : ''}
+                        <span className="collapse-indicator" style={{ marginLeft: '0.5em' }}> 
+                            {isCollapsed ? '[+]' : '[-]'}
+                        </span>
+                    </h3>
+                    <div className="header-actions">
+                        <button
+                            onClick={(e) => { e.stopPropagation(); fetchHistory(); }}
+                            disabled={isLoading}
+                            className="button refresh-button icon-button"
+                            style={{padding: '0.2rem 0.5rem', fontSize: '1rem'}}
+                            title="Refresh History"
+                        >
+                            {isLoading ? '...' : '↻'}
+                        </button>
+                    </div>
                 </div>
-            </div>
+            )}
 
-             {!isCollapsed && (
-                 <div className="history-content">
+             {/* Content rendering logic now respects isCollapsed OR isNonCollapsible */}
+             {(isNonCollapsible || !isCollapsed) && (
+                 <div className={isNonCollapsible ? "history-content-non-collapsible" : "history-content"}>
                      {error && <div className="error-message">{error}</div>}
 
                      {/* Loading/Empty checks based on filteredHistory */}
@@ -199,7 +201,7 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId }) => { // 
                          <p className="info-message">
                              {selectedAccountId 
                                  ? 'No call history recorded for this account.' 
-                                 : 'Select an account to view its history.'}
+                                 : (isNonCollapsible ? 'No call history available for this wallet.' : 'Select an account to view its history.')}
                          </p>
                      ) : (
                          <div className="table-container">
@@ -207,7 +209,6 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId }) => { // 
                                 <thead>
                                     <tr>
                                         <th>Time</th>
-                                        <th>Account</th> 
                                         <th>Provider</th>
                                         <th>Args</th>
                                         <th>Duration</th>
@@ -220,7 +221,6 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId }) => { // 
                                     {filteredHistory.map((record, index) => (
                                         <tr key={`${record.timestamp_start_ms}-${index}-${record.operator_wallet_id}`}> {/* Add account to key */} 
                                             <td title={`Start: ${record.timestamp_start_ms}, End: ${record.response_timestamp_ms}`}>{formatTimestamp(record.timestamp_start_ms)}</td>
-                                            <td>{truncateString(record.operator_wallet_id)}</td> 
                                             <td title={record.target_provider_id}>{truncateString(record.provider_lookup_key, 25)}</td>
                                             <td>{formatArgs(record.call_args_json)}</td>
                                             <td>{formatDuration(record.duration_ms)}</td>

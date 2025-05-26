@@ -363,7 +363,7 @@ fn perform_tba_payment_execution(
     let inner_calldata = wallet::create_erc20_transfer_calldata(*provider_tba_address, amount_u256);
 
     // 4. Setup Provider
-    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 300); // 300 sec timeout
+    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 60); // 60 sec timeout
 
     // 5. Call wallet::execute_via_tba_with_signer
     info!("Sending execute transaction via Operator TBA {} to target USDC {} (Inner call: transfer {} USDC to {})",
@@ -378,10 +378,9 @@ fn perform_tba_payment_execution(
         Some(0)
     );
 
-    // Add a 4-second delay
-    thread::sleep(std::time::Duration::from_secs(3));
+    //thread::sleep(std::time::Duration::from_secs(3));
 
-    // 6. Handle SUBMISSION result (NO on-chain confirmation wait)
+    // 6. Handle SUBMISSION result
     match execution_result {
         Ok(receipt) => {
             let tx_hash_raw = receipt.hash;
@@ -389,45 +388,43 @@ fn perform_tba_payment_execution(
             info!("TBA Execute Transaction SUBMITTED successfully! Tx Hash: {}", tx_hash);
             info!("NOTE: On-chain confirmation NOT verified by client.");
             
-            // TODO, fix this flow
-            // // Wait for confirmation
-            // match wallet::wait_for_transaction(tx_hash_raw, eth_provider.clone(), 1, 60) { // Wait 1 confirmation, 60s timeout
-            //     Ok(final_receipt) => {
-            //         // Log the raw receipt object
-            //         info!("Received final receipt: {:#?}", final_receipt);
-            //         if final_receipt.status() {
-            //             info!("TBA Payment transaction confirmed successfully! Tx Hash: {:?}", tx_hash_raw);
-            //             return PaymentAttemptResult::Success {
-            //                 tx_hash: tx_hash, // Use formatted hash string
-            //                 amount_paid: price_to_check_str.to_string(),
-            //                 currency: currency.to_string(),
-            //             };
-            //         } else {
-            //             error!("TBA Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash_raw);
-            //             return PaymentAttemptResult::Failed {
-            //                 error: "Transaction failed on-chain (reverted)".to_string(),
-            //                 amount_attempted: price_to_check_str.to_string(),
-            //                 currency: currency.to_string(),
-            //             };
-            //         }
-            //     }
-            //     Err(e) => {
-            //         error!("Error waiting for TBA payment transaction confirmation ({:?}): {:?}", tx_hash_raw, e);
-            //         return PaymentAttemptResult::Failed {
-            //             error: format!("Confirmation Error: {:?}", e),
-            //             amount_attempted: price_to_check_str.to_string(),
-            //             currency: currency.to_string(),
-            //         };
-            //     }
-            // }
-            // --- End Commented-Out Confirmation Logic --- 
-
-            // Return Success based on submission only (temporary)
-            PaymentAttemptResult::Success {
-                 tx_hash,
-                 amount_paid: price_to_check_str.to_string(),
-                 currency: currency.to_string(),
+            // Wait for confirmation
+            match wallet::wait_for_transaction(tx_hash_raw, eth_provider.clone(), 1, 3) { // Wait 1 confirmation, 60s timeout
+                Ok(final_receipt) => {
+                    // Log the raw receipt object
+                    info!("Received final receipt: {:#?}", final_receipt);
+                    if final_receipt.status() {
+                        info!("TBA Payment transaction confirmed successfully! Tx Hash: {:?}", tx_hash_raw);
+                        return PaymentAttemptResult::Success {
+                            tx_hash: tx_hash, // Use formatted hash string
+                            amount_paid: price_to_check_str.to_string(),
+                            currency: currency.to_string(),
+                        };
+                    } else {
+                        error!("TBA Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash_raw);
+                        return PaymentAttemptResult::Failed {
+                            error: "Transaction failed on-chain (reverted)".to_string(),
+                            amount_attempted: price_to_check_str.to_string(),
+                            currency: currency.to_string(),
+                        };
+                    }
+                }
+                Err(e) => {
+                    error!("Error waiting for TBA payment transaction confirmation ({:?}): {:?}", tx_hash_raw, e);
+                    return PaymentAttemptResult::Failed {
+                        error: format!("Confirmation Error: {:?}", e),
+                        amount_attempted: price_to_check_str.to_string(),
+                        currency: currency.to_string(),
+                    };
+                }
             }
+
+            //// Return Success based on submission only (temporary)
+            //PaymentAttemptResult::Success {
+            //     tx_hash,
+            //     amount_paid: price_to_check_str.to_string(),
+            //     currency: currency.to_string(),
+            //}
         }
         Err(e) => {
             let error_msg = format!("{:?}", e);
@@ -782,7 +779,7 @@ pub fn get_active_account_details(state: &State) -> Result<Option<ActiveAccountD
                 info!("Found selected and unlocked account: {}", selected_id);
                 
                 // Fetch balances
-                let provider = Provider::new(BASE_CHAIN_ID, 30000); // Create provider
+                let provider = eth::Provider::new(BASE_CHAIN_ID, 60); // Create provider
                 let address_str = &wallet.storage.get_address(); // Use getter for address
                 
                 let eth_balance_res = get_eth_balance(address_str, BASE_CHAIN_ID, provider.clone());
@@ -867,7 +864,7 @@ pub fn verify_selected_hot_wallet_delegation_detailed(
     }
     info!("Verifying delegation for Hot Wallet: {}", hot_wallet_address);
 
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 60000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
     let hypermap_address = match Address::from_str(hypermap::HYPERMAP_ADDRESS) {
         Ok(addr) => addr,
         Err(_) => return DelegationStatus::CheckError("Failed to parse HYPERMAP_ADDRESS constant.".to_string()),
@@ -1172,7 +1169,7 @@ pub fn check_operator_tba_funding_detailed(
     let mut errors: Vec<String> = Vec::new();
 
     // Define provider here, or accept as argument for efficiency if called in a loop elsewhere
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 30000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
 
     if let Some(tba_str) = operator_tba_address_str {
         if Address::from_str(tba_str).is_err() {
@@ -1279,17 +1276,12 @@ pub fn get_wallet_summary_for_address(state: &State, hot_wallet_address_str: &st
 // Placeholder stubs for functions that will require more complex logic or on-chain interaction.
 // These will be implemented properly in subsequent steps.
 
-pub fn get_all_onchain_linked_hot_wallet_addresses(
-    operator_entry_name_opt: Option<&str>,
-    // eth_provider: &eth::Provider // Recommended to pass in for efficiency
-) -> Result<Vec<String>, String> {
-    info!(
-        "Fetching all on-chain linked hot wallet addresses for operator entry: {:?}",
-        operator_entry_name_opt
-    );
-
+pub fn get_all_onchain_linked_hot_wallet_addresses(operator_entry_name_opt: Option<&str>,) -> Result<Vec<String>, String> {
     let operator_entry_name = match operator_entry_name_opt {
-        Some(name) if !name.is_empty() => name,
+        Some(name) if !name.is_empty() => {
+            info!("  -> Using provided operator entry name: {}", name);
+            name
+        },
         _ => {
             let err_msg = "Operator entry name not provided or empty.".to_string();
             error!("  -> Error: {}", err_msg);
@@ -1298,8 +1290,7 @@ pub fn get_all_onchain_linked_hot_wallet_addresses(
     };
 
     // Create a new provider and hypermap_reader instance for this operation.
-    // For better performance in a real application, these might be managed and passed in.
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 60000);
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60);
     let hypermap_address_obj = match Address::from_str(hypermap::HYPERMAP_ADDRESS) {
         Ok(addr) => addr,
         Err(_) => {
@@ -1389,7 +1380,7 @@ pub fn verify_single_hot_wallet_delegation_detailed(
 
     // Create a new provider instance for this check.
     // TODO: Consider passing this in if calls become frequent, to reuse the instance.
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 60000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
     let hypermap_address = match Address::from_str(hypermap::HYPERMAP_ADDRESS) {
         Ok(addr) => addr,
         Err(_) => {
@@ -1504,7 +1495,7 @@ pub fn check_single_hot_wallet_funding_detailed(
 
     // Create a new provider instance for this check.
     // TODO: Consider passing this in if calls become frequent, to reuse the instance.
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 30000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
 
     match wallet::get_eth_balance(hot_wallet_address_str, BASE_CHAIN_ID, provider) {
         Ok(balance) => {

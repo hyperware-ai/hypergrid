@@ -21,7 +21,7 @@ import {
     getAddress,
     encodePacked
 } from 'viem';
-import CopyToClipboardText from './CopyToClipboardText';
+import CopyToClipboardText from '../components/CopyToClipboardText';
 
 // --- Constants (Copied from SetupWizard for now) ---
 const BASE_CHAIN_ID = 8453;

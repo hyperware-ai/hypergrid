@@ -293,7 +293,7 @@ pub fn build_hpn_graph_data(
             id: "action-add-hot-wallet".to_string(),
             node_type: "addHotWalletActionNode".to_string(),
             data: GraphNodeData::AddHotWalletActionNode {
-                label: "Manage / Link Hot Wallets".to_string(),
+                label: "Manage Hot Wallets".to_string(),
                 operator_tba_address: Some(tba_address.clone()),
                 action_id: "trigger_manage_wallets_modal".to_string(),
             },
@@ -303,7 +303,7 @@ pub fn build_hpn_graph_data(
             id: format!("edge-{}-action-add-hot-wallet", current_op_wallet_node_id),
             source: current_op_wallet_node_id.clone(),
             target: "action-add-hot-wallet".to_string(),
-            style_type: Some("dashed".to_string()),
+            style_type: None,
             animated: Some(true),
         });
     } else {
@@ -325,7 +325,7 @@ pub fn build_hpn_graph_data(
             id: format!("edge-{}-{}", owner_node_id, mint_action_node_id),
             source: owner_node_id.clone(),
             target: mint_action_node_id.clone(),
-            style_type: Some("dashed".to_string()),
+            style_type: None,
             animated: Some(true),
         });
     }
@@ -411,7 +411,7 @@ pub fn build_hpn_graph_data(
                         id: add_client_action_node_id.clone(),
                         node_type: "addAuthorizedClientActionNode".to_string(),
                         data: GraphNodeData::AddAuthorizedClientActionNode {
-                            label: "Create API Client".to_string(),
+                            label: "Authorize New Client".to_string(),
                             target_hot_wallet_address: hw_address_str.clone(),
                             action_id: "trigger_add_client_modal".to_string(),
                         },
@@ -421,7 +421,7 @@ pub fn build_hpn_graph_data(
                         id: format!("edge-{}-{}", hot_wallet_node_id, add_client_action_node_id),
                         source: hot_wallet_node_id.clone(),
                         target: add_client_action_node_id.clone(),
-                        style_type: Some("dashed".to_string()),
+                        style_type: None,
                         animated: Some(true),
                     });
                 }

@@ -1,0 +1,101 @@
+/* hpn-client/ui/src/components/AuthorizedClientNode.module.css */
+
+.nodeContainer {
+    padding: 12px;
+    border: 1px solid #ff00ff; /* Default magenta border */
+    border-radius: 8px;
+    background-color: #2d2d2d; /* Slightly lighter dark background */
+    color: #f0f0f0; /* Light text color */
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 8px; /* Space between sections */
+    text-align: left;
+}
+
+.header {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #ff00ff; /* Magenta to match border */
+    margin-bottom: 4px;
+}
+
+.infoRow {
+    display: flex;
+    justify-content: space-between; /* Align label and value */
+    align-items: center;
+    font-size: 0.9em;
+    line-height: 1.4;
+}
+
+.infoLabel {
+    color: #aaa;
+    margin-right: 8px;
+    white-space: nowrap;
+}
+
+.infoValue {
+    color: #e0e0e0;
+    word-break: break-all; /* Wrap long addresses/IDs */
+}
+
+.infoValueClickable {
+    color: #79c0ff; /* A clickable blue, adjust as needed */
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.infoValueClickable:hover {
+    text-decoration: underline;
+}
+
+
+.editInput {
+    background-color: #3a3a3a;
+    color: #f0f0f0;
+    border: 1px solid #555;
+    border-radius: 4px;
+    padding: 6px 8px;
+    font-size: 0.9em;
+    width: calc(100% - 16px); /* Full width minus padding */
+    margin-top: 2px;
+    box-sizing: border-box;
+}
+
+.actionsContainer {
+    margin-top: 10px;
+    display: flex;
+    gap: 8px; /* Space between buttons */
+    justify-content: flex-start;
+}
+
+.actionButton, .editButton, .saveButton {
+    padding: 6px 12px;
+    border: 1px solid #555;
+    border-radius: 4px;
+    background-color: #3a3a3a;
+    color: #f0f0f0;
+    cursor: pointer;
+    font-size: 0.85em;
+    transition: background-color 0.2s ease;
+}
+
+.actionButton:hover, .editButton:hover, .saveButton:hover {
+    background-color: #4a4a4a;
+}
+
+.saveButton {
+    border-color: #28a745; /* Green border for save */
+    color: #28a745;
+}
+.saveButton:hover {
+    background-color: #28a745;
+    color: white;
+}
+
+/* Ensure CopyToClipboardText integrates well */
+.infoValue .copy-to-clipboard {
+    display: inline-flex; /* To align checkmark better */
+    align-items: center;
+} 
