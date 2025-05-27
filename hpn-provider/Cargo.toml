@@ -5,8 +5,6 @@ panic = "abort"
 
 [workspace]
 members = [
-    "hpn-provider",
-    "test/hpn-provider-test/hpn-provider-test",
-    "target/caller-utils",
+    "hpn-provider"
 ]
 resolver = "2"

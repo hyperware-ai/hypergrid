@@ -114,6 +114,10 @@ pub fn build_hpn_graph_data(
 
     let operator_identity_details = identity::check_operator_identity_detailed(our); 
     let mut operator_wallet_node_id: Option<String> = None;
+    let fresh_operator_entry_name: Option<String> = match &operator_identity_details {
+        IdentityStatus::Verified { entry_name, .. } => Some(entry_name.clone()),
+        _ => None,
+    };
 
     if let IdentityStatus::Verified { entry_name, tba_address, .. } = &operator_identity_details {
         let current_op_wallet_node_id = format!("operator-wallet-{}", tba_address);
@@ -332,7 +336,7 @@ pub fn build_hpn_graph_data(
 
     // Only add Hot Wallet and Client nodes if Operator Wallet exists
     if operator_wallet_node_id.is_some() {
-        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(state.operator_entry_name.as_deref()) {
+        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(fresh_operator_entry_name.as_deref()) {
             Ok(linked_hw_addresses) => {
                 for hw_address_str in linked_hw_addresses {
                     let hot_wallet_node_id = format!("hot-wallet-{}", hw_address_str);

@@ -1273,9 +1273,6 @@ pub fn get_wallet_summary_for_address(state: &State, hot_wallet_address_str: &st
     }
 }
 
-// Placeholder stubs for functions that will require more complex logic or on-chain interaction.
-// These will be implemented properly in subsequent steps.
-
 pub fn get_all_onchain_linked_hot_wallet_addresses(operator_entry_name_opt: Option<&str>,) -> Result<Vec<String>, String> {
     let operator_entry_name = match operator_entry_name_opt {
         Some(name) if !name.is_empty() => {
