@@ -3,16 +3,6 @@ import { format } from 'date-fns'; // Using date-fns for timestamp formatting
 // Import shared types
 import { CallRecord, PaymentAttemptResult } from '../logic/types';
 
-// --- Interfaces (Removed - Moved to types.ts) ---
-/*
-interface PaymentAttemptResultSuccess { ... }
-interface PaymentAttemptResultFailed { ... }
-interface PaymentAttemptResultSkipped { ... }
-interface PaymentAttemptResultLimitExceeded { ... }
-type PaymentAttemptResult = ... ;
-interface CallRecord { ... }
-*/
-
 // Add props interface
 interface CallHistoryProps {
     selectedAccountId: string | null;

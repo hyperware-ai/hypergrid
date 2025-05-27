@@ -41,12 +41,11 @@ import {
     viemNamehash,
 } from '../logic/hypermapHelpers';
 
-import LinkHotWalletsModal from './LinkHotWalletsModal';
 import ShimApiConfigModal from './ShimApiConfigModal';
 import CallHistoryModal from './modals/CallHistoryModal';
 
 import OriginalOperatorWalletNodeComponent from './nodes/OperatorWalletNodeComponent';
-import OriginalAuthorizedClientNodeComponent from './AuthorizedClientNodeComponent';
+import OriginalAuthorizedClientNodeComponent from './nodes/AuthorizedClientNodeComponent';
 import OriginalOwnerNodeComponent from './nodes/OwnerNodeComponent';
 import OriginalHotWalletNodeComponent from './nodes/HotWalletNodeComponent';
 import AddHotWalletActionNodeComponent from './nodes/AddHotWalletActionNodeComponent';

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import CopyToClipboardText from './CopyToClipboardText';
+import CopyToClipboardText from '../components/CopyToClipboardText';
 // Import shared types
 import { WalletSummary, SpendingLimits, WalletListData } from '../logic/types';
 
