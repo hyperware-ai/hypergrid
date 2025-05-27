@@ -331,9 +331,6 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                     {isSending || isConfirming ? 'Processing...' : 'Update Signers'}
                 </button>
                 <div style={{ width: '100%', marginTop: '10px' }}> 
-                    <p style={{ marginBottom: '8px', fontSize: '0.9em', color: '#aaa' }}>
-                        Add a new wallet:
-                    </p>
                     <div 
                         className="add-wallet-container minimalist" 
                         style={{ 

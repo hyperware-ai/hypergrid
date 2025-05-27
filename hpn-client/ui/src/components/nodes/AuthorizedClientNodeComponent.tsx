@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { NodeProps, Handle, Position } from 'reactflow';
-import { IAuthorizedClientNodeData } from '../logic/types';
-import { NODE_WIDTH } from './BackendDrivenHpnVisualizer';
-import CopyToClipboardText from './CopyToClipboardText';
-import styles from './AuthorizedClientNode.module.css';
+import { IAuthorizedClientNodeData } from '../../logic/types';
+import { NODE_WIDTH } from '../BackendDrivenHpnVisualizer';
+import CopyToClipboardText from '../CopyToClipboardText';
+import styles from '../AuthorizedClientNode.module.css';
 
 // Helper to truncate text (can be moved to a utils file)
 const truncate = (str: string | undefined, startLen = 6, endLen = 4) => {

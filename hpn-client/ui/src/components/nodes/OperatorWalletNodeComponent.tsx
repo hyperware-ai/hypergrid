@@ -51,7 +51,11 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
 
     const canSetAccessList = accessListNoteInfo && !accessListNoteInfo.isSet && tbaAddress;
     // Signers note can be set (or re-set) if access list is set and an active hot wallet is identified
-    const canSetSigners = accessListNoteInfo && accessListNoteInfo.isSet && tbaAddress && operatorName && activeHotWalletAddress;
+    const canSetSigners = accessListNoteInfo?.isSet &&
+                      tbaAddress && 
+                      operatorName && 
+                      activeHotWalletAddress &&
+                      (signersNoteInfo?.actionNeeded || !signersNoteInfo?.isSet); 
     // Show a message if signers note is needed but no active HW to use for setting it initially
     const needsSignersButNoActiveHW = accessListNoteInfo?.isSet && signersNoteInfo && !signersNoteInfo.isSet && !activeHotWalletAddress;
 

@@ -100,6 +100,8 @@ const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB'
         return node;
     });
 
+    console.log("layoutedNodes", layoutedNodes);
+
     return { nodes: layoutedNodes, edges };
 };
 
@@ -271,8 +273,6 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
     }, [setSignersNote, setNoteDisplayError]);
 
     const fetchGraphData = useCallback(async () => {
-        if (initialGraphData) return;
-
         setIsLoadingGraph(true);
         setGraphDataError(null);
         try {
@@ -379,7 +379,7 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
         } finally {
             setIsLoadingGraph(false);
         }
-    }, [initialGraphData, setNodes, setEdges, handleSetAccessListNote, handleSetSignersNote, isOperatorNoteSending, isOperatorNoteConfirming]);
+    }, [setNodes, setEdges, handleSetAccessListNote, handleSetSignersNote, isOperatorNoteSending, isOperatorNoteConfirming]);
 
     useEffect(() => {
         if (initialGraphData) {
@@ -565,42 +565,25 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
                 setMintDisplayError(`Configuration error: TBA for parent node '${ownerNodeName}' is missing.`);
                 return;
             }
-            const parentOwnerNodeData = parentOwnerNode.data as any;
-            const parentOwnerNodeDataCopy = { ...parentOwnerNodeData };
-            parentOwnerNodeDataCopy.tbaAddress = parentTbaAddress;
 
-            const actionNode = nodes.find(n => n.type === 'addHotWalletActionNode' && (n.data as any)?.operatorTbaAddress === parentTbaAddress);
-            if (!actionNode) {
-                console.error(`Mint Action: AddHotWalletActionNode for '${ownerNodeName}' not found in graph nodes. Current nodes:`, nodes);
-                setMintDisplayError(`Runtime error: Could not find graph data for parent ${ownerNodeName}.`);
+            // Now we have everything we need to mint
+            console.log(`Mint Action: Ready to mint '${subLabelToMintForHpn}' under parent TBA ${parentTbaAddress}`);
+            
+            if (!connectedAddress) {
+                setMintDisplayError("Please connect your wallet to mint.");
                 return;
             }
-            const actionNodeData = actionNode.data as any;
-            const actionNodeDataCopy = { ...actionNodeData };
-            actionNodeDataCopy.operatorTbaAddress = parentTbaAddress;
 
-            const mintOperatorWalletActionNode = nodes.find(n => n.type === 'mintOperatorWalletActionNode' && (n.data as any)?.actionId === 'trigger_mint_operator_wallet');
-            if (!mintOperatorWalletActionNode) {
-                console.error(`Mint Action: MintOperatorWalletActionNode for '${ownerNodeName}' not found in graph nodes. Current nodes:`, nodes);
-                setMintDisplayError(`Runtime error: Could not find graph data for parent ${ownerNodeName}.`);
-                return;
-            }
-            const mintOperatorWalletActionNodeData = mintOperatorWalletActionNode.data as any;
-            const mintOperatorWalletActionNodeDataCopy = { ...mintOperatorWalletActionNodeData };
-            mintOperatorWalletActionNodeDataCopy.actionId = 'trigger_mint_operator_wallet';
-            mintOperatorWalletActionNodeDataCopy.disabled = isProcessingMintClick || mintOperatorWalletHook.isSending || mintOperatorWalletHook.isConfirming;
-            mintOperatorWalletActionNodeDataCopy.ownerNodeName = ownerNodeName;
-            mintOperatorWalletActionNodeDataCopy.operatorTbaAddress = parentTbaAddress;
+            setIsProcessingMintClick(true);
+            setMintDisplayError(null);
 
-            const transformedNodes = [
-                ...nodes.filter(n => n.id !== parentOwnerNode.id && n.id !== actionNode.id && n.id !== mintOperatorWalletActionNode.id),
-                parentOwnerNode,
-                actionNode,
-                mintOperatorWalletActionNode
-            ];
-
-            setNodes(transformedNodes);
-            // Note: edges are already set, no need to update them here
+            // Call the mint function
+            mintOperatorWalletHook.mint({
+                parentTbaAddress: parentTbaAddress,
+                ownerOfNewSubTba: connectedAddress, // The connected wallet will own the new operator wallet
+                subLabelToMint: subLabelToMintForHpn,
+                implementationForNewSubTba: DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
+            });
         } else if (node.type === 'addHotWalletActionNode' && node.data) {
             console.log("AddHotWalletActionNode (Manage Hot Wallets) clicked. Data:", node.data);
             // No modal, content is inline
