@@ -1,0 +1,11 @@
+[workspace]
+resolver = "2"
+members = [
+    "hpn-provider/hpn-provider",
+    "hpn-client/hpnclient",
+]
+
+[profile.release]
+lto = true
+opt-level = "s"
+panic = "abort" 
