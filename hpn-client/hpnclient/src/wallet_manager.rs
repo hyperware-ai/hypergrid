@@ -24,7 +24,6 @@ use alloy_sol_types::SolValue;
 use std::str::FromStr;
 use hex;
 use std::thread;
-use crate::wallet::WalletError;
 
 
 // --- Configuration Constants ---

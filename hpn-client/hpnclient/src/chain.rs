@@ -63,7 +63,18 @@ fn fetch_and_process_logs(
     pending: &mut PendingLogs,
     filter: &Filter,
 ) {
+    let mut retries = 0;
+    const MAX_FETCH_RETRIES: u32 = 5; // Max 5 retries for a given fetch attempt
+    let mut current_delay_secs = 5; // Initial delay, can be made dynamic
+
     loop {
+        if retries >= MAX_FETCH_RETRIES {
+            error!(
+                "Max retries ({}) reached for get_logs with filter: {:?}. Aborting fetch for this filter.",
+                MAX_FETCH_RETRIES, filter
+            );
+            return; // Give up after max retries for this specific filter instance
+        }
         match state.hypermap.provider.get_logs(filter) {
             Ok(logs) => {
                 print_to_terminal(2, &format!("log len: {}", logs.len()));
@@ -75,9 +86,14 @@ fn fetch_and_process_logs(
                 return;
             }
             Err(e) => {
-                info!("got eth error while fetching logs: {e:?}, trying again in 5s...");
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                continue;
+                retries += 1;
+                error!( // Changed to error! and added more context
+                    "Error fetching logs (attempt {}/{}) for filter {:?}: {:?}. Retrying in {}s...",
+                    retries, MAX_FETCH_RETRIES, filter, e, current_delay_secs
+                );
+                std::thread::sleep(std::time::Duration::from_secs(current_delay_secs));
+                // Optional: Implement exponential backoff or increase delay systematically
+                // current_delay_secs = (current_delay_secs * 2).min(60); // Example: double delay, cap at 60s
             }
         }
     }
