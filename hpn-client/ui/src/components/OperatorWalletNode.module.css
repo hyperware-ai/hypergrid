@@ -61,8 +61,9 @@
 .statusNeedsFunding {
     color: orange;
     font-weight: bold;
-    margin-left: 5px;
-    font-size: 0.9em;
+    font-size: 0.85em; /* Slightly smaller */
+    margin-left: 8px; /* Space from the value/button combo */
+    white-space: nowrap;
 }
 
 .statusError {
@@ -138,4 +139,75 @@
 .addressValue .copy-to-clipboard {
     display: inline-flex; 
     align-items: center;
-} 
+}
+
+.fundingItem {
+    display: flex;
+    justify-content: space-between;
+    align-items: center; 
+}
+
+.fundingLabel {
+    color: #aaa;
+    margin-right: auto; /* Push value and button to the right */
+}
+
+.fundingValueWithButton {
+    display: inline-flex; /* To keep text and button on the same line */
+    align-items: center;  /* Vertically align text and button */
+    gap: 8px;             /* Space between balance text and button/status */
+}
+
+/* New style for the inline withdraw button to match the '+' button style */
+.withdrawButtonInline {
+    background: none;
+    border: none;     
+    padding: 4px; /* ADDED: Increase clickable area/button size */
+    margin: 0 0 0 8px;/* Keep left margin for spacing from balance text */
+    
+    font-size: 1.0em; /* Emoji size primarily controlled by this if not wrapped */
+    line-height: 1;   
+    cursor: pointer;
+    color: #8c92a3;   
+    
+    display: inline-flex; 
+    align-items: center;
+    justify-content: center;
+    
+    border-radius: 4px; /* Optional: Give the larger button area slightly rounded corners */
+    
+    transition: color 0.2s ease, background-color 0.2s ease;
+    outline: none; 
+}
+
+.withdrawButtonInline:hover,
+.withdrawButtonInline:focus { 
+    color: #a9c1ff; /* Brighter text color on hover/focus */
+    background-color: #0a0f1f; /* Very dark navy blue, almost black */
+    /* For a more neutral dark grey/black: background-color: #1a1a1a; */
+    /* Or using rgba for a slightly transparent effect: background-color: rgba(10, 15, 30, 0.75); */
+    outline: none; 
+    /* border: 2px solid red !important; */ /* REMOVE Temporary red border */
+}
+
+.withdrawButtonInline:disabled {
+    color: #555;
+    cursor: not-allowed;
+    background-color: transparent !important; 
+}
+
+/* Optional: If emoji needs specific scaling */
+/* .withdrawButtonInline .emojiSymbol { 
+    font-size: 1.2em; 
+    display: block; 
+} */
+
+.statusNeedsFunding {
+    color: orange;
+    font-weight: bold;
+    font-size: 0.85em; /* Slightly smaller */
+    margin-left: 8px; /* Space from the value/button combo */
+    white-space: nowrap;
+}
+
+/* ... styles for withdrawInputSection, sendButton, cancelWithdrawButton etc. ... */ 

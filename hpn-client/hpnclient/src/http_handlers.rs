@@ -207,9 +207,7 @@ pub fn handle_frontend(our: &Address, body: &[u8], state: &mut State, db: &Sqlit
                     } => 
                 {
                     info!("Routing to handle_generate_api_config");
-                    // ... rest of handler call ...
                 }
-                // Add cases for other paths or return 404/405
                 (_, Ok(unknown_path)) => {
                     warn!("Unhandled path: {} {}", method, unknown_path);
                     send_response(StatusCode::NOT_FOUND, None, b"Not Found".to_vec());
@@ -678,7 +676,33 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                 }
             }
         }
-        // --- End NEW Handler ---
+
+        // --- Operator TBA Withdrawal Actions ---
+        HttpMcpRequest::WithdrawEthFromOperatorTba { to_address, amount_wei_str } => {
+            info!("MCP: Handling WithdrawEthFromOperatorTba to: {}, amount_wei: {}", to_address, amount_wei_str);
+            match wallet_manager::handle_operator_tba_withdrawal(
+                state, 
+                wallet_manager::AssetType::Eth, // Assuming you'll define this enum in wallet_manager
+                to_address, 
+                amount_wei_str
+            ) {
+                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true, "message": "ETH withdrawal initiated." })),
+                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e.to_string() })),
+            }
+        }
+        HttpMcpRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => {
+            info!("MCP: Handling WithdrawUsdcFromOperatorTba to: {}, amount_units: {}", to_address, amount_usdc_units_str);
+            match wallet_manager::handle_operator_tba_withdrawal(
+                state, 
+                wallet_manager::AssetType::Usdc, // Assuming you'll define this enum
+                to_address, 
+                amount_usdc_units_str
+            ) {
+                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true, "message": "USDC withdrawal initiated." })),
+                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e.to_string() })),
+            }
+        }
+        // --- End Operator TBA Withdrawal Actions ---
     }
 }
 

@@ -1,10 +1,21 @@
-use crate::structs::{State, SpendingLimits, WalletSummary, PaymentAttemptResult, ManagedWallet, ActiveAccountDetails, DelegationStatus, TbaFundingDetails, ProviderRequest};
-use crate::helpers; // Added import for helpers module
+use crate::structs::{
+    State, 
+    SpendingLimits, 
+    WalletSummary, 
+    PaymentAttemptResult, 
+    ManagedWallet, 
+    ActiveAccountDetails, 
+    DelegationStatus, 
+    TbaFundingDetails, 
+    ProviderRequest
+};
+use crate::helpers; 
+use crate::http_handlers::send_request_to_provider;
+
 use anyhow::Result;
 use hyperware_process_lib::logging::{info, error};
 use hyperware_process_lib::{eth, signer, wallet, hypermap};
-use hyperware_process_lib::eth::{Provider, EthError};
-use hyperware_process_lib::{Request, NodeId, Address as HyperwareAddress};
+use hyperware_process_lib::Address as HyperwareAddress;
 use hyperware_process_lib::wallet::{get_eth_balance, get_token_details};
 use signer::{LocalSigner, Signer};
 use wallet::KeyStorage;
@@ -13,14 +24,20 @@ use alloy_sol_types::SolValue;
 use std::str::FromStr;
 use hex;
 use std::thread;
+use crate::wallet::WalletError;
 
-use chrono::Utc;
-use crate::http_handlers::send_request_to_provider;
 
 // --- Configuration Constants ---
 pub const BASE_CHAIN_ID: u64 = 8453; 
 pub const BASE_USDC_ADDRESS: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 pub const USDC_DECIMALS: u8 = 6; 
+
+// New Enum for Asset Type
+#[derive(Debug, Clone, Copy)]
+pub enum AssetType {
+    Eth,
+    Usdc,
+}
 
 /// Generates a new random ManagedWallet (unencrypted, active) but does not add it to state.
 /// Returns Ok(ManagedWallet) or Err(error_message as String).
@@ -335,8 +352,8 @@ pub fn remove_wallet_password(state: &mut State, wallet_id: String, current_pass
 /// Private helper to perform the actual TBA payment execution and confirmation.
 /// Assumes all prior checks (config, price, limits, signer, delegation) have passed.
 fn perform_tba_payment_execution(
-    operator_tba_address: &Address,
-    provider_tba_address: &Address,
+    from_account_address: &Address,
+    to_account_address: &Address,
     hot_wallet_signer: &LocalSigner, // Takes reference
     price_f64: f64,
     price_to_check_str: &str, // For reporting
@@ -364,17 +381,17 @@ fn perform_tba_payment_execution(
     };
 
     // 3. Create inner calldata for USDC transfer
-    let inner_calldata = wallet::create_erc20_transfer_calldata(*provider_tba_address, amount_u256);
+    let inner_calldata = wallet::create_erc20_transfer_calldata(*to_account_address, amount_u256);
 
     // 4. Setup Provider
     let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 10); // 10 sec timeout
 
     // 5. Call wallet::execute_via_tba_with_signer
-    info!("Sending execute transaction via Operator TBA {} to target USDC {} (Inner call: transfer {} USDC to {})",
-          operator_tba_address, usdc_address, price_f64, provider_tba_address);
+    info!("Sending execute transaction via From Account Address {} to To Account Address {} (Inner call: transfer {} USDC to {})",
+          from_account_address, to_account_address, price_f64, to_account_address);
 
     let execution_result = wallet::execute_via_tba_with_signer(
-        &operator_tba_address.to_string(),
+        &from_account_address.to_string(),
         hot_wallet_signer, 
         &usdc_address.to_string(),
         inner_calldata,
@@ -1587,4 +1604,119 @@ pub fn check_single_hot_wallet_funding_detailed(
             (true, Some("Error".to_string()), Some(err_msg)) // Needs ETH (due to error), error balance string, error message
         }
     }
+} 
+
+// Main handler for Operator TBA withdrawals
+pub fn handle_operator_tba_withdrawal(
+    state: &mut State, 
+    asset: AssetType,
+    to_address_str: String, 
+    amount_str: String
+) -> Result<(), String> {
+    info!("Handling {:?} withdrawal from Operator TBA to {} for amount {}", asset, to_address_str, amount_str);
+
+    let operator_tba_address_str = state.operator_tba_address.as_ref().ok_or_else(|| {
+        error!("Operator TBA address not configured in state.");
+        "Operator TBA address not configured".to_string()
+    })?;
+    let operator_tba = Address::from_str(operator_tba_address_str).map_err(|e| {
+        error!("Invalid Operator TBA address format: {}", e);
+        format!("Invalid Operator TBA address format: {}", e)
+    })?;
+
+    let hot_wallet_signer = get_active_signer(state).map_err(|e| {
+        error!("Failed to get active hot wallet signer: {}", e);
+        format!("Active hot wallet signer not available: {}", e)
+    })?;
+
+    let target_recipient_address = Address::from_str(&to_address_str).map_err(|e| {
+        error!("Invalid recipient address format: {}", e);
+        format!("Invalid recipient address format: {}", e)
+    })?;
+
+    // Create a new provider instance for this operation
+    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 180); // 180s timeout for tx
+
+    match asset {
+        AssetType::Eth => {
+            let amount_wei = U256::from_str(&amount_str).map_err(|e| {
+                error!("Invalid ETH amount format (must be Wei string): {}", e);
+                format!("Invalid ETH amount format (must be Wei string): {}", e)
+            })?;
+            if amount_wei == U256::ZERO {
+                return Err("ETH withdrawal amount cannot be zero.".to_string());
+            }
+            info!("Initiating ETH transfer of {} wei from Operator TBA {} to {}", amount_wei, operator_tba, target_recipient_address);
+            execute_eth_transfer_from_tba(operator_tba, target_recipient_address, amount_wei, hot_wallet_signer, &eth_provider)
+                .map_err(|e| format!("ETH transfer execution failed: {:?}", e))
+                .map(|receipt| {
+                    info!("ETH withdrawal transaction submitted: {:?}", receipt.hash);
+                    // Optionally, could wait for confirmation here or let frontend handle it
+                })
+        }
+        AssetType::Usdc => {
+            let amount_usdc_units = U256::from_str(&amount_str).map_err(|e| {
+                error!("Invalid USDC amount format (must be smallest units string): {}", e);
+                format!("Invalid USDC amount format (must be smallest units string): {}", e)
+            })?;
+            if amount_usdc_units == U256::ZERO {
+                return Err("USDC withdrawal amount cannot be zero.".to_string());
+            }
+            info!("Initiating USDC transfer of {} units from Operator TBA {} to {}", amount_usdc_units, operator_tba, target_recipient_address);
+            execute_usdc_transfer_from_tba(operator_tba, target_recipient_address, amount_usdc_units, hot_wallet_signer, &eth_provider)
+                .map_err(|e| format!("USDC transfer execution failed: {:?}", e))
+                .map(|receipt| {
+                    info!("USDC withdrawal transaction submitted: {:?}", receipt.hash);
+                })
+        }
+    }
+}
+
+// Executes ETH transfer from the Operator TBA
+fn execute_eth_transfer_from_tba(
+    operator_tba: Address,
+    target_recipient: Address,
+    amount_wei: U256,
+    hot_wallet_signer: &LocalSigner, 
+    provider: &eth::Provider
+) -> Result<wallet::TxReceipt, wallet::WalletError> {
+    info!("execute_eth_transfer_from_tba: OperatorTBA={}, Recipient={}, AmountWei={}", operator_tba, target_recipient, amount_wei);
+    wallet::execute_via_tba_with_signer(
+        &operator_tba.to_string(), 
+        hot_wallet_signer, 
+        &target_recipient.to_string(), 
+        Vec::new(), // Empty calldata for native ETH transfer
+        amount_wei, 
+        provider, 
+        Some(0) // Operation: CALL
+    )
+}
+
+// Executes USDC transfer from the Operator TBA
+fn execute_usdc_transfer_from_tba(
+    operator_tba: Address,
+    target_recipient: Address,
+    amount_usdc_units: U256,
+    hot_wallet_signer: &LocalSigner, 
+    provider: &eth::Provider
+) -> Result<wallet::TxReceipt, wallet::WalletError> {
+    info!(
+        "execute_usdc_transfer_from_tba: OperatorTBA={}, Recipient={}, AmountUnits={}", 
+        operator_tba, target_recipient, amount_usdc_units
+    );
+    let usdc_contract_address = Address::from_str(BASE_USDC_ADDRESS).map_err(|_|
+        wallet::WalletError::NameResolutionError("Invalid BASE_USDC_ADDRESS constant".to_string())
+    )?;
+
+    let inner_calldata = wallet::create_erc20_transfer_calldata(target_recipient, amount_usdc_units);
+
+    wallet::execute_via_tba_with_signer(
+        &operator_tba.to_string(), 
+        hot_wallet_signer, 
+        &usdc_contract_address.to_string(), 
+        inner_calldata,
+        U256::ZERO, // Value for the outer call to TBA is 0, actual transfer is USDC
+        provider, 
+        Some(0) // Operation: CALL
+    )
 } 

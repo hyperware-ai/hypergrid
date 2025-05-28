@@ -298,6 +298,16 @@ pub enum HttpMcpRequest {
     
     // New action to get details for the active/ready account
     GetActiveAccountDetails {},
+
+    // New actions for Operator TBA withdrawals
+    WithdrawEthFromOperatorTba {
+        to_address: String,
+        amount_wei_str: String, // Amount in Wei as a string to avoid precision loss
+    },
+    WithdrawUsdcFromOperatorTba {
+        to_address: String,
+        amount_usdc_units_str: String, // Amount in smallest USDC units (e.g., if 6 decimals, 1 USDC = "1000000")
+    },
 }
 // calls to the Indexer
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
