@@ -351,7 +351,12 @@ pub fn build_hpn_graph_data(
 
                     let is_active_mcp = state.selected_wallet_id.as_ref() == Some(&summary.id) && state.active_signer_cache.is_some();
                     let status_desc = if is_active_mcp {
-                        "Active in MCP".to_string()
+                        // If it's active in MCP, its status description should reflect unlocked state too
+                        if summary.is_unlocked {
+                            "Active in MCP (Unlocked)".to_string()
+                        } else {
+                            "Active in MCP (Locked)".to_string()
+                        }
                     } else if state.managed_wallets.contains_key(&summary.id) {
                         "Managed & Linked".to_string()
                     } else {
@@ -365,6 +370,10 @@ pub fn build_hpn_graph_data(
                         }
                     }
 
+                    // Get spending limits if it's a managed wallet
+                    let spending_limits = state.managed_wallets.get(&summary.id)
+                        .map(|wallet| wallet.spending_limits.clone());
+
                     nodes.push(GraphNode {
                         id: hot_wallet_node_id.clone(),
                         node_type: "hotWalletNode".to_string(),
@@ -372,9 +381,12 @@ pub fn build_hpn_graph_data(
                             address: hw_address_str.clone(),
                             name: summary.name.clone(),
                             status_description: status_desc,
-                            is_active_in_mcp: is_active_mcp,
+                            is_active_in_mcp: is_active_mcp, // This might be redundant if statusDescription covers it
+                            is_encrypted: summary.is_encrypted, // ADDED
+                            is_unlocked: summary.is_unlocked,   // ADDED
                             funding_info: hw_funding_info,
                             authorized_clients: client_ids_for_this_hw.clone(),
+                            limits: spending_limits, // ADDED
                         },
                         position: None,
                     });

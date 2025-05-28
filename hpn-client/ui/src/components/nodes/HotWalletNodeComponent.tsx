@@ -39,9 +39,12 @@ const callMcpApi = async (endpoint: string, body: any) => {
 interface HotWalletNodeComponentProps extends NodeProps<IHotWalletNodeData> {
     onWalletDataUpdate: (walletAddress: Address) => void;
     onOpenHistoryModal: (walletAddress: Address) => void; // New prop to open modal
+    onUnlockWallet: (walletAddress: Address, passwordInput: string) => Promise<void>;
+    onLockWallet: (walletAddress: Address) => Promise<void>;
+    isUnlockingOrLocking?: boolean;
 }
 
-const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, id: nodeId, onWalletDataUpdate, onOpenHistoryModal }) => {
+const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, id: nodeId, onWalletDataUpdate, onOpenHistoryModal, onUnlockWallet, onLockWallet, isUnlockingOrLocking }) => {
     const { 
         address,
         statusDescription, 
@@ -62,8 +65,15 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
 
     const [isEncrypted, setIsEncrypted] = useState<boolean>(initialIsEncrypted);
     const [isUnlocked, setIsUnlocked] = useState<boolean>(initialIsUnlocked);
+    const [passwordInput, setPasswordInput] = useState<string>('');
 
-    const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
+    const [isEditingLimit, setIsEditingLimit] = useState<boolean>(false);
+    const [tempLimitPerCall, setTempLimitPerCall] = useState<string>('');
+    const limitInputRef = useRef<HTMLInputElement>(null);
+
+    const [showPasswordInputForUnlock, setShowPasswordInputForUnlock] = useState<boolean>(false);
+
+    const [isLocalActionLoading, setIsLocalActionLoading] = useState<boolean>(false);
     const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     useEffect(() => {
@@ -71,10 +81,14 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         setEditedName(initialName || '');
         setCurrentLimits(initialLimits);
         setLimitPerCall(initialLimits?.max_per_call || '');
+        setTempLimitPerCall(currentLimits?.max_per_call || '');
         setIsEncrypted(initialIsEncrypted);
         setIsUnlocked(initialIsUnlocked);
         setIsEditingName(false);
-    }, [initialName, initialLimits, initialIsEncrypted, initialIsUnlocked, data]);
+        setPasswordInput('');
+        setIsEditingLimit(false);
+        setShowPasswordInputForUnlock(false); // Reset on data change
+    }, [initialName, initialLimits, initialIsEncrypted, initialIsUnlocked, data, currentLimits]);
 
     useEffect(() => {
         if (isEditingName && nameInputRef.current) {
@@ -83,6 +97,13 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         }
     }, [isEditingName]);
 
+    useEffect(() => {
+        if (isEditingLimit && limitInputRef.current) {
+            limitInputRef.current.focus();
+            limitInputRef.current.select();
+        }
+    }, [isEditingLimit]);
+
     const showToast = useCallback((type: 'success' | 'error', text: string, duration: number = 3000) => {
         setToastMessage({ type, text });
         setTimeout(() => {
@@ -90,52 +111,126 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         }, duration);
     }, []);
 
-    const handleSuccess = (msg: string, actionCallback?: () => void) => {
-        showToast('success', msg);
-        if (actionCallback) actionCallback();
-        onWalletDataUpdate(address);
-    };
-
-    const handleError = (err: any, actionContext?: string) => {
-        const errorMessage = err instanceof Error ? err.message : 'An unknown API error occurred';
-        showToast('error', actionContext ? `${actionContext}: ${errorMessage}` : errorMessage);
-    };
-
-    const selectAndExecute = async (
-        actionNameForContext: string,
-        actionPayload: any, 
-        successMessage: string, 
-        successCallback?: () => void
-    ) => {
-        setIsActionLoading(true);
-        setToastMessage(null);
+    const handleUnlockWalletAttempt = async () => {
+        if (!passwordInput) {
+            showToast('error', 'Password is required to unlock.');
+            return;
+        }
         try {
-            await callMcpApi(MCP_ENDPOINT, { SelectWallet: { wallet_id: address } });
-            await callMcpApi(MCP_ENDPOINT, actionPayload);
-            handleSuccess(successMessage, successCallback);
+            await onUnlockWallet(address, passwordInput);
+            setPasswordInput('');
+            showToast('success', 'Unlock request sent.');
         } catch (err: any) {
-            handleError(err, actionNameForContext);
-        } finally {
-            setIsActionLoading(false);
+            showToast('error', err.message || 'Failed to send unlock request');
         }
     };
 
-    const handleSetLimits = async (e?: React.FormEvent) => {
-        e?.preventDefault();
+    const handleLockWalletAttempt = async () => {
+        try {
+            await onLockWallet(address);
+            showToast('success', 'Lock request sent.');
+        } catch (err: any) {
+            showToast('error', err.message || 'Failed to send lock request');
+        }
+    };
+
+    const MCP_ENDPOINT_LOCAL = `${window.location.pathname.split('/').filter(p=>p).find(p=>p.includes(':')) ? '/'+window.location.pathname.split('/').filter(p=>p).find(p=>p.includes(':')) : ''}/api/mcp`;
+
+    const callMcpApiLocal = async (body: any) => {
+        const response = await fetch(MCP_ENDPOINT_LOCAL, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const responseData = await response.json();
+        if (!response.ok) {
+            throw new Error(responseData.error || `API Error: ${response.statusText}`);
+        }
+        return responseData;
+    };
+
+    const handleSetLimitsAttempt = async () => { // Renamed from handleSetLimits, no event param
+        if (isUnlockingOrLocking) return;
+
+        const newLimitValue = tempLimitPerCall.trim() === '' ? null : tempLimitPerCall.trim();
+        const currentEffectiveLimit = currentLimits?.max_per_call?.trim() === '' ? null : currentLimits?.max_per_call?.trim();
+
+        if (newLimitValue === currentEffectiveLimit) {
+            setIsEditingLimit(false); 
+            return;
+        }
+
         const limitsToSet: SpendingLimits = {
-            max_per_call: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
+            max_per_call: newLimitValue,
             max_total: null, 
             currency: 'USDC',
         };
-        const payload = { SetWalletLimits: { limits: limitsToSet } };
-        await selectAndExecute(
-            'Set Limits', payload,
-            'Spending limits updated.',
-            () => setCurrentLimits(limitsToSet)
-        );
+        
+        setIsLocalActionLoading(true);
+        try {
+            await callMcpApiLocal({ SelectWallet: { wallet_id: address } });
+            await callMcpApiLocal({ SetWalletLimits: { limits: limitsToSet } });
+            showToast('success', 'Spending limits updated.');
+            setCurrentLimits(limitsToSet);
+            setLimitPerCall(newLimitValue || '');
+            onWalletDataUpdate(address);
+            setIsEditingLimit(false);
+        } catch (err: any) {
+            showToast('error', err.message || 'Failed to set limits.');
+        } finally {
+            setIsLocalActionLoading(false);
+        }
     };
 
-    const limitsDisabled = isActionLoading || (isEncrypted && !isUnlocked);
+    const handleLimitInputBlur = () => {
+        // Save if value changed, otherwise just exit edit mode
+        const newLimitValue = tempLimitPerCall.trim() === '' ? null : tempLimitPerCall.trim();
+        const currentEffectiveLimit = currentLimits?.max_per_call?.trim() === '' ? null : currentLimits?.max_per_call?.trim();
+        if (newLimitValue !== currentEffectiveLimit) {
+            handleSetLimitsAttempt();
+        } else {
+            setIsEditingLimit(false);
+            setTempLimitPerCall(limitPerCall || ''); // Reset temp to actual if no change
+        }
+    };
+
+    const handleLimitInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            handleSetLimitsAttempt();
+        }
+        if (event.key === 'Escape') {
+            event.preventDefault();
+            setTempLimitPerCall(limitPerCall || ''); // Reset to original
+            setIsEditingLimit(false);
+        }
+    };
+
+    const handleToggleLimitEdit = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isUnlockingOrLocking || (isEncrypted && !isUnlocked)) {
+            showToast('error', 'Unlock wallet to change limits.');
+            return;
+        }
+        if (!isEditingLimit) {
+            setTempLimitPerCall(currentLimits?.max_per_call || '');
+        }
+        setIsEditingLimit(!isEditingLimit);
+    };
+
+    const handleLockIconClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setShowPasswordInputForUnlock(true);
+    };
+    
+    const handleUnlockAction = async () => {
+        if (showPasswordInputForUnlock) { 
+            await handleUnlockWalletAttempt();
+            // setShowPasswordInputForUnlock(false); // Optional: parent refresh handles this by isUnlocked change
+        }
+    };
+
+    const isWalletActuallyLocked = isEncrypted && !isUnlocked;
 
     const handleNodeAreaClick = () => {
         onOpenHistoryModal(address);
@@ -144,6 +239,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     // Name Editing Handlers
     const handleNameDisplayClick = (e: React.MouseEvent) => {
         e.stopPropagation();
+        if (isUnlockingOrLocking) return;
         setIsEditingName(true);
     };
 
@@ -153,20 +249,22 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
             setEditedName(currentName || '');
             return;
         }
-        setIsActionLoading(true); setToastMessage(null);
+        if (isUnlockingOrLocking) return;
+
+        setIsLocalActionLoading(true);
         try {
             const requestBody = { RenameWallet: { wallet_id: address, new_name: editedName.trim() } };
-            await callMcpApi(MCP_ENDPOINT, requestBody);
-            handleSuccess(`Wallet renamed to "${editedName.trim()}".`, () => {
-                setCurrentName(editedName.trim());
-                setIsEditingName(false);
-            });
+            await callMcpApiLocal(requestBody);
+            showToast('success', `Wallet renamed to "${editedName.trim()}".`);
+            setCurrentName(editedName.trim());
+            setIsEditingName(false);
+            onWalletDataUpdate(address);
         } catch (err: any) { 
-            handleError(err, 'Rename Wallet');
+            showToast('error', err.message || 'Failed to rename wallet.');
             setEditedName(currentName || ''); 
             setIsEditingName(false); 
         } finally {
-            setIsActionLoading(false);
+            setIsLocalActionLoading(false);
         }
     };
 
@@ -193,93 +291,155 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     return (
         <div 
             className={styles.nodeContainer} 
-            style={{ maxWidth: NODE_WIDTH, cursor: 'pointer' }} 
-            onClick={handleNodeAreaClick}
-            title={`Click node to view history, click name to edit`}
+            style={{ 
+                maxWidth: NODE_WIDTH, 
+                cursor: 'pointer', 
+                position: 'relative' // ESSENTIAL for icon positioning
+            }} 
+            onClick={isWalletActuallyLocked ? handleLockIconClick : handleNodeAreaClick}
+            title={isWalletActuallyLocked ? "Wallet Locked. Click 🔒 to Unlock." : `Click node to view history, click name to edit`}
         >
-            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            
-            <div className={styles.header}>
-                Wallet:{" "}
-                {isEditingName ? (
-                    <input 
-                        ref={nameInputRef}
-                        type="text"
-                        value={editedName}
-                        onChange={(e) => setEditedName(e.target.value)}
-                        onBlur={handleNameInputBlur}
-                        onKeyDown={handleNameInputKeyDown}
-                        className={styles.nameInputEditing} 
-                        disabled={isActionLoading}
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                ) : (
-                    <span 
-                        onClick={handleNameDisplayClick}
-                        className={styles.nameDisplayClickable}
-                        title="Click to edit name"
-                    >
-                        {(currentName && currentName.toLowerCase() !== 'unnamed') 
-                            ? `"${currentName}"` 
-                            : truncate(address) }
-                    </span>
-                )}
-            </div>
-
-            {toastMessage && (
-                <div className={`${styles.toastNotification} ${toastMessage.type === 'success' ? styles.toastSuccess : styles.toastError}`}>
-                    {toastMessage.text}
+            {/* Top-Right Lock Icon - always rendered if locked, click handled by handleLockIconClick */} 
+            {isWalletActuallyLocked && (
+                <div 
+                    className={styles.lockIconTopRight} 
+                    onClick={handleLockIconClick} 
+                    title="Wallet Locked. Click to Unlock."
+                >
+                    🔒 
                 </div>
             )}
 
-            <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Address:</span>
-                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
-                    <CopyToClipboardText textToCopy={address || ''} className={styles.addressValueClickable}>
-                        {truncate(address)}
-                    </CopyToClipboardText>
-                </span>
-            </div>
-
-            <div className={styles.statusItem}>
-                <span className={styles.infoLabel}>Status:</span>
-                <span className={styles.infoValue}>{statusDescription || '-'}</span>
-            </div>
-
-            <div className={styles.fundingItem}>
-                <span className={styles.infoLabel}>Funding (ETH):</span>
-                <span className={styles.infoValue}>{fundingInfo?.ethBalanceStr ?? '-'}</span>
-                {fundingInfo?.needsEth && <span className={styles.statusNeedsFunding}>Needs ETH</span>}
-            </div>
-            {fundingInfo?.errorMessage && <div className={styles.statusError}>{fundingInfo.errorMessage}</div>}
+            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
             
-            <div className={styles.configSectionInline}>
-                <div className={styles.inlineLabel}>Limit (USDC):</div>
-                <form onSubmit={handleSetLimits} className={styles.spendingLimitFormNodeCompact} onClick={(e) => e.stopPropagation()}>
-                    <input 
-                        type="number" 
-                        step="any" 
-                        min="0"
-                        placeholder="Max/Call"
-                        value={limitPerCall}
-                        onChange={e => setLimitPerCall(e.target.value)} 
-                        onClick={(e) => e.stopPropagation()}
-                        className={styles.limitInputFieldNodeCompact}
-                        disabled={limitsDisabled}
-                        title={ (isEncrypted && !isUnlocked) ? "Wallet is locked. Unlock to change." : "Max USDC per call"}
-                    />
-                    <button 
-                        type="submit" 
-                        className={styles.limitButtonOkNodeCompact}
-                        disabled={limitsDisabled}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        OK
-                    </button>
-                </form>
+            {/* Content Wrapper for Blur Effect */}
+            <div className={`${styles.nodeContentWrapper} ${isWalletActuallyLocked && !showPasswordInputForUnlock ? styles.contentBlurred : ''}`}>
+                <div className={styles.header}>
+                    Wallet:{" "}
+                    {isEditingName ? (
+                        <input 
+                            ref={nameInputRef}
+                            type="text"
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            onBlur={handleNameInputBlur}
+                            onKeyDown={handleNameInputKeyDown}
+                            className={styles.nameInputEditing} 
+                            disabled={isLocalActionLoading || isUnlockingOrLocking}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <span 
+                            onClick={handleNameDisplayClick}
+                            className={styles.nameDisplayClickable}
+                            title="Click to edit name"
+                        >
+                            {(currentName && currentName.toLowerCase() !== 'unnamed') 
+                                ? `"${currentName}"` 
+                                : truncate(address) }
+                        </span>
+                    )}
+                </div>
+
+                {toastMessage && (
+                    <div className={`${styles.toastNotification} ${toastMessage.type === 'success' ? styles.toastSuccess : styles.toastError}`}>
+                        {toastMessage.text}
+                    </div>
+                )}
+
+                <div className={`${styles.infoRow} ${styles.addressRowAltered}`}> {/* Use infoRow for consistent styling */}
+                    <span className={styles.infoLabel}>Address:</span>
+                    <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
+                        <CopyToClipboardText textToCopy={address || ''} className={styles.addressValueClickable}>
+                            {truncate(address)}
+                        </CopyToClipboardText>
+                    </span>
+                </div>
+
+                <div className={`${styles.infoRow} ${styles.statusRowAltered}`}> {/* Use infoRow */}
+                    <span className={styles.infoLabel}>Status:</span>
+                    <span className={styles.infoValue}>{statusDescription || '-'}</span>
+                </div>
+
+                <div className={`${styles.infoRow} ${styles.fundingRowAltered}`}> {/* Use infoRow */}
+                    <span className={styles.infoLabel}>Funding (ETH):</span>
+                    <span className={styles.infoValue}>{fundingInfo?.ethBalanceStr ?? '-'}</span>
+                    {/* Optional: Put needsEth next to value if space allows, or below */}
+                    {/* {fundingInfo?.needsEth && <span className={styles.statusNeedsFunding}>Needs ETH</span>} */} 
+                </div>
+                {fundingInfo?.needsEth && <div className={`${styles.infoRow} ${styles.fundingStatusRowAltered}`}><span className={styles.infoLabel}></span><span className={`${styles.infoValue} ${styles.statusNeedsFunding}`}>Needs ETH</span></div>}
+                {fundingInfo?.errorMessage && <div className={`${styles.infoRow} ${styles.errorRowAltered}`}><span className={styles.infoLabel}></span><span className={`${styles.infoValue} ${styles.statusError}`}>{fundingInfo.errorMessage}</span></div>}
+                
+                {/* Limit Display/Edit Section (Styled like infoRow) */}
+                <div 
+                    className={`${styles.infoRow} ${styles.limitConfigRowAltered}`} 
+                    style={{ marginTop: (showPasswordInputForUnlock && isWalletActuallyLocked) ? '5px' : '0' }}
+                >
+                    <span className={styles.infoLabel}>Limit (USDC):</span>
+                    <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
+                        {isEditingLimit ? (
+                            <input 
+                                ref={limitInputRef}
+                                type="number" 
+                                step="any" 
+                                min="0"
+                                placeholder="(empty for ∞)"
+                                value={tempLimitPerCall} 
+                                onChange={e => setTempLimitPerCall(e.target.value)} 
+                                onBlur={handleLimitInputBlur}
+                                onKeyDown={handleLimitInputKeyDown}
+                                className={styles.limitInputFieldInline} 
+                                disabled={isLocalActionLoading || isUnlockingOrLocking || isWalletActuallyLocked}
+                                autoFocus
+                            />
+                        ) : (
+                            <span 
+                                className={styles.limitValueDisplayClickable} 
+                                onClick={handleToggleLimitEdit} 
+                                title={isWalletActuallyLocked ? "Unlock wallet to change limit" : "Click to change limit"}
+                            >
+                                {
+                                    (currentLimits && currentLimits.max_per_call && currentLimits.max_per_call.trim() !== '') 
+                                    ? `${currentLimits.max_per_call} ${(currentLimits.currency || 'USDC')}` 
+                                    : <span style={{ fontSize: '1.2em' }}>∞</span>
+                                }
+                            </span>
+                        )}
+                    </span>
+                </div>
             </div>
-            {(isEncrypted && !isUnlocked) && (
-                <p className={styles.warningTextSmall}>Wallet locked. Limits cannot be changed.</p>
+
+            {/* Unlock Section - Appears distinctly, not part of the blurred content wrapper */}
+            {showPasswordInputForUnlock && isWalletActuallyLocked && (
+                <div className={styles.unlockOverlaySection} onClick={(e) => e.stopPropagation()}> {/* New class for overlay styling */}
+                    <h4>Unlock Wallet: {currentName || truncate(address)}</h4>
+                    <input 
+                        type="password"
+                        placeholder="Enter Password"
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        className={styles.passwordInputCentered} // New/Updated class
+                        disabled={isUnlockingOrLocking} 
+                        autoFocus
+                    />
+                    <div className={styles.unlockButtonContainer}> {/* For button layout */}
+                        <button
+                            onClick={handleUnlockAction}
+                            disabled={isUnlockingOrLocking || !passwordInput}
+                            className={styles.actionButtonPrimary} // New/Updated class
+                        >
+                            {isUnlockingOrLocking ? 'Unlocking...' : 'Unlock'}
+                        </button>
+                        <button 
+                            type="button" 
+                            onClick={(e) => { e.stopPropagation(); setShowPasswordInputForUnlock(false); setPasswordInput(''); }}
+                            className={styles.actionButtonSecondary} // New/Updated class
+                            disabled={isUnlockingOrLocking}
+                        >
+                            Cancel
+                        </button>
+                    </div>
+                </div>
             )}
             
             <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />

@@ -683,7 +683,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
 }
 
 // Structure to hold provider details from the database
-struct ProviderDetails {
+pub struct ProviderDetails {
     wallet_address: String,  // Provider's wallet address
     price_str: String,       // Price as string (e.g., "0.001")
     provider_id: String,     // The actual provider ID (e.g., "node.os")
@@ -827,6 +827,7 @@ fn handle_payment(state: &mut State, provider_details: &ProviderDetails) -> Paym
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,
+        provider_details.provider_id.clone(),
     );
     
     match payment_result {
@@ -994,7 +995,7 @@ fn call_provider_and_handle_response(
     }
 }
 
-fn send_request_to_provider(
+pub fn send_request_to_provider(
     target: Address,
     body: Vec<u8>,
 ) -> anyhow::Result<Result<Vec<u8>, anyhow::Error>> {
@@ -1002,7 +1003,7 @@ fn send_request_to_provider(
     let res = ProcessRequest::new()
         .target(target.clone())
         .body(body)
-        .send_and_await_response(60)?;
+        .send_and_await_response(10)?;
 
     match res {
         Ok(response_message) => {

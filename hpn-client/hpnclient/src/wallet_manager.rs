@@ -1,9 +1,10 @@
-use crate::structs::{State, SpendingLimits, WalletSummary, PaymentAttemptResult, ManagedWallet, ActiveAccountDetails, DelegationStatus, TbaFundingDetails};
+use crate::structs::{State, SpendingLimits, WalletSummary, PaymentAttemptResult, ManagedWallet, ActiveAccountDetails, DelegationStatus, TbaFundingDetails, ProviderRequest};
 use crate::helpers; // Added import for helpers module
 use anyhow::Result;
 use hyperware_process_lib::logging::{info, error};
 use hyperware_process_lib::{eth, signer, wallet, hypermap};
 use hyperware_process_lib::eth::{Provider, EthError};
+use hyperware_process_lib::{Request, NodeId, Address as HyperwareAddress};
 use hyperware_process_lib::wallet::{get_eth_balance, get_token_details};
 use signer::{LocalSigner, Signer};
 use wallet::KeyStorage;
@@ -12,6 +13,9 @@ use alloy_sol_types::SolValue;
 use std::str::FromStr;
 use hex;
 use std::thread;
+
+use chrono::Utc;
+use crate::http_handlers::send_request_to_provider;
 
 // --- Configuration Constants ---
 pub const BASE_CHAIN_ID: u64 = 8453; 
@@ -363,11 +367,12 @@ fn perform_tba_payment_execution(
     let inner_calldata = wallet::create_erc20_transfer_calldata(*provider_tba_address, amount_u256);
 
     // 4. Setup Provider
-    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 60); // 60 sec timeout
+    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 10); // 10 sec timeout
 
     // 5. Call wallet::execute_via_tba_with_signer
     info!("Sending execute transaction via Operator TBA {} to target USDC {} (Inner call: transfer {} USDC to {})",
           operator_tba_address, usdc_address, price_f64, provider_tba_address);
+
     let execution_result = wallet::execute_via_tba_with_signer(
         &operator_tba_address.to_string(),
         hot_wallet_signer, 
@@ -386,45 +391,86 @@ fn perform_tba_payment_execution(
             let tx_hash_raw = receipt.hash;
             let tx_hash = format!("{:?}", tx_hash_raw);
             info!("TBA Execute Transaction SUBMITTED successfully! Tx Hash: {}", tx_hash);
-            info!("NOTE: On-chain confirmation NOT verified by client.");
-            
-            // Wait for confirmation
-            match wallet::wait_for_transaction(tx_hash_raw, eth_provider.clone(), 1, 3) { // Wait 1 confirmation, 60s timeout
-                Ok(final_receipt) => {
-                    // Log the raw receipt object
-                    info!("Received final receipt: {:#?}", final_receipt);
-                    if final_receipt.status() {
-                        info!("TBA Payment transaction confirmed successfully! Tx Hash: {:?}", tx_hash_raw);
-                        return PaymentAttemptResult::Success {
-                            tx_hash: tx_hash, // Use formatted hash string
-                            amount_paid: price_to_check_str.to_string(),
-                            currency: currency.to_string(),
-                        };
-                    } else {
-                        error!("TBA Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash_raw);
-                        return PaymentAttemptResult::Failed {
-                            error: "Transaction failed on-chain (reverted)".to_string(),
-                            amount_attempted: price_to_check_str.to_string(),
-                            currency: currency.to_string(),
-                        };
-                    }
-                }
-                Err(e) => {
-                    error!("Error waiting for TBA payment transaction confirmation ({:?}): {:?}", tx_hash_raw, e);
+
+            // Exponential backoff for polling receipt
+            const MAX_RETRIES: u32 = 10;
+            const INITIAL_DELAY_MS: u64 = 500; // Start with 500ms
+            const MAX_DELAY_MS: u64 = 8000;   // Max delay 8s
+            const CONFIRMATIONS_NEEDED: u64 = 1;
+
+            let mut current_retries = 0;
+            let mut current_delay_ms = INITIAL_DELAY_MS;
+
+            info!("Waiting for transaction confirmation with exponential backoff for Tx Hash: {}", tx_hash);
+
+            loop {
+                if current_retries >= MAX_RETRIES {
+                    error!("Timeout waiting for TBA payment transaction confirmation for {:?} after {} retries.", tx_hash_raw, MAX_RETRIES);
                     return PaymentAttemptResult::Failed {
-                        error: format!("Confirmation Error: {:?}", e),
+                        error: format!("Timeout waiting for transaction confirmation after {} retries", MAX_RETRIES),
                         amount_attempted: price_to_check_str.to_string(),
                         currency: currency.to_string(),
                     };
                 }
-            }
 
-            //// Return Success based on submission only (temporary)
-            //PaymentAttemptResult::Success {
-            //     tx_hash,
-            //     amount_paid: price_to_check_str.to_string(),
-            //     currency: currency.to_string(),
-            //}
+                match eth_provider.get_transaction_receipt(tx_hash_raw) {
+                    Ok(Some(final_receipt)) => {
+                        if let Some(receipt_block_number_u64) = final_receipt.block_number {
+                            // Transaction is mined
+                            match eth_provider.get_block_number() {
+                                Ok(latest_block_number_u64) => {
+                                    if latest_block_number_u64 >= receipt_block_number_u64 + CONFIRMATIONS_NEEDED.saturating_sub(1) {
+                                        // Sufficient confirmations
+                                        let confirmations = latest_block_number_u64.saturating_sub(receipt_block_number_u64) + 1;
+                                        info!("Transaction {:?} confirmed with {} confirmations (Latest: {}, Receipt: {}).", tx_hash_raw, confirmations, latest_block_number_u64, receipt_block_number_u64);
+                                        info!("Received final receipt: {:#?}", final_receipt); // Log the raw receipt object
+
+                                        if final_receipt.status() {
+                                            info!("TBA Payment transaction successful! Tx Hash: {:?}", tx_hash_raw);
+                                            return PaymentAttemptResult::Success {
+                                                tx_hash: tx_hash.clone(),
+                                                amount_paid: price_to_check_str.to_string(),
+                                                currency: currency.to_string(),
+                                            };
+                                        } else {
+                                            error!("TBA Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash_raw);
+                                            return PaymentAttemptResult::Failed {
+                                                error: "Transaction failed on-chain (reverted)".to_string(),
+                                                amount_attempted: price_to_check_str.to_string(),
+                                                currency: currency.to_string(),
+                                            };
+                                        }
+                                    } else {
+                                        // Mined, but not enough confirmations yet
+                                        let current_depth = latest_block_number_u64.saturating_sub(receipt_block_number_u64) + 1;
+                                        info!("Transaction {:?} mined in block {}, but not enough confirmations (need {}, current depth {}). Retrying in {}ms...",
+                                              tx_hash_raw, receipt_block_number_u64, CONFIRMATIONS_NEEDED, current_depth, current_delay_ms);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to get current block number for confirmation check for {:?}: {:?}. Retrying in {}ms...", tx_hash_raw, e, current_delay_ms);
+                                }
+                            }
+                        } else {
+                            // Receipt found, but transaction is not yet mined (block_number is None)
+                            info!("Transaction receipt for {:?} found, but not yet mined (no block number). Retrying in {}ms...", tx_hash_raw, current_delay_ms);
+                        }
+                    }
+                    Ok(None) => {
+                        // Receipt not found yet
+                        info!("Transaction receipt not yet available for {:?}. Retrying in {}ms... (Attempt {}/{})", tx_hash_raw, current_delay_ms, current_retries + 1, MAX_RETRIES);
+                    }
+                    Err(e) => {
+                        // Error fetching receipt
+                        error!("Error fetching transaction receipt for {:?}: {:?}. Retrying in {}ms... (Attempt {}/{})", tx_hash_raw, e, current_delay_ms, current_retries + 1, MAX_RETRIES);
+                    }
+                }
+
+                // Retry logic
+                thread::sleep(std::time::Duration::from_millis(current_delay_ms));
+                current_retries += 1;
+                current_delay_ms = std::cmp::min(current_delay_ms * 2, MAX_DELAY_MS);
+            }
         }
         Err(e) => {
             let error_msg = format!("{:?}", e);
@@ -444,10 +490,11 @@ pub fn execute_payment_if_needed(
     state: &mut State,
     provider_wallet_str: &str, 
     provider_price_str: &str,
+    provider_id: String,
 ) -> Option<PaymentAttemptResult> { 
     info!("Attempting payment check. Provider Wallet: {}, Price: {}", provider_wallet_str, provider_price_str);
 
-    match check_payment_prerequisites(state, provider_wallet_str, provider_price_str) {
+    match check_payment_prerequisites(state, provider_wallet_str, provider_price_str, provider_id) {
         Ok(prereqs) => {
             // All checks passed, proceed with payment execution
             info!(
@@ -1037,6 +1084,7 @@ fn check_payment_prerequisites<'a>(
     state: &'a State, 
     provider_wallet_str: &str,
     provider_price_str: &str,
+    provider_id: String,
 ) -> Result<PaymentPrerequisites<'a>, PaymentAttemptResult> { 
     // Check 1: Operator TBA Configuration
     let operator_tba_address = match state.operator_tba_address.as_ref() {
@@ -1054,8 +1102,7 @@ fn check_payment_prerequisites<'a>(
     };
     if state.operator_entry_name.is_none() { info!("Warning: Operator entry name not configured in state."); }
 
-    // --- Check 2: Provider TBA Address (Re-added) ---
-    // TODO: Remove placeholder logic? This seems like debug code.
+    // --- Check 2: Provider TBA Address ---
     let mut final_provider_tba_str = provider_wallet_str.to_string();
     if final_provider_tba_str == "0x0" || final_provider_tba_str.len() != 42 {
         info!("Provider wallet is placeholder or invalid ({}). Using test address instead.", final_provider_tba_str);
@@ -1068,7 +1115,6 @@ fn check_payment_prerequisites<'a>(
             return Err(PaymentAttemptResult::Skipped { reason: "Invalid Provider TBA Address".to_string() });
         }
     };
-    // --- End Check 2 ---
 
     // Check 3: Price Validity
     let price_f64 = match provider_price_str.parse::<f64>() {
@@ -1108,42 +1154,21 @@ fn check_payment_prerequisites<'a>(
     // Check 6: Hot Wallet Delegation 
     match verify_selected_hot_wallet_delegation_detailed(state, None) { 
         DelegationStatus::Verified => info!("Hot wallet delegation verified."),
-        DelegationStatus::NeedsIdentity => {
-            info!("Payment prerequisites failed: Operator identity not configured.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Operator Identity Not Configured".to_string() });
-        }
-        DelegationStatus::NeedsHotWallet => {
-            info!("Payment prerequisites failed: Selected hot wallet is not delegated/ready.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Hot Wallet Not Delegated/Ready".to_string() });
-        }
-        DelegationStatus::AccessListNoteMissing => {
-            info!("Payment prerequisites failed: Access list note missing.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Access List Note Missing".to_string() });
-        }
-        DelegationStatus::AccessListNoteInvalidData(reason) => {
-            info!("Payment prerequisites failed: Access list note invalid data: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Access List Note Invalid Data: {}", reason) });
-        }
-        DelegationStatus::SignersNoteLookupError(reason) => {
-            info!("Payment prerequisites failed: Signers note lookup error: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Signers Note Lookup Error: {}", reason) });
-        }
-        DelegationStatus::SignersNoteMissing => {
-            info!("Payment prerequisites failed: Signers note missing.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Signers Note Missing".to_string() });
-        }
-        DelegationStatus::SignersNoteInvalidData(reason) => {
-            info!("Payment prerequisites failed: Signers note invalid data: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Signers Note Invalid Data: {}", reason) });
-        }
-        DelegationStatus::HotWalletNotInList => {
-            info!("Payment prerequisites failed: Hot wallet not in delegate list.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Hot Wallet Not in Delegate List".to_string() });
-        }
-        DelegationStatus::CheckError(reason) => {
-            info!("Payment prerequisites failed: Delegation check error: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Delegation Check Error: {}", reason) });
-        }
+        DelegationStatus::NeedsIdentity => return Err(PaymentAttemptResult::Skipped { reason: "Operator Identity Not Configured".to_string() }),
+        DelegationStatus::NeedsHotWallet => return Err(PaymentAttemptResult::Skipped { reason: "Hot Wallet Not Delegated/Ready".to_string() }),
+        DelegationStatus::AccessListNoteMissing => return Err(PaymentAttemptResult::Skipped { reason: "Access List Note Missing".to_string() }),
+        DelegationStatus::AccessListNoteInvalidData(reason) => return Err(PaymentAttemptResult::Skipped { reason: format!("Access List Note Invalid Data: {}", reason) }),
+        DelegationStatus::SignersNoteLookupError(reason) => return Err(PaymentAttemptResult::Skipped { reason: format!("Signers Note Lookup Error: {}", reason) }),
+        DelegationStatus::SignersNoteMissing => return Err(PaymentAttemptResult::Skipped { reason: "Signers Note Missing".to_string() }),
+        DelegationStatus::SignersNoteInvalidData(reason) => return Err(PaymentAttemptResult::Skipped { reason: format!("Signers Note Invalid Data: {}", reason) }),
+        DelegationStatus::HotWalletNotInList => return Err(PaymentAttemptResult::Skipped { reason: "Hot Wallet Not in Delegate List".to_string() }),
+        DelegationStatus::CheckError(reason) => return Err(PaymentAttemptResult::Skipped { reason: format!("Delegation Check Error: {}", reason) }),
+    }
+
+    // Check 7: availability check for the provider we're paying
+    match check_provider_availability(&provider_id) {
+        Ok(()) => info!("Provider availability check passed for {}.", provider_id),
+        Err(e) => return Err(PaymentAttemptResult::Skipped { reason: format!("Provider Availability Check Error for {}: {}", provider_id, e) }),
     }
 
     // All Checks Passed
@@ -1155,6 +1180,57 @@ fn check_payment_prerequisites<'a>(
         currency,
         hot_wallet_signer,
     })
+}
+
+/// Checks the availability of a provider by sending a test request.
+fn check_provider_availability(provider_id: &str) -> Result<(), String> {
+    info!("Checking provider availability for ID: {}", provider_id);
+
+    let target_address = HyperwareAddress::new(
+        provider_id,
+        ("hpn-provider", "hpn-provider", "template.os")
+    );
+    // The specific provider_name and arguments for a "ping" or availability check
+    // might need to be standardized. For now, using placeholder/minimal values.
+    let provider_name = format!("{}", provider_id); 
+    let arguments = vec![]; 
+    let payment_tx_hash = None; 
+
+    info!("Preparing availability check request for provider process at {}", target_address);
+    let provider_request_data = ProviderRequest {
+        provider_name,
+        arguments,
+        payment_tx_hash,
+    };
+
+    let wrapped_request = serde_json::json!({
+        "CallProvider": provider_request_data 
+    });
+    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let err_msg = format!("Failed to serialize provider availability request: {}", e);
+            error!("{}", err_msg);
+            return Err(err_msg);
+        }
+    };
+
+    match send_request_to_provider(target_address.clone(), request_body_bytes) {
+        Ok(Ok(response)) => {
+            info!("Provider at {} responded successfully to availability check: with response {:?}", target_address, response);
+            Ok(())
+        }
+        Ok(Err(e)) => {
+            let err_msg = format!("Provider at {} failed availability check (app-level error): {}", target_address, e);
+            error!("{}", err_msg);
+            Err(err_msg)
+        }
+        Err(e) => {
+            let err_msg = format!("Error sending availability check to provider at {}: {}", target_address, e);
+            error!("{}", err_msg);
+            Err(err_msg)
+        }
+    }
 }
 
 /// Checks the ETH and USDC funding status specifically for the Operator TBA.

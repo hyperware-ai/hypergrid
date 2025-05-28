@@ -73,6 +73,12 @@ pub struct LinkedHotWalletInfo {
     pub funding_check_error: Option<String>, // For RPC errors during this wallet's funding check
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ProviderDetails {
+    pub provider_id: String,
+    pub price_str: String,
+    pub wallet_address: String,
+}
 // --- End Wallet Management Structs ---
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -500,8 +506,11 @@ pub enum GraphNodeData {
         name: Option<String>,
         status_description: String,
         is_active_in_mcp: bool,
+        is_encrypted: bool,
+        is_unlocked: bool,
         funding_info: HotWalletFundingInfo,
-        authorized_clients: Vec<String>, // List of client_id
+        authorized_clients: Vec<String>,
+        limits: Option<SpendingLimits>,
     },
     AuthorizedClientNode {
         client_id: String,

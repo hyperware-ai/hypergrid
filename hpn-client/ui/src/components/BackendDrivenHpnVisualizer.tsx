@@ -186,9 +186,36 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
     const [selectedWalletForHistory, setSelectedWalletForHistory] = useState<Address | null>(null);
 
+    // States for lock/unlock operations initiated from visualizer
+    const [isUnlockingOrLockingWalletId, setIsUnlockingOrLockingWalletId] = useState<string | null>(null);
+    const [actionToast, setActionToast] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+
     const { address: connectedAddress } = useAccount();
     const mintOperatorWalletHook = useMintOperatorSubEntry();
     
+    const [isUnlockingOrLockingWallet, setIsUnlockingOrLockingWallet] = useState<string | null>(null);
+    const [actionError, setActionError] = useState<string | null>(null);
+
+    const showActionToast = useCallback((type: 'success' | 'error', message: string) => {
+        setActionToast({ type, message });
+        setTimeout(() => setActionToast(null), 3000);
+    }, []);
+
+    const callMcpApiFromVisualizer = useCallback(async (mcpPayload: any) => {
+        const apiBasePath = getApiBasePath(); // Ensure getApiBasePath is available or define it
+        const mcpEndpoint = `${apiBasePath}/mcp`;
+        const response = await fetch(mcpEndpoint, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(mcpPayload),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+            throw new Error(data.error || `API Error: ${response.status}`);
+        }
+        return data;
+    }, []);
+
     const onSetNoteSuccess = useCallback((data: any) => {
         console.log("Set Note successful via hook.onSuccess, tx data:", data);
     }, []);
@@ -283,24 +310,38 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
             }
             const rawData: IHpnGraphResponse = await response.json(); // Raw data from backend
             
-            // Process rawData to convert keys within node.data.specificNodeData
-            const processedNodesData = rawData.nodes.map(n => {
-                const nodeSpecificData = (n.data as any)[n.type];
-                let convertedData = {};
-                if (nodeSpecificData) {
-                    convertedData = convertKeysToCamelCase(nodeSpecificData);
+            const processedNodes = rawData.nodes.map(backendNode => {
+                let processedData: any = {};
+                // The backend sends data like: { ownerNode: { name: "..." } } or { hotWalletNode: { address: "..." } }
+                // We want to extract the inner object and camelCase its keys.
+                const nodeTypeKey = backendNode.type; // e.g., "ownerNode", "hotWalletNode"
+                const specificNodeData = (backendNode.data as any)[nodeTypeKey];
+
+                if (specificNodeData) {
+                    processedData = convertKeysToCamelCase(specificNodeData);
+
+                    // Specifically ensure 'limits' within hotWalletNode data is also camelCased
+                    if (backendNode.type === 'hotWalletNode' && processedData.limits) {
+                        processedData.limits = convertKeysToCamelCase(processedData.limits);
+                    }
+                } else {
+                    // Fallback if data structure is different, or just copy if no specific data
+                    processedData = convertKeysToCamelCase(backendNode.data); 
                 }
+
                 return {
-                    ...n, // Spread original IGraphNode props (id, type, position)
-                    data: convertedData, // Assign the camelCased data object
+                    id: backendNode.id,
+                    type: backendNode.type,
+                    position: backendNode.position || { x: 0, y: 0 },
+                    data: processedData, // This data object is what HotWalletNodeComponent receives as its `data` prop
                 };
             });
 
             let activeHotWalletAddress: Address | null = null;
-            const backendNodesForTransform: Node[] = processedNodesData.map((n) => ({
+            const backendNodesForTransform: Node[] = processedNodes.map((n) => ({
                 id: n.id,
                 type: n.type,
-                data: n.data, 
+                data: n.data, // This `data` should now be correctly camelCased
                 position: n.position || { x: 0, y: 0 }
             }));
 
@@ -383,20 +424,33 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
 
     useEffect(() => {
         if (initialGraphData) {
-            const processedNodesData = initialGraphData.nodes.map(n => {
-                const nodeSpecificData = (n.data as any)[n.type];
-                let convertedData = {};
-                if (nodeSpecificData) {
-                    convertedData = convertKeysToCamelCase(nodeSpecificData);
+            const processedNodes = initialGraphData.nodes.map(n => {
+                let processedData: any = {};
+                // The backend sends data like: { ownerNode: { name: "..." } } or { hotWalletNode: { address: "..." } }
+                // We want to extract the inner object and camelCase its keys.
+                const nodeTypeKey = n.type; // e.g., "ownerNode", "hotWalletNode"
+                const specificNodeData = (n.data as any)[nodeTypeKey];
+
+                if (specificNodeData) {
+                    processedData = convertKeysToCamelCase(specificNodeData);
+
+                    // Specifically ensure 'limits' within hotWalletNode data is also camelCased
+                    if (n.type === 'hotWalletNode' && processedData.limits) {
+                        processedData.limits = convertKeysToCamelCase(processedData.limits);
+                    }
+                } else {
+                    // Fallback if data structure is different, or just copy if no specific data
+                    processedData = convertKeysToCamelCase(n.data); 
                 }
+
                 return {
                     ...n,
-                    data: convertedData,
+                    data: processedData,
                 };
             });
 
             let activeHotWalletAddressForInitial: Address | null = null;
-            const backendNodesForInitial: Node[] = processedNodesData.map((n) => ({
+            const backendNodesForInitial: Node[] = processedNodes.map((n) => ({
                 id: n.id,
                 type: n.type,
                 data: n.data,
@@ -521,24 +575,6 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
         }
     }, [isOperatorNoteConfirmed, operatorNoteTxHash, fetchGraphData, resetOperatorNoteHook]);
 
-    useEffect(() => {
-        if (mintOperatorWalletHook.error) {
-            setMintDisplayError(mintOperatorWalletHook.error.message || "An error occurred during the minting process.");
-        }
-    }, [mintOperatorWalletHook.error]);
-
-    useEffect(() => {
-        if (operatorNoteErrorState) {
-            if (!noteDisplayError?.includes("hook.onError")) {
-                 setNoteDisplayError(operatorNoteErrorState.message || "An error occurred while setting the note (hook.error).");
-            }
-        } else {
-            if (noteDisplayError?.includes("(hook.error)")){
-                setNoteDisplayError(null);
-            }
-        }
-    }, [operatorNoteErrorState, noteDisplayError]);
-
     const handleNodeClick = useCallback(async (_event: React.MouseEvent, node: Node) => {
         console.log('Node clicked: ', node);
         setMintDisplayError(null);
@@ -600,7 +636,7 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
                 }
             }
         }
-    }, [nodes, connectedAddress, mintOperatorWalletHook, setHotWalletAddressForShimModal, setMintDisplayError, setNoteDisplayError, setIsShimApiConfigModalOpen, DEFAULT_OPERATOR_TBA_IMPLEMENTATION]);
+    }, [nodes, connectedAddress, mintOperatorWalletHook, setHotWalletAddressForShimModal, setMintDisplayError, setNoteDisplayError, setIsShimApiConfigModalOpen, DEFAULT_OPERATOR_TBA_IMPLEMENTATION, fetchGraphData]);
 
     const handleWalletNodeUpdate = useCallback((_walletAddress: Address) => {
         console.log(`Wallet ${_walletAddress} was updated, refreshing graph data.`);
@@ -617,6 +653,40 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
         setSelectedWalletForHistory(null);
     }, []);
 
+    const handleUnlockWalletInVisualizer = useCallback(async (walletAddress: Address, passwordInput: string) => {
+        if (!passwordInput) {
+            showActionToast('error', 'Password is required.');
+            throw new Error('Password is required.');
+        }
+        setIsUnlockingOrLockingWalletId(walletAddress as string);
+        try {
+            await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
+            await callMcpApiFromVisualizer({ ActivateWallet: { password: passwordInput } });
+            showActionToast('success', 'Wallet unlocked successfully!');
+            fetchGraphData();
+        } catch (err: any) {
+            showActionToast('error', err.message || 'Failed to unlock wallet.');
+            throw err; 
+        } finally {
+            setIsUnlockingOrLockingWalletId(null);
+        }
+    }, [fetchGraphData, callMcpApiFromVisualizer, showActionToast]);
+
+    const handleLockWalletInVisualizer = useCallback(async (walletAddress: Address) => {
+        setIsUnlockingOrLockingWalletId(walletAddress as string);
+        try {
+            await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
+            await callMcpApiFromVisualizer({ DeactivateWallet: {} });
+            showActionToast('success', 'Wallet locked successfully!');
+            fetchGraphData();
+        } catch (err: any) {
+            showActionToast('error', err.message || 'Failed to lock wallet.');
+            throw err; 
+        } finally {
+            setIsUnlockingOrLockingWalletId(null);
+        }
+    }, [fetchGraphData, callMcpApiFromVisualizer, showActionToast]);
+
     const nodeTypes = useMemo(() => ({
         ownerNode: OriginalOwnerNodeComponent,
         operatorWalletNode: OriginalOperatorWalletNodeComponent,
@@ -624,20 +694,29 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
             <OriginalHotWalletNodeComponent 
                 {...props} 
                 onWalletDataUpdate={handleWalletNodeUpdate} 
-                onOpenHistoryModal={handleOpenHistoryModal} 
+                onOpenHistoryModal={handleOpenHistoryModal}
+                onUnlockWallet={handleUnlockWalletInVisualizer}
+                onLockWallet={handleLockWalletInVisualizer}
+                isUnlockingOrLocking={isUnlockingOrLockingWalletId === props.data.address}
             />
         ),
         authorizedClientNode: OriginalAuthorizedClientNodeComponent,
         addHotWalletActionNode: AddHotWalletActionNodeComponent,
         addAuthorizedClientActionNode: SimpleAddAuthorizedClientActionNodeComponent,
         mintOperatorWalletActionNode: MintOperatorWalletActionNodeComponent,
-    }), [handleWalletNodeUpdate, handleOpenHistoryModal]);
+    }), [
+        handleWalletNodeUpdate, 
+        handleOpenHistoryModal, 
+        handleUnlockWalletInVisualizer, 
+        handleLockWalletInVisualizer, 
+        isUnlockingOrLockingWalletId
+    ]);
 
-    if (isLoadingGraph) {
+    if (isLoadingGraph && !initialGraphData) {
         return <p>Loading graph ...</p>;
     }
 
-    if (graphDataError) {
+    if (graphDataError && !isLoadingGraph) {
         return <p style={{ color: 'red' }}>Error loading graph: {graphDataError} <button onClick={fetchGraphData}>Retry</button></p>;
     }
 
@@ -645,9 +724,28 @@ const BackendDrivenHpnVisualizer: React.FC<BackendDrivenHpnVisualizerProps> = ({
 
     return (
         <ReactFlowProvider>
-            <div style={{ width: '100%', height: '94vh', border: '1px solid #ccc',  display: 'flex', flexDirection: 'column', flexGrow: 1 }}>
+            <div style={{ width: '100%', height: '94vh', border: '1px solid #ccc',  display: 'flex', flexDirection: 'column', flexGrow: 1, position: 'relative' }}>
+                {/* Toast Area */} 
+                {actionToast && (
+                    <div 
+                        style={{
+                            position: 'absolute',
+                            top: '10px',
+                            left: '50%',
+                            transform: 'translateX(-50%)',
+                            padding: '10px 20px',
+                            background: actionToast.type === 'success' ? 'mediumseagreen' : 'lightcoral',
+                            color: 'white',
+                            borderRadius: '5px',
+                            zIndex: 1000, // Ensure it's on top
+                            boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
+                        }}
+                    >
+                        {actionToast.message}
+                    </div>
+                )}
+
                 {isLoadingGraph && <div style={{ padding: '10px', color: 'blue', position: 'absolute', top: 0, left: 0, zIndex:10  }}>Updating graph...</div>}
-                {graphDataError && !isLoadingGraph && <div style={{ padding: '10px', color: 'red' }}>Graph Load Error: {graphDataError}</div>}
                 {mintDisplayError && <div style={{ padding: '10px', color: 'red'}}>Mint Error: {mintDisplayError}</div>}
                 {noteDisplayError && <div style={{ padding: '10px', color: 'red'}}>Note Error: {noteDisplayError}</div>}
                 

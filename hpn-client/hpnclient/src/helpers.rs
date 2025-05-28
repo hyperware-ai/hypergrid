@@ -210,16 +210,16 @@ pub fn handle_terminal_debug(
                 error!("Usage: namehash <full.path.name>");
             }
         }
-        "pay" => { // Original USDC pay command
-            if let Some(amount_str) = command_arg { 
-                let provider_tba_str = "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d"; // Hardcoded test address
-                info!("Attempting debug USDC payment to TEST ADDRESS {} amount {}", provider_tba_str, amount_str);
-                let result = wallet_manager::execute_payment_if_needed(state, provider_tba_str, amount_str);
-                info!("USDC Payment Result: {:?}", result);
-            } else {
-                 error!("Usage: pay <amount_usdc>"); 
-            }
-        }
+        //"pay" => { // Original USDC pay command
+        //    if let Some(amount_str) = command_arg { 
+        //        let provider_tba_str = "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d"; // Hardcoded test address
+        //        info!("Attempting debug USDC payment to TEST ADDRESS {} amount {}", provider_tba_str, amount_str);
+        //        let result = wallet_manager::execute_payment_if_needed(state, provider_tba_str, amount_str);
+        //        info!("USDC Payment Result: {:?}", result);
+        //    } else {
+        //         error!("Usage: pay <amount_usdc>"); 
+        //    }
+        //}
         "pay-eth" => { // New ETH pay command
             if let Some(amount_str) = command_arg { // Expects only amount
                 let target_address_str = "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d"; // Hardcoded test address

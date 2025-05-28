@@ -12,6 +12,28 @@
     flex-direction: column;
     gap: 8px;
     text-align: left;
+    position: relative; /* ESSENTIAL for absolute positioning of children like the lock icon */
+}
+
+/* Styles for the iOS-like top-right lock icon */
+.lockIconTopRight {
+    position: absolute;
+    top: 8px;  /* Adjust for desired vertical position from top */
+    right: 8px; /* Adjust for desired horizontal position from right */
+    cursor: pointer;
+    font-size: 16px; /* Adjust icon size */
+    padding: 5px;    /* Increase clickable area */
+    line-height: 1;  
+    z-index: 10;     /* Ensure it's on top */
+    color: #f0f0f0; /* Icon color, same as node text */
+    /* Optional: if you want a subtle background or border for the icon's clickable area */
+    /* background-color: rgba(255, 255, 255, 0.05); */
+    /* border-radius: 4px; */
+}
+
+.lockIconTopRight:hover {
+    /* color: #ffff00; */ /* Example hover color */
+    /* background-color: rgba(255, 255, 255, 0.1); */
 }
 
 .header {
@@ -23,22 +45,50 @@
     align-items: center;
 }
 
-.infoRow, .fundingItem, .statusItem, .clientsItem {
+.infoRow, .fundingItem, .statusItem, .clientsItem, .limitConfigRowAltered {
     font-size: 0.9em;
     line-height: 1.4;
-    display: flex; /* For label-value alignment if needed */
-    justify-content: space-between;
+    display: flex; 
+    justify-content: space-between; /* Key for label-left, value-right alignment */
+    align-items: center; /* Vertically align items in the row */
+    padding: 2px 0; /* Consistent vertical padding for rows */
 }
 
-.infoLabel {
+.infoLabel, .limitLabel { /* Grouped limitLabel with infoLabel for consistency */
     color: #aaa;
     margin-right: 8px;
     white-space: nowrap;
 }
 
-.infoValue {
+.infoValue { /* This will apply to the span wrapping the limit value/input too */
     color: #e0e0e0;
     word-break: break-all;
+    text-align: right; /* Ensure content within the value span is right-aligned */
+    flex-grow: 1; /* Allow value to take remaining space if label is short */
+}
+
+/* Specific for the limit input when in edit mode, to blend with infoValue alignment */
+.limitInputFieldInline {
+    background-color: #222;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 1em; /* Match surrounding text if .infoValue has a specific size */
+    width: 100px; /* Adjust as needed, or use flex-basis/max-width */
+    text-align: right;
+    box-sizing: border-box; /* Include padding/border in width */
+}
+
+/* Specific for the clickable limit value display */
+.limitValueDisplayClickable {
+    cursor: pointer;
+    padding: 3px 6px; /* Match input somewhat */
+    border-radius: 3px;
+    /* text-align: right; Inherited from .infoValue */
+}
+.limitValueDisplayClickable:hover {
+    background-color: #484848;
 }
 
 .addressValueClickable {
@@ -188,4 +238,28 @@
     font-weight: bold; 
     width: auto; 
     min-width: 100px;
+}
+
+.passwordInputNodeCompact {
+    flex-grow: 1;
+    margin-right: 8px;
+    /* ... other styles from before ... */
+}
+
+.actionButtonNodeCompact {
+    /* ... styles from before ... */
+}
+
+.cancelButtonNodeCompact {
+    background-color: #6c757d; /* Example: Grey for cancel */
+}
+.cancelButtonNodeCompact:hover {
+    background-color: #5a6268;
+}
+
+.warningTextSmallCentered {
+    color: #f39c12; /* Orange */
+    font-size: 0.8em;
+    margin-top: 6px;
+    text-align: center;
 } 
