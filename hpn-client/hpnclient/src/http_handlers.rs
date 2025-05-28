@@ -121,7 +121,7 @@ pub fn handle_frontend(our: &Address, body: &[u8], state: &mut State, db: &Sqlit
                     info!("Routing to handle_post (for UI MCP)");
                     
                     // Directly call handle_post to process the body for UI
-                    if let Err(e) = handle_post(our, state, db) { 
+                    if let Err(e) = handle_post(our, state, db, None) { 
                         error!("Error in handle_post: {:?}", e);
                         let _ = send_json_response(
                             StatusCode::INTERNAL_SERVER_ERROR,
@@ -152,13 +152,29 @@ pub fn handle_frontend(our: &Address, body: &[u8], state: &mut State, db: &Sqlit
                                 client_config.id, 
                                 client_config.associated_hot_wallet_address
                             );
-                            // Proceed to handle the actual MCP request
-                    if let Err(e) = handle_post(our, state, db) { 
-                        error!("Error in handle_post after shim auth: {:?}", e);
-                        let _ = send_json_response(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            &json!({ "error": format!("Failed to handle POST request: {}", e) })
-                        );
+                            // Store client_config or relevant parts (like associated_hot_wallet_address)
+                            // in a way that handle_post (and subsequently handle_mcp -> handle_provider_call_request -> handle_payment)
+                            // can access it. 
+                            // For now, we assume client_config is available in the scope of handle_payment if it's called from here.
+                            // This might require passing client_config through a few function calls.
+
+                            // For the direct call path for handle_post with shim auth, we might need to modify handle_post to accept client_config
+                            // or store it in a request-scoped context if your web framework supports it.
+                            // Let's assume for now `handle_payment` will be modified to take `associated_hot_wallet_id`
+                            // and the caller of `handle_payment` will provide it from `client_config`.
+
+                            // If handle_post calls handle_mcp, which calls handle_provider_call_request, which calls handle_payment:
+                            // We need to ensure client_config.associated_hot_wallet_address reaches handle_payment.
+                            // A simple way for now is to modify handle_payment to accept it directly.
+
+                            // The actual call to handle_post / mcp processing happens here.
+                            // The modification will be in handle_payment, which is called deeper.
+                            if let Err(e) = handle_post(our, state, db, Some(client_config.clone())) { // Pass client_config to handle_post
+                                error!("Error in handle_post after shim auth: {:?}", e);
+                                let _ = send_json_response(
+                                    StatusCode::INTERNAL_SERVER_ERROR,
+                                    &json!({ "error": format!("Failed to handle POST request: {}", e) })
+                                );
                             }
                         }
                         Err(auth_error) => {
@@ -226,12 +242,11 @@ pub fn handle_frontend(our: &Address, body: &[u8], state: &mut State, db: &Sqlit
     Ok(())
 }
 
-// handle_post now only needs to deal with MCP requests
-fn handle_post(our: &Address, state: &mut State, db: &Sqlite) -> anyhow::Result<()> {
-    // Proceed with original MCP body parsing and handling
-    let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing for MCP request"))?; 
+// Modify handle_post signature and how it calls handle_mcp
+fn handle_post(our: &Address, state: &mut State, db: &Sqlite, client_config_opt: Option<HotWalletAuthorizedClient>) -> anyhow::Result<()> {
+    let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing for MCP request"))?;
     match serde_json::from_slice::<HttpMcpRequest>(blob.bytes()) {
-        Ok(body) => handle_mcp(our, body, state, db), // Pass our if handle_mcp needs it
+        Ok(body) => handle_mcp(our, body, state, db, client_config_opt), // Pass client_config_opt to handle_mcp
         Err(e) => {
             if e.is_syntax() || e.is_data() {
                 error!("Failed to deserialize MCP request JSON: {}", e);
@@ -497,8 +512,8 @@ fn handle_get(
     Ok(())
 }
 
-// TODO b4 beta: move everything NOT mcp to a new handler
-fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite) -> anyhow::Result<()> {
+// Modify handle_mcp signature and how it calls handle_provider_call_request
+fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite, client_config_opt: Option<HotWalletAuthorizedClient>) -> anyhow::Result<()> {
     info!("mcp request: {:?}", req);
     match req {
         HttpMcpRequest::SearchRegistry(query) => {
@@ -511,7 +526,8 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
             provider_name,
             arguments,
         } => {
-            handle_provider_call_request(our, state, db, provider_id, provider_name, arguments)
+            // Pass client_config_opt to handle_provider_call_request
+            handle_provider_call_request(our, state, db, provider_id, provider_name, arguments, client_config_opt)
         }
 
         // History
@@ -732,6 +748,7 @@ enum ProviderCallResult {
     Failed(anyhow::Error),
 }
 
+// Modify handle_provider_call_request signature and how it calls handle_payment
 fn handle_provider_call_request(
     our: &Address,
     state: &mut State,
@@ -739,6 +756,7 @@ fn handle_provider_call_request(
     provider_id: String,
     provider_name: String,
     arguments: Vec<(String, String)>,
+    client_config_opt: Option<HotWalletAuthorizedClient> // New param
 ) -> anyhow::Result<()> {
     info!("Handling call request for provider ID='{}', Name='{}'", provider_id, provider_name);
     let timestamp_start_ms = Utc::now().timestamp_millis() as u128;
@@ -749,7 +767,7 @@ fn handle_provider_call_request(
     match fetch_provider_details(db, &lookup_key) {
         FetchProviderResult::Success(provider_details) => {
             // Step 2: Handle payment if required
-            match handle_payment(state, &provider_details) {
+            match handle_payment(state, &provider_details, client_config_opt.as_ref()) {
                 PaymentResult::NotRequired => {
                     info!("No payment required for this provider");
                     execute_provider_call(our, state, &provider_details, provider_name, arguments, timestamp_start_ms, call_args_json)
@@ -835,23 +853,73 @@ fn fetch_provider_details(db: &Sqlite, lookup_key: &str) -> FetchProviderResult 
     }
 }
 
-// Helper function to handle payment logic
-fn handle_payment(state: &mut State, provider_details: &ProviderDetails) -> PaymentResult {
+// Modify handle_payment signature
+fn handle_payment(state: &mut State, provider_details: &ProviderDetails, client_config_opt: Option<&HotWalletAuthorizedClient>) -> PaymentResult {
     let price_f64 = provider_details.price_str.parse::<f64>().unwrap_or(0.0);
-    
     if price_f64 <= 0.0 {
-        info!("No payment required (Price: {}).", provider_details.price_str);
+        info!("No payment required (Price: {} is zero or invalid).", provider_details.price_str);
         return PaymentResult::NotRequired;
     }
+
+    let associated_hot_wallet_id_str: String;
+
+    if let Some(client_config) = client_config_opt {
+        // Shim-initiated request: use the wallet associated with the client_id
+        associated_hot_wallet_id_str = client_config.associated_hot_wallet_address.clone();
+        info!(
+            "Payment for shim client: {}, Associated Hot Wallet: {}", 
+            client_config.id, associated_hot_wallet_id_str
+        );
+    } else {
+        // UI-initiated request: try to use the globally selected and active/unlocked wallet
+        info!("Payment attempt from UI/non-shim context.");
+        if let Some(selected_id) = &state.selected_wallet_id {
+            // Check if this selected wallet is actually active and unlocked (signer in cache)
+            if state.active_signer_cache.is_some() {
+                // And ensure the signer in cache actually corresponds to the selected_id
+                // (This check might be redundant if active_signer_cache is managed strictly upon selection/activation)
+                if let Some(signer) = &state.active_signer_cache {
+                    if signer.address().to_string().eq_ignore_ascii_case(selected_id) {
+                        associated_hot_wallet_id_str = selected_id.clone();
+                        info!("Using selected and unlocked hot wallet for UI payment: {}", associated_hot_wallet_id_str);
+                    } else {
+                        error!(
+                            "Mismatch: Selected wallet ID {} does not match active signer cache address {}. Payment cannot proceed.", 
+                            selected_id, signer.address().to_string()
+                        );
+                        return PaymentResult::Failed(PaymentAttemptResult::Skipped {
+                            reason: "Selected wallet and active signer mismatch. Please re-select/unlock.".to_string(),
+                        });
+                    }
+                } else { // Should not happen if active_signer_cache.is_some() was true, but as a safeguard
+                    error!("Selected wallet {} indicated, but active_signer_cache is empty. Payment cannot proceed.", selected_id);
+                    return PaymentResult::Failed(PaymentAttemptResult::Skipped {
+                        reason: "No active signer. Please unlock the selected wallet.".to_string(),
+                    });
+                }
+            } else {
+                error!("Selected wallet {} is not unlocked (no active signer). Payment cannot proceed.", selected_id);
+                return PaymentResult::Failed(PaymentAttemptResult::Skipped {
+                    reason: "Selected wallet is locked. Please unlock for payment.".to_string(),
+                });
+            }
+        } else {
+            error!("No wallet selected for UI-initiated payment.");
+            return PaymentResult::Failed(PaymentAttemptResult::Skipped {
+                reason: "No wallet selected for payment.".to_string(),
+            });
+        }
+    }
     
-    info!("Payment required: Attempting pre-payment of {} to {}", 
-          provider_details.price_str, provider_details.wallet_address);
+    info!("Payment required for provider {} (ID: {}): Attempting pre-payment of {} to {} using hot wallet {}", 
+          provider_details.provider_id, provider_details.provider_id, provider_details.price_str, provider_details.wallet_address, associated_hot_wallet_id_str);
     
     let payment_result = wallet_manager::execute_payment_if_needed(
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,
         provider_details.provider_id.clone(),
+        &associated_hot_wallet_id_str // Pass the determined hot wallet ID string
     );
     
     match payment_result {
