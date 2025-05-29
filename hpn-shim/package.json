@@ -1,13 +1,19 @@
 {
   "name": "@hyperware-ai/hpn-mcp",
-  "version": "1.0.3",
+  "version": "1.1.0",
   "type": "module",
   "description": "Shim to expose hyperware mcp servers to ICP clients",
   "main": "index.js",
   "bin": {
     "@hyperware-ai/hpn-mcp": "./dist/index.js"
   },
+  "files": [
+    "dist/",
+    "README.md"
+  ],
   "scripts": {
+    "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "author": "",

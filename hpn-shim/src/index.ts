@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 import yargs from "yargs/yargs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
@@ -16,7 +17,21 @@ interface ShimConfig {
 }
 
 async function loadConfig(): Promise<ShimConfig> {
-    const configPath = path.join(process.cwd(), CONFIG_FILE_NAME);
+    // Parse command line arguments
+    const argv = await yargs(process.argv.slice(2))
+        .option('configFile', {
+            type: 'string',
+            description: 'Path to the configuration file',
+            alias: 'c'
+        })
+        .help()
+        .argv;
+    
+    // Use provided config file path or default to current directory
+    const configPath = argv.configFile 
+        ? path.resolve(argv.configFile)
+        : path.join(process.cwd(), CONFIG_FILE_NAME);
+        
     console.error(`Attempting to load config from: ${configPath}`);
     try {
         const fileContent = await fs.readFile(configPath, 'utf-8');
@@ -65,8 +80,8 @@ async function main() {
       console.error(`search-registry: Forwarding to ${mcpApiEndpoint}`);
       const headers = {
         "Content-type": "application/json",
-        "X-Client-ID": config.client_id, // New header
-        "X-Token": config.token          // New header, renamed from X-API-Key
+        "X-Client-ID": config.client_id, 
+        "X-Token": config.token          
       };
       console.error(`search-registry: Sending Request:`);
       console.error(`  - URL: ${mcpApiEndpoint}`);

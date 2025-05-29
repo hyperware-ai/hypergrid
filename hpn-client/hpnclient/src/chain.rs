@@ -38,22 +38,28 @@ pub fn make_filters(state: &State) -> (eth::Filter, eth::Filter) {
     (mint_filter, notes_filter)
 }
 pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
-    let (mints, notes) = make_filters(&state);
+    let (mints_filter, notes_filter) = make_filters(&state);
+
+    // Restore subscribe_loop for mint events
     state
         .hypermap
         .provider
-        .subscribe_loop(11, mints.clone(), 0, 0);
+        .subscribe_loop(11, mints_filter.clone(), 0, 1); // verbosity 1 for error in loop
+    info!("Initiated Mint event subscription loop (sub_id 11).");
+
+    // Restore subscribe_loop for note events
     state
         .hypermap
         .provider
-        .subscribe_loop(22, notes.clone(), 0, 0);
+        .subscribe_loop(22, notes_filter.clone(), 0, 1); // verbosity 1 for error in loop
+    info!("Initiated Note event subscription loop (sub_id 22).");
 
     let mut pending_logs: PendingLogs = Vec::new();
     timer::set_timer(DELAY_MS, None);
     timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
     
-    fetch_and_process_logs(state, db, &mut pending_logs, &mints);
-    fetch_and_process_logs(state, db, &mut pending_logs, &notes);
+    fetch_and_process_logs(state, db, &mut pending_logs, &mints_filter);
+    fetch_and_process_logs(state, db, &mut pending_logs, &notes_filter);
     pending_logs
 }
 
@@ -232,22 +238,25 @@ pub fn handle_eth_message(
                 debug!("Received non-log subscription result");
             }
         }
-        Ok(Err(e)) => {
-            info!("got eth subscription error ({:?}), resubscribing", e);
+        Ok(Err(e)) => { // EthSubError from eth:distro:sys indicating a problem with the subscription itself
+            error!( // Changed from info! to error! and logging e.error for more detail
+                "Eth subscription error for sub_id {}: {}. Attempting to resubscribe.",
+                e.id, e.error // e.error contains the specific error string from EthSubError
+            );
             // Use subscription id (e.id) from error to resubscribe correctly
             let (mint_filter, note_filter) = make_filters(state);
             if e.id == 11 { // Assuming 11 was for mints
                 state
                     .hypermap
                     .provider
-                    .subscribe_loop(11, mint_filter, 2, 0);
+                    .subscribe_loop(11, mint_filter, 2, 1); // verbosity 1 for error in loop
             } else if e.id == 22 { // Assuming 22 was for notes
                 state
                     .hypermap
                     .provider
-                    .subscribe_loop(22, note_filter, 2, 0);
+                    .subscribe_loop(22, note_filter, 2, 1); // verbosity 1 for error in loop
             } else {
-                 info!("Unknown subscription ID error: {}", e.id);
+                 error!("Unknown subscription ID {} received in EthSubError while attempting to resubscribe.", e.id);
             }
         }
         Err(e) => {
