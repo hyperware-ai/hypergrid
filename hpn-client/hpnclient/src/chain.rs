@@ -1,6 +1,6 @@
 use alloy_sol_types::SolEvent;
 use hyperware_process_lib::eth::Filter;
-use hyperware_process_lib::logging::{debug, info, error};
+use hyperware_process_lib::logging::{debug, info, error, warn};
 use hyperware_process_lib::sqlite::Sqlite;
 use hyperware_process_lib::{eth, hypermap, print_to_terminal, timer};
 use hyperware_process_lib::eth::{Provider, EthError};
@@ -55,8 +55,16 @@ pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
     info!("Initiated Note event subscription loop (sub_id 22).");
 
     let mut pending_logs: PendingLogs = Vec::new();
-    timer::set_timer(DELAY_MS, None);
-    timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
+    
+    // Only initialize timers if they haven't been initialized yet
+    if !state.timers_initialized {
+        info!("Initializing chain sync timers...");
+        timer::set_timer(DELAY_MS, None);
+        timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
+        state.timers_initialized = true;
+    } else {
+        warn!("Timers already initialized, skipping timer initialization in start_fetch");
+    }
     
     fetch_and_process_logs(state, db, &mut pending_logs, &mints_filter);
     fetch_and_process_logs(state, db, &mut pending_logs, &notes_filter);
@@ -273,23 +281,33 @@ pub fn handle_timer(
     pending: &mut PendingLogs,
     is_checkpoint: bool,
 ) -> anyhow::Result<()> {
+    let timer_type = if is_checkpoint { "CHECKPOINT" } else { "DELAY" };
+    info!("Timer event received: {} timer", timer_type);
     debug!("handling timer - pending: {:?}", pending.len());
+    
+    info!("Calling get_block_number from {} timer...", timer_type);
     let block_number = state.hypermap.provider.get_block_number();
     if let Ok(block_number) = block_number {
         debug!("Current block: {}", block_number);
         state.last_checkpoint_block = block_number;
         if is_checkpoint {
-            info!("Checkpointing state at block {}", block_number);
+            //info!("Checkpointing state at block {}", block_number);
             state.save();
             // Reset checkpoint timer
+            //info!("Resetting CHECKPOINT timer (5 minutes)");
             timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
+        } else {
+            // This is a regular DELAY_MS timer event
+            // Reset the delay timer ONLY when handling a delay timer event
+            //info!("Resetting DELAY timer (30 seconds)");
+            timer::set_timer(DELAY_MS, None);
         }
+    } else {
+        error!("Failed to get block number in {} timer: {:?}", timer_type, block_number);
     }
     handle_pending(state, db, pending);
     debug!("new pending: {:?}", pending.len());
 
-    // Always reset the delay timer
-    timer::set_timer(DELAY_MS, None);
     Ok(())
 }
 

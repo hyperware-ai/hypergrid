@@ -174,6 +174,9 @@ pub struct State {
 
     #[serde(skip)]
     pub db_conn: Option<hyperware_process_lib::sqlite::Sqlite>,
+    
+    #[serde(skip)]
+    pub timers_initialized: bool,
 }
 
 impl State {
@@ -211,6 +214,7 @@ impl State {
             hashed_shim_api_key: None, // Will be phased out
             authorized_clients: default_clients, // Initialize as empty HashMap
             db_conn: None,
+            timers_initialized: false,
         }
     }
     pub fn load() -> Self {
@@ -226,6 +230,7 @@ impl State {
                     state.cached_active_details = None;
                     state.providers_cache = HashMap::new(); 
                     state.db_conn = None; // Ensure db_conn is initialized after load
+                    state.timers_initialized = false; // Reset timer initialization flag
                     // Re-initialize hypermap to ensure a fresh eth::Provider instance
                     state.hypermap = hypermap::Hypermap::default(60);
                     // The contract_address field in state should still be respected by hypermap logic if it differs from default.
