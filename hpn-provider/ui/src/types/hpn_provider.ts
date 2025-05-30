@@ -41,6 +41,7 @@ export interface RegisteredProvider {
   provider_name: string; // Unique name for this provider configuration
   provider_id: string; // Will be an Address on Rust side, initially empty string from UI
   description: string;
+  instructions: string;
   registered_provider_wallet: string; // Eth address as string
   price: number; // Price per call
   endpoint: EndpointDefinition;

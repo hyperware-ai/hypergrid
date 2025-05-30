@@ -7,6 +7,7 @@ export interface ProviderFormData {
   providerName: string;
   providerDescription: string;
   providerId: string;
+  instructions: string;
   registeredProviderWallet: string;
   price: string;
   topLevelRequestType: TopLevelRequestType;
@@ -97,6 +98,7 @@ export function buildProviderPayload(data: ProviderFormData): { RegisterProvider
     provider_name: data.providerName,
     provider_id: "",
     description: data.providerDescription,
+    instructions: data.instructions || "",
     registered_provider_wallet: data.registeredProviderWallet.trim(),
     price: parseFloat(data.price) || 0,
     endpoint: endpointDef,

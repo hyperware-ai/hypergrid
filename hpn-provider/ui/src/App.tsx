@@ -58,6 +58,7 @@ function App() {
   // Step 2: Details (some of these were previously Step 3 or derived)
   const [providerName, setProviderName] = useState("");
   const [providerDescription, setProviderDescription] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [registeredProviderWallet, setRegisteredProviderWallet] = useState("");
   const [endpointBaseUrl, setEndpointBaseUrl] = useState("");
 
@@ -94,6 +95,7 @@ function App() {
 
     setProviderName("");
     setProviderDescription("");
+    setInstructions("");
     setEndpointBaseUrl("");
     setPathParamKeys([]);
     setQueryParamKeys([]);
@@ -121,6 +123,7 @@ function App() {
       "~wallet": registeredProviderWallet,
       "~price": price,
       "~description": providerDescription,
+      "~instructions": instructions,
     };
 
     const structuredDataToCopy = {
@@ -135,7 +138,7 @@ function App() {
       alert('Failed to copy structured metadata. See console for details.');
     }
   }, [
-    providerName, providerDescription, registeredProviderWallet, price // Dependencies remain the same
+    providerName, providerDescription, registeredProviderWallet, price, instructions
   ]);
 
   const handleOpenAddNewModal = () => {
@@ -165,6 +168,7 @@ function App() {
       providerName,
       providerDescription,
       providerId: "", // Keep providerId empty for now
+      instructions, // Add instructions field
       registeredProviderWallet,
       price,
       topLevelRequestType,
@@ -208,7 +212,7 @@ function App() {
       alert(`Error registering provider: ${(error as Error).message}`);
     }
   }, [
-    providerName, providerDescription, topLevelRequestType,
+    providerName, providerDescription, instructions, topLevelRequestType,
     endpointBaseUrl, pathParamKeys, queryParamKeys, headerKeys, bodyKeys,
     endpointApiParamKey, authChoice, apiKeyQueryParamName, apiKeyHeaderName,
     registeredProviderWallet,
@@ -311,6 +315,8 @@ function App() {
                 setProviderName={setProviderName}
                 providerDescription={providerDescription}
                 setProviderDescription={setProviderDescription}
+                instructions={instructions}
+                setInstructions={setInstructions}
                 registeredProviderWallet={registeredProviderWallet}
                 setRegisteredProviderWallet={setRegisteredProviderWallet}
                 price={price}
