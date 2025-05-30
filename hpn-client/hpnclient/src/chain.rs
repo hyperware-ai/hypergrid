@@ -282,10 +282,10 @@ pub fn handle_timer(
     is_checkpoint: bool,
 ) -> anyhow::Result<()> {
     let timer_type = if is_checkpoint { "CHECKPOINT" } else { "DELAY" };
-    info!("Timer event received: {} timer", timer_type);
+    //info!("Timer event received: {} timer", timer_type);
     debug!("handling timer - pending: {:?}", pending.len());
     
-    info!("Calling get_block_number from {} timer...", timer_type);
+    //info!("Calling get_block_number from {} timer...", timer_type);
     let block_number = state.hypermap.provider.get_block_number();
     if let Ok(block_number) = block_number {
         debug!("Current block: {}", block_number);

@@ -130,16 +130,29 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                 <button style={closeButtonStyle} onClick={onClose}>&times;</button>
                 <div className="config-form api-config-section">
                     <h4>Shim API Configuration for Hot Wallet: {hotWalletAddress.substring(0,6)}...{hotWalletAddress.slice(-4)}</h4>
-                    <p style={{ fontSize: '0.9em', color: '#ccc', marginBottom: '15px' }}>
-                        Generate and copy an API key configuration for use with the HPN MCP Shim.
+                    <p style={{ fontSize: '0.9em', color: '#000', marginBottom: '15px' }}>
+                        Generate and copy an API key configuration for use with the Hypergrid MCP Shim.
                         Save this configuration as <code>hpn-shim-api.json</code> in the directory where you run the shim.
-                        Generating a new config for this session will overwrite any previous one shown here.
+                        Then run the shim by adding this to your mcp server config:
                     </p>
+                    <div style={{marginBottom: '15px'}}>
+                        <h5>Claude Desktop</h5>
+                        <pre style={{background: '#2a2c30', padding: '8px', borderRadius: '3px', overflowX: 'auto'}}>
+                            {JSON.stringify({
+                                mcpServers: {
+                                    hyperware: {
+                                        command: "npx",
+                                        args: ["@hyperware-ai/hpn-mcp", "--configFile", "/path/to/config.json"]
+                                    }
+                                }
+                            }, null, 2)}
+                        </pre>
+                    </div>
                     <button
                         onClick={handleGenerateApiConfig}
                         disabled={isGeneratingConfig}
-                        className="button secondary-button" // Class for styling consistency
-                        style={{padding: '10px 15px', fontSize: '1em', marginBottom: '10px'}}
+                        className="button secondary-button"
+                        style={{padding: '10px 15px', fontSize: '1em', marginBottom: '10px' }}
                     >
                         {isGeneratingConfig ? 'Generating...' : 
                          (copied ? '✅ Copied!' : 
