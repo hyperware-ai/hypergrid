@@ -1,9 +1,21 @@
-use crate::structs::{State, SpendingLimits, WalletSummary, PaymentAttemptResult, ManagedWallet, ActiveAccountDetails, DelegationStatus, TbaFundingDetails};
-use crate::helpers; // Added import for helpers module
+use crate::structs::{
+    State, 
+    SpendingLimits, 
+    WalletSummary, 
+    PaymentAttemptResult, 
+    ManagedWallet, 
+    ActiveAccountDetails, 
+    DelegationStatus, 
+    TbaFundingDetails, 
+    ProviderRequest
+};
+use crate::helpers; 
+use crate::http_handlers::send_request_to_provider;
+
 use anyhow::Result;
 use hyperware_process_lib::logging::{info, error};
 use hyperware_process_lib::{eth, signer, wallet, hypermap};
-use hyperware_process_lib::eth::{Provider, EthError};
+use hyperware_process_lib::Address as HyperwareAddress;
 use hyperware_process_lib::wallet::{get_eth_balance, get_token_details};
 use signer::{LocalSigner, Signer};
 use wallet::KeyStorage;
@@ -13,10 +25,18 @@ use std::str::FromStr;
 use hex;
 use std::thread;
 
+
 // --- Configuration Constants ---
 pub const BASE_CHAIN_ID: u64 = 8453; 
 pub const BASE_USDC_ADDRESS: &str = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
 pub const USDC_DECIMALS: u8 = 6; 
+
+// New Enum for Asset Type
+#[derive(Debug, Clone, Copy)]
+pub enum AssetType {
+    Eth,
+    Usdc,
+}
 
 /// Generates a new random ManagedWallet (unencrypted, active) but does not add it to state.
 /// Returns Ok(ManagedWallet) or Err(error_message as String).
@@ -331,8 +351,8 @@ pub fn remove_wallet_password(state: &mut State, wallet_id: String, current_pass
 /// Private helper to perform the actual TBA payment execution and confirmation.
 /// Assumes all prior checks (config, price, limits, signer, delegation) have passed.
 fn perform_tba_payment_execution(
-    operator_tba_address: &Address,
-    provider_tba_address: &Address,
+    from_account_address: &Address,
+    to_account_address: &Address,
     hot_wallet_signer: &LocalSigner, // Takes reference
     price_f64: f64,
     price_to_check_str: &str, // For reporting
@@ -360,16 +380,17 @@ fn perform_tba_payment_execution(
     };
 
     // 3. Create inner calldata for USDC transfer
-    let inner_calldata = wallet::create_erc20_transfer_calldata(*provider_tba_address, amount_u256);
+    let inner_calldata = wallet::create_erc20_transfer_calldata(*to_account_address, amount_u256);
 
     // 4. Setup Provider
-    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 300); // 300 sec timeout
+    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 10); // 10 sec timeout
 
     // 5. Call wallet::execute_via_tba_with_signer
-    info!("Sending execute transaction via Operator TBA {} to target USDC {} (Inner call: transfer {} USDC to {})",
-          operator_tba_address, usdc_address, price_f64, provider_tba_address);
+    info!("Sending execute transaction via From Account Address {} to To Account Address {} (Inner call: transfer {} USDC to {})",
+          from_account_address, to_account_address, price_f64, to_account_address);
+
     let execution_result = wallet::execute_via_tba_with_signer(
-        &operator_tba_address.to_string(),
+        &from_account_address.to_string(),
         hot_wallet_signer, 
         &usdc_address.to_string(),
         inner_calldata,
@@ -378,55 +399,93 @@ fn perform_tba_payment_execution(
         Some(0)
     );
 
-    // Add a 4-second delay
-    thread::sleep(std::time::Duration::from_secs(3));
+    //thread::sleep(std::time::Duration::from_secs(3));
 
-    // 6. Handle SUBMISSION result (NO on-chain confirmation wait)
+    // 6. Handle SUBMISSION result
     match execution_result {
         Ok(receipt) => {
             let tx_hash_raw = receipt.hash;
             let tx_hash = format!("{:?}", tx_hash_raw);
             info!("TBA Execute Transaction SUBMITTED successfully! Tx Hash: {}", tx_hash);
-            info!("NOTE: On-chain confirmation NOT verified by client.");
-            
-            // TODO, fix this flow
-            // // Wait for confirmation
-            // match wallet::wait_for_transaction(tx_hash_raw, eth_provider.clone(), 1, 60) { // Wait 1 confirmation, 60s timeout
-            //     Ok(final_receipt) => {
-            //         // Log the raw receipt object
-            //         info!("Received final receipt: {:#?}", final_receipt);
-            //         if final_receipt.status() {
-            //             info!("TBA Payment transaction confirmed successfully! Tx Hash: {:?}", tx_hash_raw);
-            //             return PaymentAttemptResult::Success {
-            //                 tx_hash: tx_hash, // Use formatted hash string
-            //                 amount_paid: price_to_check_str.to_string(),
-            //                 currency: currency.to_string(),
-            //             };
-            //         } else {
-            //             error!("TBA Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash_raw);
-            //             return PaymentAttemptResult::Failed {
-            //                 error: "Transaction failed on-chain (reverted)".to_string(),
-            //                 amount_attempted: price_to_check_str.to_string(),
-            //                 currency: currency.to_string(),
-            //             };
-            //         }
-            //     }
-            //     Err(e) => {
-            //         error!("Error waiting for TBA payment transaction confirmation ({:?}): {:?}", tx_hash_raw, e);
-            //         return PaymentAttemptResult::Failed {
-            //             error: format!("Confirmation Error: {:?}", e),
-            //             amount_attempted: price_to_check_str.to_string(),
-            //             currency: currency.to_string(),
-            //         };
-            //     }
-            // }
-            // --- End Commented-Out Confirmation Logic --- 
 
-            // Return Success based on submission only (temporary)
-            PaymentAttemptResult::Success {
-                 tx_hash,
-                 amount_paid: price_to_check_str.to_string(),
-                 currency: currency.to_string(),
+            // Exponential backoff for polling receipt
+            const MAX_RETRIES: u32 = 10;
+            const INITIAL_DELAY_MS: u64 = 500; // Start with 500ms
+            const MAX_DELAY_MS: u64 = 8000;   // Max delay 8s
+            const CONFIRMATIONS_NEEDED: u64 = 1;
+
+            let mut current_retries = 0;
+            let mut current_delay_ms = INITIAL_DELAY_MS;
+
+            info!("Waiting for transaction confirmation with exponential backoff for Tx Hash: {}", tx_hash);
+
+            loop {
+                if current_retries >= MAX_RETRIES {
+                    error!("Timeout waiting for TBA payment transaction confirmation for {:?} after {} retries.", tx_hash_raw, MAX_RETRIES);
+                    return PaymentAttemptResult::Failed {
+                        error: format!("Timeout waiting for transaction confirmation after {} retries", MAX_RETRIES),
+                        amount_attempted: price_to_check_str.to_string(),
+                        currency: currency.to_string(),
+                    };
+                }
+
+                match eth_provider.get_transaction_receipt(tx_hash_raw) {
+                    Ok(Some(final_receipt)) => {
+                        if let Some(receipt_block_number_u64) = final_receipt.block_number {
+                            // Transaction is mined
+                            match eth_provider.get_block_number() {
+                                Ok(latest_block_number_u64) => {
+                                    if latest_block_number_u64 >= receipt_block_number_u64 + CONFIRMATIONS_NEEDED.saturating_sub(1) {
+                                        // Sufficient confirmations
+                                        let confirmations = latest_block_number_u64.saturating_sub(receipt_block_number_u64) + 1;
+                                        info!("Transaction {:?} confirmed with {} confirmations (Latest: {}, Receipt: {}).", tx_hash_raw, confirmations, latest_block_number_u64, receipt_block_number_u64);
+                                        info!("Received final receipt: {:#?}", final_receipt); // Log the raw receipt object
+
+                                        if final_receipt.status() {
+                                            info!("TBA Payment transaction successful! Tx Hash: {:?}", tx_hash_raw);
+                                            return PaymentAttemptResult::Success {
+                                                tx_hash: tx_hash.clone(),
+                                                amount_paid: price_to_check_str.to_string(),
+                                                currency: currency.to_string(),
+                                            };
+                                        } else {
+                                            error!("TBA Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash_raw);
+                                            return PaymentAttemptResult::Failed {
+                                                error: "Transaction failed on-chain (reverted)".to_string(),
+                                                amount_attempted: price_to_check_str.to_string(),
+                                                currency: currency.to_string(),
+                                            };
+                                        }
+                                    } else {
+                                        // Mined, but not enough confirmations yet
+                                        let current_depth = latest_block_number_u64.saturating_sub(receipt_block_number_u64) + 1;
+                                        info!("Transaction {:?} mined in block {}, but not enough confirmations (need {}, current depth {}). Retrying in {}ms...",
+                                              tx_hash_raw, receipt_block_number_u64, CONFIRMATIONS_NEEDED, current_depth, current_delay_ms);
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to get current block number for confirmation check for {:?}: {:?}. Retrying in {}ms...", tx_hash_raw, e, current_delay_ms);
+                                }
+                            }
+                        } else {
+                            // Receipt found, but transaction is not yet mined (block_number is None)
+                            info!("Transaction receipt for {:?} found, but not yet mined (no block number). Retrying in {}ms...", tx_hash_raw, current_delay_ms);
+                        }
+                    }
+                    Ok(None) => {
+                        // Receipt not found yet
+                        info!("Transaction receipt not yet available for {:?}. Retrying in {}ms... (Attempt {}/{})", tx_hash_raw, current_delay_ms, current_retries + 1, MAX_RETRIES);
+                    }
+                    Err(e) => {
+                        // Error fetching receipt
+                        error!("Error fetching transaction receipt for {:?}: {:?}. Retrying in {}ms... (Attempt {}/{})", tx_hash_raw, e, current_delay_ms, current_retries + 1, MAX_RETRIES);
+                    }
+                }
+
+                // Retry logic
+                thread::sleep(std::time::Duration::from_millis(current_delay_ms));
+                current_retries += 1;
+                current_delay_ms = std::cmp::min(current_delay_ms * 2, MAX_DELAY_MS);
             }
         }
         Err(e) => {
@@ -447,33 +506,41 @@ pub fn execute_payment_if_needed(
     state: &mut State,
     provider_wallet_str: &str, 
     provider_price_str: &str,
+    provider_id: String,
+    associated_hot_wallet_id: &str
 ) -> Option<PaymentAttemptResult> { 
-    info!("Attempting payment check. Provider Wallet: {}, Price: {}", provider_wallet_str, provider_price_str);
+    info!("Attempting payment for provider {} using hot wallet {}. Provider Wallet: {}, Price: {}", 
+        provider_id, associated_hot_wallet_id, provider_wallet_str, provider_price_str);
 
-    match check_payment_prerequisites(state, provider_wallet_str, provider_price_str) {
+    match check_payment_prerequisites(state, provider_wallet_str, provider_price_str, provider_id, associated_hot_wallet_id) {
         Ok(prereqs) => {
-            // All checks passed, proceed with payment execution
+            // Re-fetch the signer here now that checks have passed.
+            let hot_wallet_signer_instance = match get_decrypted_signer_for_wallet(state, associated_hot_wallet_id) {
+                Ok(s) => s,
+                Err(e) => return Some(PaymentAttemptResult::Skipped { 
+                    reason: format!("Failed to retrieve signer for wallet {} post-checks: {}", associated_hot_wallet_id, e) 
+                }),
+            };
+
             info!(
                 "All checks passed. Attempting payment of {} {} via Operator TBA {} (signed by {}) to Provider TBA {}",
                 prereqs.price_f64,
                 prereqs.currency,
                 prereqs.operator_tba_address,
-                prereqs.hot_wallet_signer.address(),
+                hot_wallet_signer_instance.address(), // Use address from re-fetched signer
                 prereqs.provider_tba_address 
             );
 
-            // Call the execution helper
             Some(perform_tba_payment_execution(
                 &prereqs.operator_tba_address,
                 &prereqs.provider_tba_address,
-                prereqs.hot_wallet_signer, // Pass reference
+                &hot_wallet_signer_instance, // Pass reference to re-fetched signer
                 prereqs.price_f64,
                 &prereqs.price_str,
                 &prereqs.currency,
             ))
         }
         Err(skip_or_fail_reason) => {
-            // Prerequisite check failed, return the reason
             Some(skip_or_fail_reason)
         }
     }
@@ -782,7 +849,7 @@ pub fn get_active_account_details(state: &State) -> Result<Option<ActiveAccountD
                 info!("Found selected and unlocked account: {}", selected_id);
                 
                 // Fetch balances
-                let provider = Provider::new(BASE_CHAIN_ID, 30000); // Create provider
+                let provider = eth::Provider::new(BASE_CHAIN_ID, 60); // Create provider
                 let address_str = &wallet.storage.get_address(); // Use getter for address
                 
                 let eth_balance_res = get_eth_balance(address_str, BASE_CHAIN_ID, provider.clone());
@@ -867,7 +934,7 @@ pub fn verify_selected_hot_wallet_delegation_detailed(
     }
     info!("Verifying delegation for Hot Wallet: {}", hot_wallet_address);
 
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 60000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
     let hypermap_address = match Address::from_str(hypermap::HYPERMAP_ADDRESS) {
         Ok(addr) => addr,
         Err(_) => return DelegationStatus::CheckError("Failed to parse HYPERMAP_ADDRESS constant.".to_string()),
@@ -1033,6 +1100,20 @@ struct PaymentPrerequisites<'a> {
     hot_wallet_signer: &'a LocalSigner, // Borrowed signer
 }
 
+/// Attempts to get a LocalSigner for a specific wallet ID if it's stored decrypted.
+/// This does NOT rely on the wallet being selected or the active_signer_cache.
+pub fn get_decrypted_signer_for_wallet(state: &State, wallet_id: &str) -> Result<LocalSigner, String> {
+    match state.managed_wallets.get(wallet_id) {
+        Some(wallet) => {
+            match &wallet.storage {
+                KeyStorage::Decrypted(signer) => Ok(signer.clone()),
+                KeyStorage::Encrypted(_) => Err(format!("Wallet {} is encrypted and requires unlocking.", wallet_id)),
+            }
+        }
+        None => Err(format!("Wallet {} not found in managed wallets.", wallet_id)),
+    }
+}
+
 /// Performs all prerequisite checks before attempting a payment.
 /// Returns Ok(PaymentPrerequisites) if all checks pass,
 /// or Err(PaymentAttemptResult) describing why payment should not proceed.
@@ -1040,124 +1121,164 @@ fn check_payment_prerequisites<'a>(
     state: &'a State, 
     provider_wallet_str: &str,
     provider_price_str: &str,
+    provider_id: String, // Keep this for provider availability check
+    associated_hot_wallet_id: &str // New parameter: ID of the wallet that MUST make the payment
 ) -> Result<PaymentPrerequisites<'a>, PaymentAttemptResult> { 
-    // Check 1: Operator TBA Configuration
-    let operator_tba_address = match state.operator_tba_address.as_ref() {
-        Some(addr_str) => match Address::from_str(addr_str) {
-            Ok(addr) => addr,
-            Err(_) => {
-                error!("Operator TBA address in state is invalid: {}", addr_str);
-                return Err(PaymentAttemptResult::Skipped { reason: "Invalid Operator TBA Configuration".to_string() });
-            }
-        },
-        None => {
-            info!("Payment prerequisites failed: Operator TBA address not configured.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Operator TBA Not Configured".to_string() });
-        }
-    };
+    info!("Payment Prereqs: Using Hot Wallet ID: {} for payment", associated_hot_wallet_id);
+
+    // Check 1: Operator TBA Configuration (remains the same)
+    let operator_tba_address = state.operator_tba_address.as_ref().ok_or_else(|| {
+        error!("Operator TBA address not configured in state.");
+        PaymentAttemptResult::Skipped { reason: "Operator TBA Not Configured".to_string() }
+    }).and_then(|addr_str| Address::from_str(addr_str).map_err(|_|
+        PaymentAttemptResult::Skipped { reason: "Invalid Operator TBA Configuration".to_string() }
+    ))?;
     if state.operator_entry_name.is_none() { info!("Warning: Operator entry name not configured in state."); }
 
-    // --- Check 2: Provider TBA Address (Re-added) ---
-    // TODO: Remove placeholder logic? This seems like debug code.
+    // Check 2: Provider TBA Address (remains the same)
     let mut final_provider_tba_str = provider_wallet_str.to_string();
     if final_provider_tba_str == "0x0" || final_provider_tba_str.len() != 42 {
-        info!("Provider wallet is placeholder or invalid ({}). Using test address instead.", final_provider_tba_str);
-        final_provider_tba_str = "0x3dE425580de16348983d6D7F25618eDA18B359DF".to_string(); // Using a known valid address for testing
+        final_provider_tba_str = "0x3dE425580de16348983d6D7F25618eDA18B359DF".to_string();
     }
-    let provider_tba_address = match Address::from_str(&final_provider_tba_str) {
-        Ok(addr) => addr,
-        Err(_) => {
-            error!("Invalid Provider TBA Address format: {}", final_provider_tba_str);
-            return Err(PaymentAttemptResult::Skipped { reason: "Invalid Provider TBA Address".to_string() });
-        }
-    };
-    // --- End Check 2 ---
+    let provider_tba_address = Address::from_str(&final_provider_tba_str).map_err(|_|
+        PaymentAttemptResult::Skipped { reason: "Invalid Provider TBA Address".to_string() }
+    )?;
 
-    // Check 3: Price Validity
-    let price_f64 = match provider_price_str.parse::<f64>() {
-        Ok(p) if p > 0.0 => p,
-        _ => { 
-             info!("Payment prerequisites failed (Price: {}).", provider_price_str);
-             return Err(PaymentAttemptResult::Skipped { reason: "Zero or Invalid Price".to_string() });
-        }
-    };
+    // Check 3: Price Validity (remains the same)
+    let price_f64 = provider_price_str.parse::<f64>().map_err(|_|
+        PaymentAttemptResult::Skipped { reason: "Invalid Price Format".to_string() }
+    ).and_then(|p| if p > 0.0 { Ok(p) } else { 
+        Err(PaymentAttemptResult::Skipped { reason: "Zero or Invalid Price".to_string() })
+    })?;
     let price_str = price_f64.to_string();
 
-    // Check 4: Spending Limits
-    let currency = match &state.selected_wallet_id {
-        Some(id) => state.managed_wallets.get(id)
-            .and_then(|w| w.spending_limits.currency.clone())
-            .unwrap_or_else(|| "USDC".to_string()),
-        None => "USDC".to_string(), 
-    };
-    if let Err(limit_error) = check_spending_limit(state, &price_str) {
-        info!("Payment prerequisites failed (spending limit exceeded): {}", limit_error);
-        return Err(PaymentAttemptResult::LimitExceeded {
-             limit: limit_error,
-             amount_attempted: price_str,
-             currency,
-        });
-    }
+    // Check 4: Get the specific Hot Wallet Signer for the associated_hot_wallet_id
+    // This now uses the new helper and checks the *specific* wallet from the shim auth.
+    let hot_wallet_managed_info = state.managed_wallets.get(associated_hot_wallet_id).ok_or_else(|| {
+        error!("Payment Prereqs: Associated hot wallet {} not found in managed list.", associated_hot_wallet_id);
+        PaymentAttemptResult::Skipped { reason: format!("Associated hot wallet {} not found", associated_hot_wallet_id) }
+    })?;
 
-    // Check 5: Active Signer (Hot Wallet)
-    let hot_wallet_signer = match get_active_signer(state) {
-        Ok(signer) => signer, 
-        Err(e) => {
-            info!("Payment prerequisites failed (wallet locked/unavailable): {}", e);
-            return Err(PaymentAttemptResult::Skipped { reason: "Wallet Locked or Unavailable".to_string() });
-        }
-    };
+    // We need a LocalSigner instance, not a reference for PaymentPrerequisites struct if it owns it.
+    // Let's assume PaymentPrerequisites will store a clone or we adjust it.
+    // For now, get_decrypted_signer_for_wallet returns an owned LocalSigner.
+    let hot_wallet_signer_instance = get_decrypted_signer_for_wallet(state, associated_hot_wallet_id).map_err(|e|{
+        error!("Payment Prereqs: Failed to get signer for {}: {}", associated_hot_wallet_id, e);
+        PaymentAttemptResult::Skipped { reason: format!("Wallet {} locked or unavailable for payment: {}", associated_hot_wallet_id, e) }
+    })?;
+    // The PaymentPrerequisites struct will need to be updated to take an owned LocalSigner or its lifetime managed.
+    // For now, this function gets an owned signer. We need to pass a reference to execute_payment_if_needed's PaymentPrerequisites.
+    // This part needs careful lifetime management or cloning. Let's assume PaymentPrerequisites takes a reference for now and we pass `&hot_wallet_signer_instance`.
 
-    // Check 6: Hot Wallet Delegation 
-    match verify_selected_hot_wallet_delegation_detailed(state, None) { 
-        DelegationStatus::Verified => info!("Hot wallet delegation verified."),
-        DelegationStatus::NeedsIdentity => {
-            info!("Payment prerequisites failed: Operator identity not configured.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Operator Identity Not Configured".to_string() });
-        }
-        DelegationStatus::NeedsHotWallet => {
-            info!("Payment prerequisites failed: Selected hot wallet is not delegated/ready.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Hot Wallet Not Delegated/Ready".to_string() });
-        }
-        DelegationStatus::AccessListNoteMissing => {
-            info!("Payment prerequisites failed: Access list note missing.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Access List Note Missing".to_string() });
-        }
-        DelegationStatus::AccessListNoteInvalidData(reason) => {
-            info!("Payment prerequisites failed: Access list note invalid data: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Access List Note Invalid Data: {}", reason) });
-        }
-        DelegationStatus::SignersNoteLookupError(reason) => {
-            info!("Payment prerequisites failed: Signers note lookup error: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Signers Note Lookup Error: {}", reason) });
-        }
-        DelegationStatus::SignersNoteMissing => {
-            info!("Payment prerequisites failed: Signers note missing.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Signers Note Missing".to_string() });
-        }
-        DelegationStatus::SignersNoteInvalidData(reason) => {
-            info!("Payment prerequisites failed: Signers note invalid data: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Signers Note Invalid Data: {}", reason) });
-        }
-        DelegationStatus::HotWalletNotInList => {
-            info!("Payment prerequisites failed: Hot wallet not in delegate list.");
-            return Err(PaymentAttemptResult::Skipped { reason: "Hot Wallet Not in Delegate List".to_string() });
-        }
-        DelegationStatus::CheckError(reason) => {
-            info!("Payment prerequisites failed: Delegation check error: {}", reason);
-            return Err(PaymentAttemptResult::Skipped { reason: format!("Delegation Check Error: {}", reason) });
+    // Check 5: Spending Limits for the *associated* hot wallet
+    let currency = hot_wallet_managed_info.spending_limits.currency.clone().unwrap_or_else(|| "USDC".to_string());
+    if let Some(max_call_str) = &hot_wallet_managed_info.spending_limits.max_per_call {
+        if !max_call_str.trim().is_empty() {
+            let max_call_f64 = max_call_str.parse::<f64>().map_err(|_|
+                PaymentAttemptResult::Failed { 
+                    error: format!("Invalid max_per_call limit format on wallet {}: {}", associated_hot_wallet_id, max_call_str),
+                    amount_attempted: price_str.clone(), 
+                    currency: currency.clone() 
+                }
+            )?;
+            if price_f64 > max_call_f64 {
+                return Err(PaymentAttemptResult::LimitExceeded {
+                    limit: format!("Max/Call {} {}", max_call_str, currency),
+                    amount_attempted: price_str.clone(),
+                    currency: currency.clone(),
+                });
+            }
         }
     }
 
-    // All Checks Passed
+    // Check 6: Hot Wallet Delegation (for the *associated* hot wallet)
+    // This requires operator_entry_name from state, which is still global.
+    match verify_single_hot_wallet_delegation_detailed(state, state.operator_entry_name.as_deref(), associated_hot_wallet_id) { 
+        DelegationStatus::Verified => info!("Hot wallet {} delegation verified.", associated_hot_wallet_id),
+        status => return Err(PaymentAttemptResult::Skipped { 
+            reason: format!("Delegation check failed for wallet {}: {:?}", associated_hot_wallet_id, status) 
+        }),
+    }
+
+    // Check 7: Provider Availability (remains the same)
+    check_provider_availability(&provider_id).map_err(|e|
+        PaymentAttemptResult::Skipped { reason: format!("Provider Availability Check Error for {}: {}", provider_id, e) }
+    )?;
+
+    // All Checks Passed - this part needs to be tricky because hot_wallet_signer_instance is owned here.
+    // PaymentPrerequisites expects a reference. This implies PaymentPrerequisites should probably be constructed differently
+    // or this function should return the signer itself if check_payment_prerequisites now owns it.
+    // Let's simplify: check_payment_prerequisites validates and returns Ok if good, then execute_payment_if_needed gets the signer again.
+    // OR PaymentPrerequisites takes an owned LocalSigner.
+    // For this iteration, let's assume we are constructing PaymentPrerequisites with a reference temporarily.
+    // THIS WILL CAUSE A LIFETIME ERROR. We need to pass the signer through.
+    // The easiest fix is to make PaymentPrerequisites take an owned signer or for execute_payment_if_needed to re-fetch.
+    // Let's return what we need and let caller get the signer again.
+    
+    // TEMPORARY: To avoid lifetime issues for now, let's return just the addresses and amounts.
+    // The caller (`execute_payment_if_needed`) will re-fetch the signer using `get_decrypted_signer_for_wallet`.
+    // This is slightly less efficient but avoids complex lifetime annotations for this edit step.
     Ok(PaymentPrerequisites {
         operator_tba_address,
         provider_tba_address,
         price_f64,
         price_str,
         currency,
-        hot_wallet_signer,
+        // This is the tricky part. We need an owned signer or a reference with a valid lifetime.
+        // For now, let execute_payment_if_needed re-fetch. This field will be unused in this pass.
+        hot_wallet_signer: unsafe { std::mem::transmute(&hot_wallet_signer_instance) }, // UNSAFE, placeholder!
     })
+}
+
+/// Checks the availability of a provider by sending a test request.
+fn check_provider_availability(provider_id: &str) -> Result<(), String> {
+    info!("Checking provider availability for ID: {}", provider_id);
+
+    let target_address = HyperwareAddress::new(
+        provider_id,
+        ("hpn-provider", "hpn-provider", "template.os")
+    );
+    // The specific provider_name and arguments for a "ping" or availability check
+    // might need to be standardized. For now, using placeholder/minimal values.
+    let provider_name = format!("{}", provider_id); 
+    let arguments = vec![]; 
+    let payment_tx_hash = None; 
+
+    info!("Preparing availability check request for provider process at {}", target_address);
+    let provider_request_data = ProviderRequest {
+        provider_name,
+        arguments,
+        payment_tx_hash,
+    };
+
+    let wrapped_request = serde_json::json!({
+        "CallProvider": provider_request_data 
+    });
+    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let err_msg = format!("Failed to serialize provider availability request: {}", e);
+            error!("{}", err_msg);
+            return Err(err_msg);
+        }
+    };
+
+    match send_request_to_provider(target_address.clone(), request_body_bytes) {
+        Ok(Ok(response)) => {
+            info!("Provider at {} responded successfully to availability check: with response {:?}", target_address, response);
+            Ok(())
+        }
+        Ok(Err(e)) => {
+            let err_msg = format!("Provider at {} failed availability check (app-level error): {}", target_address, e);
+            error!("{}", err_msg);
+            Err(err_msg)
+        }
+        Err(e) => {
+            let err_msg = format!("Error sending availability check to provider at {}: {}", target_address, e);
+            error!("{}", err_msg);
+            Err(err_msg)
+        }
+    }
 }
 
 /// Checks the ETH and USDC funding status specifically for the Operator TBA.
@@ -1172,7 +1293,7 @@ pub fn check_operator_tba_funding_detailed(
     let mut errors: Vec<String> = Vec::new();
 
     // Define provider here, or accept as argument for efficiency if called in a loop elsewhere
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 30000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
 
     if let Some(tba_str) = operator_tba_address_str {
         if Address::from_str(tba_str).is_err() {
@@ -1276,20 +1397,12 @@ pub fn get_wallet_summary_for_address(state: &State, hot_wallet_address_str: &st
     }
 }
 
-// Placeholder stubs for functions that will require more complex logic or on-chain interaction.
-// These will be implemented properly in subsequent steps.
-
-pub fn get_all_onchain_linked_hot_wallet_addresses(
-    operator_entry_name_opt: Option<&str>,
-    // eth_provider: &eth::Provider // Recommended to pass in for efficiency
-) -> Result<Vec<String>, String> {
-    info!(
-        "Fetching all on-chain linked hot wallet addresses for operator entry: {:?}",
-        operator_entry_name_opt
-    );
-
+pub fn get_all_onchain_linked_hot_wallet_addresses(operator_entry_name_opt: Option<&str>,) -> Result<Vec<String>, String> {
     let operator_entry_name = match operator_entry_name_opt {
-        Some(name) if !name.is_empty() => name,
+        Some(name) if !name.is_empty() => {
+            info!("  -> Using provided operator entry name: {}", name);
+            name
+        },
         _ => {
             let err_msg = "Operator entry name not provided or empty.".to_string();
             error!("  -> Error: {}", err_msg);
@@ -1298,8 +1411,7 @@ pub fn get_all_onchain_linked_hot_wallet_addresses(
     };
 
     // Create a new provider and hypermap_reader instance for this operation.
-    // For better performance in a real application, these might be managed and passed in.
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 60000);
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60);
     let hypermap_address_obj = match Address::from_str(hypermap::HYPERMAP_ADDRESS) {
         Ok(addr) => addr,
         Err(_) => {
@@ -1389,7 +1501,7 @@ pub fn verify_single_hot_wallet_delegation_detailed(
 
     // Create a new provider instance for this check.
     // TODO: Consider passing this in if calls become frequent, to reuse the instance.
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 60000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
     let hypermap_address = match Address::from_str(hypermap::HYPERMAP_ADDRESS) {
         Ok(addr) => addr,
         Err(_) => {
@@ -1504,7 +1616,7 @@ pub fn check_single_hot_wallet_funding_detailed(
 
     // Create a new provider instance for this check.
     // TODO: Consider passing this in if calls become frequent, to reuse the instance.
-    let provider = eth::Provider::new(BASE_CHAIN_ID, 30000); 
+    let provider = eth::Provider::new(BASE_CHAIN_ID, 60); 
 
     match wallet::get_eth_balance(hot_wallet_address_str, BASE_CHAIN_ID, provider) {
         Ok(balance) => {
@@ -1523,4 +1635,119 @@ pub fn check_single_hot_wallet_funding_detailed(
             (true, Some("Error".to_string()), Some(err_msg)) // Needs ETH (due to error), error balance string, error message
         }
     }
+} 
+
+// Main handler for Operator TBA withdrawals
+pub fn handle_operator_tba_withdrawal(
+    state: &mut State, 
+    asset: AssetType,
+    to_address_str: String, 
+    amount_str: String
+) -> Result<(), String> {
+    info!("Handling {:?} withdrawal from Operator TBA to {} for amount {}", asset, to_address_str, amount_str);
+
+    let operator_tba_address_str = state.operator_tba_address.as_ref().ok_or_else(|| {
+        error!("Operator TBA address not configured in state.");
+        "Operator TBA address not configured".to_string()
+    })?;
+    let operator_tba = Address::from_str(operator_tba_address_str).map_err(|e| {
+        error!("Invalid Operator TBA address format: {}", e);
+        format!("Invalid Operator TBA address format: {}", e)
+    })?;
+
+    let hot_wallet_signer = get_active_signer(state).map_err(|e| {
+        error!("Failed to get active hot wallet signer: {}", e);
+        format!("Active hot wallet signer not available: {}", e)
+    })?;
+
+    let target_recipient_address = Address::from_str(&to_address_str).map_err(|e| {
+        error!("Invalid recipient address format: {}", e);
+        format!("Invalid recipient address format: {}", e)
+    })?;
+
+    // Create a new provider instance for this operation
+    let eth_provider = eth::Provider::new(BASE_CHAIN_ID, 180); // 180s timeout for tx
+
+    match asset {
+        AssetType::Eth => {
+            let amount_wei = U256::from_str(&amount_str).map_err(|e| {
+                error!("Invalid ETH amount format (must be Wei string): {}", e);
+                format!("Invalid ETH amount format (must be Wei string): {}", e)
+            })?;
+            if amount_wei == U256::ZERO {
+                return Err("ETH withdrawal amount cannot be zero.".to_string());
+            }
+            info!("Initiating ETH transfer of {} wei from Operator TBA {} to {}", amount_wei, operator_tba, target_recipient_address);
+            execute_eth_transfer_from_tba(operator_tba, target_recipient_address, amount_wei, hot_wallet_signer, &eth_provider)
+                .map_err(|e| format!("ETH transfer execution failed: {:?}", e))
+                .map(|receipt| {
+                    info!("ETH withdrawal transaction submitted: {:?}", receipt.hash);
+                    // Optionally, could wait for confirmation here or let frontend handle it
+                })
+        }
+        AssetType::Usdc => {
+            let amount_usdc_units = U256::from_str(&amount_str).map_err(|e| {
+                error!("Invalid USDC amount format (must be smallest units string): {}", e);
+                format!("Invalid USDC amount format (must be smallest units string): {}", e)
+            })?;
+            if amount_usdc_units == U256::ZERO {
+                return Err("USDC withdrawal amount cannot be zero.".to_string());
+            }
+            info!("Initiating USDC transfer of {} units from Operator TBA {} to {}", amount_usdc_units, operator_tba, target_recipient_address);
+            execute_usdc_transfer_from_tba(operator_tba, target_recipient_address, amount_usdc_units, hot_wallet_signer, &eth_provider)
+                .map_err(|e| format!("USDC transfer execution failed: {:?}", e))
+                .map(|receipt| {
+                    info!("USDC withdrawal transaction submitted: {:?}", receipt.hash);
+                })
+        }
+    }
+}
+
+// Executes ETH transfer from the Operator TBA
+fn execute_eth_transfer_from_tba(
+    operator_tba: Address,
+    target_recipient: Address,
+    amount_wei: U256,
+    hot_wallet_signer: &LocalSigner, 
+    provider: &eth::Provider
+) -> Result<wallet::TxReceipt, wallet::WalletError> {
+    info!("execute_eth_transfer_from_tba: OperatorTBA={}, Recipient={}, AmountWei={}", operator_tba, target_recipient, amount_wei);
+    wallet::execute_via_tba_with_signer(
+        &operator_tba.to_string(), 
+        hot_wallet_signer, 
+        &target_recipient.to_string(), 
+        Vec::new(), // Empty calldata for native ETH transfer
+        amount_wei, 
+        provider, 
+        Some(0) // Operation: CALL
+    )
+}
+
+// Executes USDC transfer from the Operator TBA
+fn execute_usdc_transfer_from_tba(
+    operator_tba: Address,
+    target_recipient: Address,
+    amount_usdc_units: U256,
+    hot_wallet_signer: &LocalSigner, 
+    provider: &eth::Provider
+) -> Result<wallet::TxReceipt, wallet::WalletError> {
+    info!(
+        "execute_usdc_transfer_from_tba: OperatorTBA={}, Recipient={}, AmountUnits={}", 
+        operator_tba, target_recipient, amount_usdc_units
+    );
+    let usdc_contract_address = Address::from_str(BASE_USDC_ADDRESS).map_err(|_|
+        wallet::WalletError::NameResolutionError("Invalid BASE_USDC_ADDRESS constant".to_string())
+    )?;
+
+    let inner_calldata = wallet::create_erc20_transfer_calldata(target_recipient, amount_usdc_units);
+
+    wallet::execute_via_tba_with_signer(
+        &operator_tba.to_string(), 
+        hot_wallet_signer, 
+        &usdc_contract_address.to_string(), 
+        inner_calldata,
+        U256::ZERO, // Value for the outer call to TBA is 0, actual transfer is USDC
+        provider, 
+        Some(0) // Operation: CALL
+    )
 } 

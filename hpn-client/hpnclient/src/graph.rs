@@ -114,6 +114,10 @@ pub fn build_hpn_graph_data(
 
     let operator_identity_details = identity::check_operator_identity_detailed(our); 
     let mut operator_wallet_node_id: Option<String> = None;
+    let fresh_operator_entry_name: Option<String> = match &operator_identity_details {
+        IdentityStatus::Verified { entry_name, .. } => Some(entry_name.clone()),
+        _ => None,
+    };
 
     if let IdentityStatus::Verified { entry_name, tba_address, .. } = &operator_identity_details {
         let current_op_wallet_node_id = format!("operator-wallet-{}", tba_address);
@@ -293,7 +297,7 @@ pub fn build_hpn_graph_data(
             id: "action-add-hot-wallet".to_string(),
             node_type: "addHotWalletActionNode".to_string(),
             data: GraphNodeData::AddHotWalletActionNode {
-                label: "Manage / Link Hot Wallets".to_string(),
+                label: "Manage Hot Wallets".to_string(),
                 operator_tba_address: Some(tba_address.clone()),
                 action_id: "trigger_manage_wallets_modal".to_string(),
             },
@@ -303,7 +307,7 @@ pub fn build_hpn_graph_data(
             id: format!("edge-{}-action-add-hot-wallet", current_op_wallet_node_id),
             source: current_op_wallet_node_id.clone(),
             target: "action-add-hot-wallet".to_string(),
-            style_type: Some("dashed".to_string()),
+            style_type: None,
             animated: Some(true),
         });
     } else {
@@ -325,14 +329,14 @@ pub fn build_hpn_graph_data(
             id: format!("edge-{}-{}", owner_node_id, mint_action_node_id),
             source: owner_node_id.clone(),
             target: mint_action_node_id.clone(),
-            style_type: Some("dashed".to_string()),
+            style_type: None,
             animated: Some(true),
         });
     }
 
     // Only add Hot Wallet and Client nodes if Operator Wallet exists
     if operator_wallet_node_id.is_some() {
-        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(state.operator_entry_name.as_deref()) {
+        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(fresh_operator_entry_name.as_deref()) {
             Ok(linked_hw_addresses) => {
                 for hw_address_str in linked_hw_addresses {
                     let hot_wallet_node_id = format!("hot-wallet-{}", hw_address_str);
@@ -347,7 +351,12 @@ pub fn build_hpn_graph_data(
 
                     let is_active_mcp = state.selected_wallet_id.as_ref() == Some(&summary.id) && state.active_signer_cache.is_some();
                     let status_desc = if is_active_mcp {
-                        "Active in MCP".to_string()
+                        // If it's active in MCP, its status description should reflect unlocked state too
+                        if summary.is_unlocked {
+                            "Active in MCP (Unlocked)".to_string()
+                        } else {
+                            "Active in MCP (Locked)".to_string()
+                        }
                     } else if state.managed_wallets.contains_key(&summary.id) {
                         "Managed & Linked".to_string()
                     } else {
@@ -361,6 +370,10 @@ pub fn build_hpn_graph_data(
                         }
                     }
 
+                    // Get spending limits if it's a managed wallet
+                    let spending_limits = state.managed_wallets.get(&summary.id)
+                        .map(|wallet| wallet.spending_limits.clone());
+
                     nodes.push(GraphNode {
                         id: hot_wallet_node_id.clone(),
                         node_type: "hotWalletNode".to_string(),
@@ -368,9 +381,12 @@ pub fn build_hpn_graph_data(
                             address: hw_address_str.clone(),
                             name: summary.name.clone(),
                             status_description: status_desc,
-                            is_active_in_mcp: is_active_mcp,
+                            is_active_in_mcp: is_active_mcp, // This might be redundant if statusDescription covers it
+                            is_encrypted: summary.is_encrypted, // ADDED
+                            is_unlocked: summary.is_unlocked,   // ADDED
                             funding_info: hw_funding_info,
                             authorized_clients: client_ids_for_this_hw.clone(),
+                            limits: spending_limits, // ADDED
                         },
                         position: None,
                     });
@@ -411,7 +427,7 @@ pub fn build_hpn_graph_data(
                         id: add_client_action_node_id.clone(),
                         node_type: "addAuthorizedClientActionNode".to_string(),
                         data: GraphNodeData::AddAuthorizedClientActionNode {
-                            label: "Create API Client".to_string(),
+                            label: "Authorize New Client".to_string(),
                             target_hot_wallet_address: hw_address_str.clone(),
                             action_id: "trigger_add_client_modal".to_string(),
                         },
@@ -421,7 +437,7 @@ pub fn build_hpn_graph_data(
                         id: format!("edge-{}-{}", hot_wallet_node_id, add_client_action_node_id),
                         source: hot_wallet_node_id.clone(),
                         target: add_client_action_node_id.clone(),
-                        style_type: Some("dashed".to_string()),
+                        style_type: None,
                         animated: Some(true),
                     });
                 }

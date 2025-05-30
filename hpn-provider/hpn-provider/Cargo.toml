@@ -12,9 +12,6 @@ url = "2.5.4"
 uuid = "1.4.1"
 wit-bindgen = "0.36.0"
 
-[dependencies.caller-utils]
-path = "../target/caller-utils"
-
 [dependencies.hyperprocess_macro]
 git = "https://github.com/hyperware-ai/hyperprocess-macro"
 rev = "47400ab"

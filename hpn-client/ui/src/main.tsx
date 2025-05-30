@@ -13,8 +13,6 @@ import App from './App.tsx'
 import '@rainbow-me/rainbowkit/styles.css';
 import './index.css';
 
-globalThis.Buffer = Buffer
-
 export const config = createConfig({
   chains: [base],
   transports: {

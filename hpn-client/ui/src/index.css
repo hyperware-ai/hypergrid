@@ -2,7 +2,7 @@
 *,
 *::before,
 *::after {
-  box-sizing: border-box;
+  box-sizing: inherit;
   margin: 0;
   padding: 0;
 }
@@ -11,8 +11,9 @@ html,
 body,
 #root {
   height: 100%;
-  margin: 0; /* Ensure no default margins */
+  margin: 0;
   padding: 0;
+  box-sizing: border-box; /* Good practice */
 }
 
 html {
@@ -123,10 +124,9 @@ code {
 .app-container {
   display: flex;
   flex-direction: column;
-  height: 100%; /* Occupy full #root height */
-  /* Remove padding/gap for simplicity during debug */
-  /* padding: 0.5rem; */
-  /* gap: 0.5rem; */
+  height: 100%;
+  /* background-color: #282c34; /* Dark background for the whole app */
+  /* color: #abb2bf; */
 }
 
 .app-header {
@@ -151,17 +151,34 @@ code {
 }
 
 .main-wrapper {
-    display: flex;
-    flex-direction: column;
-    flex-grow: 1; /* Make wrapper take remaining vertical space */
-    overflow: hidden; /* Needed for child overflow scrolling */
-    min-height: 0; /* Crucial for flex calculation */
+  display: flex;
+  flex-direction: column; 
+  flex-grow: 1; 
+  overflow: hidden; /* Important to contain children and allow scrolling within them */
 }
 
 .main-content {
-    padding: 1rem;
-    overflow-y: auto;
-    flex-grow: 1;
+  flex-grow: 1; 
+  display: flex; /* To allow its direct child (the visualizer wrapper) to take full height */
+  flex-direction: column; /* Stack children vertically if any */
+  overflow-y: auto; /* Scroll main content if it overflows, not the visualizer itself directly */
+  /* padding: 1rem; */ /* Padding might be better inside the visualizer or specific content views */
+}
+
+/* This targets the direct child of .main-content, which should be your visualizer wrapper */
+/* or other tab content. If the wrapper has its own specific class, target that. */
+.main-content > div { 
+  height: 100%;
+  display: flex; /* if the wrapper needs to manage its children with flex */
+  flex-direction: column;
+}
+
+/* Styling for dashboard to take full height if needed */
+.dashboard-content {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto; /* Allow dashboard specific scrolling */
 }
 
 .content-section {

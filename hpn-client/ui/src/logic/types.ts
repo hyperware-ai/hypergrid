@@ -1,3 +1,5 @@
+import type { Address } from 'viem';
+
 export type AsyncRes<T> = Promise<Result<T>>;
 export type Result<T> = { ok: T } | { error: string };
 
@@ -33,7 +35,7 @@ export type ProviderJson = {
 export interface SpendingLimits {
     max_per_call: string | null;
     max_total: string | null;
-    currency: string | null;
+    currency: string;
 }
 
 // Exported for use in App.tsx and AccountManager.tsx
@@ -230,12 +232,15 @@ export interface IOperatorWalletNodeData {
 
 export interface IHotWalletNodeData {
     type: "HotWalletNode";
-    address: string;
-    name?: string | null;
+    address: Address;
+    name: string | null;
     statusDescription: string;
     isActiveInMcp: boolean;
-    fundingInfo: IHotWalletFundingInfo;
-    authorizedClients: string[]; // List of client_id
+    isEncrypted: boolean;
+    isUnlocked: boolean;
+    fundingInfo: IHotWalletFundingInfo | null;
+    authorizedClients: string[];
+    limits: SpendingLimits | null;
 }
 
 export interface IAuthorizedClientNodeData {

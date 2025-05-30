@@ -73,6 +73,12 @@ pub struct LinkedHotWalletInfo {
     pub funding_check_error: Option<String>, // For RPC errors during this wallet's funding check
 }
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ProviderDetails {
+    pub provider_id: String,
+    pub price_str: String,
+    pub wallet_address: String,
+}
 // --- End Wallet Management Structs ---
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -168,6 +174,9 @@ pub struct State {
 
     #[serde(skip)]
     pub db_conn: Option<hyperware_process_lib::sqlite::Sqlite>,
+    
+    #[serde(skip)]
+    pub timers_initialized: bool,
 }
 
 impl State {
@@ -205,6 +214,7 @@ impl State {
             hashed_shim_api_key: None, // Will be phased out
             authorized_clients: default_clients, // Initialize as empty HashMap
             db_conn: None,
+            timers_initialized: false,
         }
     }
     pub fn load() -> Self {
@@ -220,6 +230,7 @@ impl State {
                     state.cached_active_details = None;
                     state.providers_cache = HashMap::new(); 
                     state.db_conn = None; // Ensure db_conn is initialized after load
+                    state.timers_initialized = false; // Reset timer initialization flag
                     // Re-initialize hypermap to ensure a fresh eth::Provider instance
                     state.hypermap = hypermap::Hypermap::default(60);
                     // The contract_address field in state should still be respected by hypermap logic if it differs from default.
@@ -292,6 +303,16 @@ pub enum HttpMcpRequest {
     
     // New action to get details for the active/ready account
     GetActiveAccountDetails {},
+
+    // New actions for Operator TBA withdrawals
+    WithdrawEthFromOperatorTba {
+        to_address: String,
+        amount_wei_str: String, // Amount in Wei as a string to avoid precision loss
+    },
+    WithdrawUsdcFromOperatorTba {
+        to_address: String,
+        amount_usdc_units_str: String, // Amount in smallest USDC units (e.g., if 6 decimals, 1 USDC = "1000000")
+    },
 }
 // calls to the Indexer
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
@@ -500,8 +521,11 @@ pub enum GraphNodeData {
         name: Option<String>,
         status_description: String,
         is_active_in_mcp: bool,
+        is_encrypted: bool,
+        is_unlocked: bool,
         funding_info: HotWalletFundingInfo,
-        authorized_clients: Vec<String>, // List of client_id
+        authorized_clients: Vec<String>,
+        limits: Option<SpendingLimits>,
     },
     AuthorizedClientNode {
         client_id: String,

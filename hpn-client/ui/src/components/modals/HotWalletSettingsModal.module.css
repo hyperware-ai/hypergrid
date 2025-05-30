@@ -1,0 +1,227 @@
+.modalOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+}
+
+.modalContent {
+    background-color: #2c3e50; /* Dark blue-gray */
+    color: #ecf0f1; /* Light gray for text */
+    padding: 25px;
+    border-radius: 8px;
+    width: 90%;
+    max-width: 650px;
+    max-height: 85vh;
+    overflow-y: auto;
+    position: relative;
+    box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+    border: 1px solid #34495e;
+}
+
+.closeButton {
+    position: absolute;
+    top: 10px;
+    right: 15px;
+    background: transparent;
+    border: none;
+    color: #ecf0f1;
+    font-size: 1.8rem;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.modalContent h3 {
+    margin-top: 0;
+    color: #95a5a6; /* Lighter title color */
+    border-bottom: 1px solid #34495e;
+    padding-bottom: 10px;
+    margin-bottom: 20px;
+}
+
+.configSection {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #34495e80; /* Slightly transparent separator */
+}
+.configSection:last-child {
+    border-bottom: none;
+    margin-bottom: 0;
+    padding-bottom: 0;
+}
+
+.configSection h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 1.1em;
+    color: #bdc3c7; /* Slightly brighter than main text for heading */
+}
+
+.formSmallGap {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.inlineDisplay {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+}
+
+.buttonGroup {
+    display: flex;
+    gap: 10px;
+    margin-top: 5px;
+}
+
+.inputField {
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #34495e;
+    background-color: #1c2833; /* Darker input background */
+    color: #ecf0f1;
+    font-size: 0.95em;
+}
+
+.button, .buttonSecondary, .buttonWarning {
+    padding: 10px 15px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95em;
+    transition: background-color 0.2s ease, opacity 0.2s ease;
+}
+
+.button {
+    background-color: #3498db; /* Brighter blue */
+    color: white;
+}
+.button:hover {
+    background-color: #2980b9;
+}
+
+.buttonSecondary {
+    background-color: #7f8c8d; /* Gray */
+    color: white;
+}
+.buttonSecondary:hover {
+    background-color: #6c7a7b;
+}
+
+.buttonWarning {
+    background-color: #e74c3c; /* Red */
+    color: white;
+}
+.buttonWarning:hover {
+    background-color: #c0392b;
+}
+
+.button:disabled, .buttonSecondary:disabled, .buttonWarning:disabled {
+    background-color: #566573;
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.toastNotification {
+    padding: 12px 15px;
+    margin: 15px 0;
+    border-radius: 4px;
+    font-size: 0.9em;
+    text-align: center;
+}
+
+.toastSuccess {
+    background-color: #2ecc71; /* Green */
+    color: white;
+    border: 1px solid #27ae60;
+}
+
+.toastError {
+    background-color: #e74c3c; /* Red */
+    color: white;
+    border: 1px solid #c0392b;
+}
+
+.revealedKey {
+    margin-top: 12px;
+    padding: 12px;
+    background-color: #1c2833; /* Darker background */
+    border: 1px solid #34495e;
+    border-radius: 4px;
+    color: #ecf0f1;
+}
+
+.revealedKey code {
+    display: block;
+    background-color: #17202a; /* Even darker for code block */
+    padding: 10px;
+    border-radius: 3px;
+    margin: 8px 0;
+    color: #bdc3c7; 
+    font-family: monospace;
+}
+
+.spendingLimitFormCompact {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.limitInputFieldCompact {
+    flex-grow: 1;
+    padding: 10px;
+    border-radius: 4px;
+    border: 1px solid #34495e;
+    background-color: #1c2833;
+    color: #ecf0f1;
+    font-size: 0.95em;
+    min-width: 100px; /* Ensure it doesn't get too small */
+}
+
+/* Style for the number input's spin buttons (webkit browsers) */
+.limitInputFieldCompact::-webkit-inner-spin-button,
+.limitInputFieldCompact::-webkit-outer-spin-button {
+    -webkit-appearance: none; /* Hide spinners in WebKit browsers */
+    margin: 0; /* Remove any default margin */
+    opacity: 0.3; /* Keep this or remove if -webkit-appearance is enough */
+}
+
+/* Hide spinners in Firefox */
+.limitInputFieldCompact[type='number'] {
+    -moz-appearance: textfield; 
+}
+
+.limitButtonOk {
+    padding: 10px 20px; /* Make OK button a bit wider */
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.95em;
+    background-color: #2ecc71; /* Green for OK */
+    color: white;
+    transition: background-color 0.2s ease;
+}
+
+.limitButtonOk:hover {
+    background-color: #27ae60;
+}
+
+.limitButtonOk:disabled {
+    background-color: #566573;
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.warningText {
+    color: #f39c12; /* Orange for warning */
+    font-size: 0.9em;
+    margin-bottom: 8px;
+} 

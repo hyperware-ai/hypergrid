@@ -1,6 +1,6 @@
 use alloy_sol_types::SolEvent;
 use hyperware_process_lib::eth::Filter;
-use hyperware_process_lib::logging::{debug, info, error};
+use hyperware_process_lib::logging::{debug, info, error, warn};
 use hyperware_process_lib::sqlite::Sqlite;
 use hyperware_process_lib::{eth, hypermap, print_to_terminal, timer};
 use hyperware_process_lib::eth::{Provider, EthError};
@@ -38,22 +38,36 @@ pub fn make_filters(state: &State) -> (eth::Filter, eth::Filter) {
     (mint_filter, notes_filter)
 }
 pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
-    let (mints, notes) = make_filters(&state);
+    let (mints_filter, notes_filter) = make_filters(&state);
+
+    // Restore subscribe_loop for mint events
     state
         .hypermap
         .provider
-        .subscribe_loop(11, mints.clone(), 0, 0);
+        .subscribe_loop(11, mints_filter.clone(), 0, 1); // verbosity 1 for error in loop
+    info!("Initiated Mint event subscription loop (sub_id 11).");
+
+    // Restore subscribe_loop for note events
     state
         .hypermap
         .provider
-        .subscribe_loop(22, notes.clone(), 0, 0);
+        .subscribe_loop(22, notes_filter.clone(), 0, 1); // verbosity 1 for error in loop
+    info!("Initiated Note event subscription loop (sub_id 22).");
 
     let mut pending_logs: PendingLogs = Vec::new();
-    timer::set_timer(DELAY_MS, None);
-    timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
     
-    fetch_and_process_logs(state, db, &mut pending_logs, &mints);
-    fetch_and_process_logs(state, db, &mut pending_logs, &notes);
+    // Only initialize timers if they haven't been initialized yet
+    if !state.timers_initialized {
+        info!("Initializing chain sync timers...");
+        timer::set_timer(DELAY_MS, None);
+        timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
+        state.timers_initialized = true;
+    } else {
+        warn!("Timers already initialized, skipping timer initialization in start_fetch");
+    }
+    
+    fetch_and_process_logs(state, db, &mut pending_logs, &mints_filter);
+    fetch_and_process_logs(state, db, &mut pending_logs, &notes_filter);
     pending_logs
 }
 
@@ -63,7 +77,18 @@ fn fetch_and_process_logs(
     pending: &mut PendingLogs,
     filter: &Filter,
 ) {
+    let mut retries = 0;
+    const MAX_FETCH_RETRIES: u32 = 5; // Max 5 retries for a given fetch attempt
+    let mut current_delay_secs = 5; // Initial delay, can be made dynamic
+
     loop {
+        if retries >= MAX_FETCH_RETRIES {
+            error!(
+                "Max retries ({}) reached for get_logs with filter: {:?}. Aborting fetch for this filter.",
+                MAX_FETCH_RETRIES, filter
+            );
+            return; // Give up after max retries for this specific filter instance
+        }
         match state.hypermap.provider.get_logs(filter) {
             Ok(logs) => {
                 print_to_terminal(2, &format!("log len: {}", logs.len()));
@@ -75,9 +100,14 @@ fn fetch_and_process_logs(
                 return;
             }
             Err(e) => {
-                info!("got eth error while fetching logs: {e:?}, trying again in 5s...");
-                std::thread::sleep(std::time::Duration::from_secs(5));
-                continue;
+                retries += 1;
+                error!( // Changed to error! and added more context
+                    "Error fetching logs (attempt {}/{}) for filter {:?}: {:?}. Retrying in {}s...",
+                    retries, MAX_FETCH_RETRIES, filter, e, current_delay_secs
+                );
+                std::thread::sleep(std::time::Duration::from_secs(current_delay_secs));
+                // Optional: Implement exponential backoff or increase delay systematically
+                // current_delay_secs = (current_delay_secs * 2).min(60); // Example: double delay, cap at 60s
             }
         }
     }
@@ -216,22 +246,25 @@ pub fn handle_eth_message(
                 debug!("Received non-log subscription result");
             }
         }
-        Ok(Err(e)) => {
-            info!("got eth subscription error ({:?}), resubscribing", e);
+        Ok(Err(e)) => { // EthSubError from eth:distro:sys indicating a problem with the subscription itself
+            error!( // Changed from info! to error! and logging e.error for more detail
+                "Eth subscription error for sub_id {}: {}. Attempting to resubscribe.",
+                e.id, e.error // e.error contains the specific error string from EthSubError
+            );
             // Use subscription id (e.id) from error to resubscribe correctly
             let (mint_filter, note_filter) = make_filters(state);
             if e.id == 11 { // Assuming 11 was for mints
                 state
                     .hypermap
                     .provider
-                    .subscribe_loop(11, mint_filter, 2, 0);
+                    .subscribe_loop(11, mint_filter, 2, 1); // verbosity 1 for error in loop
             } else if e.id == 22 { // Assuming 22 was for notes
                 state
                     .hypermap
                     .provider
-                    .subscribe_loop(22, note_filter, 2, 0);
+                    .subscribe_loop(22, note_filter, 2, 1); // verbosity 1 for error in loop
             } else {
-                 info!("Unknown subscription ID error: {}", e.id);
+                 error!("Unknown subscription ID {} received in EthSubError while attempting to resubscribe.", e.id);
             }
         }
         Err(e) => {
@@ -248,23 +281,33 @@ pub fn handle_timer(
     pending: &mut PendingLogs,
     is_checkpoint: bool,
 ) -> anyhow::Result<()> {
+    let timer_type = if is_checkpoint { "CHECKPOINT" } else { "DELAY" };
+    //info!("Timer event received: {} timer", timer_type);
     debug!("handling timer - pending: {:?}", pending.len());
+    
+    //info!("Calling get_block_number from {} timer...", timer_type);
     let block_number = state.hypermap.provider.get_block_number();
     if let Ok(block_number) = block_number {
         debug!("Current block: {}", block_number);
         state.last_checkpoint_block = block_number;
         if is_checkpoint {
-            info!("Checkpointing state at block {}", block_number);
+            //info!("Checkpointing state at block {}", block_number);
             state.save();
             // Reset checkpoint timer
+            //info!("Resetting CHECKPOINT timer (5 minutes)");
             timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
+        } else {
+            // This is a regular DELAY_MS timer event
+            // Reset the delay timer ONLY when handling a delay timer event
+            //info!("Resetting DELAY timer (30 seconds)");
+            timer::set_timer(DELAY_MS, None);
         }
+    } else {
+        error!("Failed to get block number in {} timer: {:?}", timer_type, block_number);
     }
     handle_pending(state, db, pending);
     debug!("new pending: {:?}", pending.len());
 
-    // Always reset the delay timer
-    timer::set_timer(DELAY_MS, None);
     Ok(())
 }
 

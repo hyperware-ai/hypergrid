@@ -12,6 +12,7 @@ import {
     namehash as viemNamehash, // Using viem's namehash
     encodePacked,
 } from 'viem';
+import { useCallback, useMemo } from 'react';
 
 // Export viemNamehash so it can be imported directly by other modules
 export { viemNamehash };
@@ -150,18 +151,20 @@ interface UseWriteHypermapContractProps {
  * This follows the pattern from hypermap-explorer.
  */
 export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
+    const { onSuccess, onError, onSettled } = props || {};
+
     const { data: transactionHash, error, isPending, writeContract, writeContractAsync, reset } = useWriteContract({
         mutation: {
-            onSuccess: props?.onSuccess, 
-            onError: props?.onError,
-            onSettled: props?.onSettled, 
+            onSuccess: onSuccess,
+            onError: onError,
+            onSettled: onSettled,
         },
     });
 
     const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
         useWaitForTransactionReceipt({ hash: transactionHash, chainId: BASE_CHAIN_ID });
 
-    const mint = ({
+    const mintInternal = useCallback(({
         parentTbaAddress, // Address of the parent TBA (e.g., pertinent.os's TBA)
         ownerOfNewSubTba,   // EOA that will own the new sub-TBA
         subLabelToMint,     // Label for the new sub-entry (e.g., "hpn-op" or "hpn-beta-wallet")
@@ -175,7 +178,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
         if (!parentTbaAddress || !ownerOfNewSubTba || !subLabelToMint) {
             console.error("Missing parentTbaAddress, ownerOfNewSubTba, or subLabelToMint for minting.");
             const err = new Error("Missing required arguments for minting operator sub-entry.");
-            props?.onError?.(err);
+            if (onError) onError(err);
             // It's good practice to also throw or handle the error flow if the hook user isn't handling onError
             // For now, just logging and calling onError prop.
             return;
@@ -215,17 +218,17 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
             args: executeArgs,
             chainId: BASE_CHAIN_ID,
         });
-    };
+    }, [writeContract, onError]);
 
-    return {
-        mint,
+    return useMemo(() => ({
+        mint: mintInternal,
         transactionHash,
         isSending: isPending, 
         isConfirming,
         isConfirmed,
         error: error || receiptError, 
         reset, 
-    };
+    }), [mintInternal, transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset]);
 }
 
 /**
@@ -233,18 +236,20 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
  * The EOA owner of the Operator TBA calls `operatorTBA.execute(...)`.
  */
 export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
+    const { onSuccess, onError, onSettled } = props || {};
+
     const { data: transactionHash, error, isPending, writeContract, writeContractAsync, reset } = useWriteContract({
         mutation: {
-            onSuccess: props?.onSuccess,
-            onError: props?.onError,
-            onSettled: props?.onSettled,
+            onSuccess: onSuccess,
+            onError: onError,
+            onSettled: onSettled,
         },
     });
     
     const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
         useWaitForTransactionReceipt({ hash: transactionHash, chainId: BASE_CHAIN_ID });
 
-    const setNote = ({
+    const setNoteInternal = useCallback(({
         operatorTbaAddress,
         noteKey,
         noteValueHex, // Expecting value to be already hex-encoded (e.g. namehash or abi-encoded array)
@@ -255,7 +260,7 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
     }) => {
         if (!operatorTbaAddress || !noteKey) {
             console.error("Missing operatorTbaAddress or noteKey for setting note.");
-            props?.onError?.(new Error("Missing operatorTbaAddress or noteKey"));
+            if (onError) onError(new Error("Missing operatorTbaAddress or noteKey"));
             return;
         }
 
@@ -270,7 +275,7 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
         });
         
         console.log(`useSetOperatorNote: Setting note '${noteKey}' on TBA ${operatorTbaAddress} with value ${noteValueHex}`);
-        console.log(`   -> executeArgs for TBA: [\n    target: ${executeArgs[0]},\n    value: ${executeArgs[1]},\n    data: ${executeArgs[2]},\n    operation: ${executeArgs[3]}\n   ]`);
+        console.log(`   -> executeArgs for TBA: [\\n    target: ${executeArgs[0]},\\n    value: ${executeArgs[1]},\\n    data: ${executeArgs[2]},\\n    operation: ${executeArgs[3]}\\n   ]`);
 
         writeContract({
             address: operatorTbaAddress,
@@ -279,7 +284,7 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
             args: executeArgs,
             chainId: BASE_CHAIN_ID,
         });
-    };
+    }, [writeContract, onError]);
     
     // --- Specialized HPN Note Setting Functions ---
 
@@ -287,7 +292,7 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
      * Sets the '~hpn-beta-access-list' note on the Operator TBA.
      * The value of this note is the namehash of '~hpn-beta-signers.OPERATOR_ENTRY_NAME'.
      */
-    const setAccessListNote = ({ 
+    const setAccessListNoteInternal = useCallback(({ 
         operatorTbaAddress, 
         operatorEntryName 
     }: { 
@@ -297,7 +302,7 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
         if (!operatorTbaAddress || !operatorEntryName) {
             const err = new Error("Missing operatorTbaAddress or operatorEntryName for setAccessListNote");
             console.error("useSetOperatorNote.setAccessListNote:", err.message);
-            props?.onError?.(err);
+            if (onError) onError(err);
             return;
         }
         // The access list note stores the *namehash* of the signers note path.
@@ -309,18 +314,18 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
         console.log(`  Note Key (simple): ${HPN_ACCESS_LIST_NOTE_KEY}`);
         console.log(`  Value to store (namehash of signers note path '${signersNotePath}'): ${valueToStore}`);
 
-        setNote({
+        setNoteInternal({
             operatorTbaAddress,
             noteKey: HPN_ACCESS_LIST_NOTE_KEY, // Use the simple base key for the note on the TBA
             noteValueHex: valueToStore,      // The namehash of the full signers note path is the value
         });
-    };
+    }, [setNoteInternal, onError]);
 
     /**
      * Sets the '~hpn-beta-signers' note on the Operator TBA.
      * The value is an ABI-encoded address array of hot wallet addresses.
      */
-    const setSignersNote = ({
+    const setSignersNoteInternal = useCallback(({
         operatorTbaAddress,
         operatorEntryName, // Still useful for logging and constructing full paths for external reference
         hotWalletAddresses,
@@ -329,12 +334,12 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
         operatorEntryName: string;
         hotWalletAddresses: Address[];
     }) => {
-        if (!operatorTbaAddress || !operatorEntryName || !hotWalletAddresses || hotWalletAddresses.length === 0) {
+        if (!operatorTbaAddress || !operatorEntryName || !hotWalletAddresses) {
             const err = new Error(
-                "Missing operatorTbaAddress, operatorEntryName, or hotWalletAddresses (or empty array) for setSignersNote"
+                "Missing operatorTbaAddress, operatorEntryName, or hotWalletAddresses for setSignersNote"
             );
             console.error("useSetOperatorNote.setSignersNote:", err.message);
-            props?.onError?.(err);
+            if (onError) onError(err);
             return;
         }
 
@@ -347,24 +352,27 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
         console.log(`  Addresses to store: ${hotWalletAddresses.join(', ')}`);
         console.log(`  ABI Encoded Addresses: ${encodedAddresses}`);
 
-        setNote({
+        setNoteInternal({
             operatorTbaAddress,
             noteKey: HPN_SIGNERS_NOTE_KEY, // Use the simple base key for the note on the TBA
             noteValueHex: encodedAddresses, // The ABI-encoded array of addresses
         });
-    };
+    }, [setNoteInternal, onError]);
 
-    return {
-        setNote, // Generic note setter
-        setAccessListNote, // Specialized for HPN access list
-        setSignersNote,    // Specialized for HPN signers list
+    return useMemo(() => ({
+        setNote: setNoteInternal, // Generic note setter
+        setAccessListNote: setAccessListNoteInternal, // Specialized for HPN access list
+        setSignersNote: setSignersNoteInternal,    // Specialized for HPN signers list
         transactionHash,
         isSending: isPending,
         isConfirming,
         isConfirmed,
         error: error || receiptError,
         reset,
-    };
+    }), [
+        setNoteInternal, setAccessListNoteInternal, setSignersNoteInternal,
+        transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset
+    ]);
 }
 
 // Example usage (conceptual, would be in a React component):
