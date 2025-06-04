@@ -1,7 +1,4 @@
 use std::collections::HashMap;
-use std::str::FromStr;
-
-use alloy_primitives::{Address as EthAddress, U256};
 
 use chrono::Utc;
 use hyperware_process_lib::{
@@ -10,30 +7,27 @@ use hyperware_process_lib::{
         Method, 
         StatusCode,
         Response as HttpResponse,
-        server::{send_response, HttpServerRequest, HttpBindingConfig, HttpServerError, IncomingHttpRequest},
+        server::{send_response, HttpServerRequest, IncomingHttpRequest},
     },
     logging::{error, info, warn},
     signer::Signer,
-    wallet, signer,
     sqlite::Sqlite,
     vfs,
-    Address, eth, hypermap,
-    ProcessId, PackageId, Request as ProcessRequest, SendErrorKind,
+    Address, 
+    Request as ProcessRequest,
 };
-use rand::{distributions::Alphanumeric, Rng};
-use serde::{Serialize, Deserialize};
 use serde_json::{json, Value};
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
 
 use crate::{
     authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities},
-    chain,
     db as dbm,
     helpers::{send_json_response},
     identity,
-    structs::{self, *, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse},
-    wallet_manager::{self, BASE_CHAIN_ID, BASE_USDC_ADDRESS},
+    structs::{*, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse},
+    //wallet_manager,
+    wallet::{service as wallet_service, payments as wallet_payments},
     graph::handle_get_hpn_graph_layout,
 };
 
@@ -273,183 +267,183 @@ fn handle_get_setup_status(state: &State) -> anyhow::Result<()> {
 
 /// Determines the current onboarding status by performing necessary checks.
 /// Uses the new detailed check functions.
-fn handle_get_onboarding_status(state: &State, our: &Address) -> anyhow::Result<()> {
-    info!("Handling GET /onboarding-status for node {}...", our.node);
-    
-    let mut response = OnboardingStatusResponse {
-        status: OnboardingStatus::Loading, // Start with Loading, will be updated
-        checks: OnboardingCheckDetails::default(),
-        errors: Vec::new(),
-    };
-    let mut first_failure_status: Option<OnboardingStatus> = None;
-
-    // --- 1. Identity Check (Operator General) ---
-    info!("Onboarding Check 1: Identity...");
-    let identity_status = identity::check_operator_identity_detailed(our);
-    response.checks.identity_status = Some(identity_status.clone());
-    match &identity_status {
-        IdentityStatus::Verified { entry_name, tba_address, .. } => {
-            response.checks.identity_configured = true;
-            response.checks.operator_entry = Some(entry_name.clone());
-            response.checks.operator_tba = Some(tba_address.clone());
-            info!("  -> Identity OK (Verified). Entry: {}, TBA: {}", entry_name, tba_address);
-        }
-        status => {
-            response.checks.identity_configured = false;
-            response.errors.push(format!("Identity Check Failed: {:?}", status));
-            first_failure_status.get_or_insert(OnboardingStatus::NeedsOnChainSetup);
-            info!("  -> Identity FAILED.");
-        }
-    }
-
-    // --- 2. Operator TBA Funding Check ---
-    // Only run if identity is configured (TBA exists to be funded).
-    if response.checks.identity_configured {
-        info!("Onboarding Check 2: Operator TBA Funding...");
-        // This function call needs to be adapted or replaced if it also checks hot wallet funding.
-        // For now, assuming wallet_manager::check_funding_status_detailed can be called
-        // and we only use its TBA-related fields.
-        // OR, we might need a new function wallet_manager::check_tba_funding_detailed(...)
-        let tba_funding_details = wallet_manager::check_operator_tba_funding_detailed(
-            response.checks.operator_tba.as_deref() // Pass the TBA verified in *this* request
-        );
-
-        response.checks.tba_eth_funded = Some(!tba_funding_details.tba_needs_eth);
-        response.checks.tba_usdc_funded = Some(!tba_funding_details.tba_needs_usdc);
-        response.checks.tba_eth_balance_str = tba_funding_details.tba_eth_balance_str;
-        response.checks.tba_usdc_balance_str = tba_funding_details.tba_usdc_balance_str;
-        response.checks.tba_funding_check_error = tba_funding_details.check_error.clone();
-
-        if let Some(err_msg) = &tba_funding_details.check_error {
-            response.errors.push(format!("Operator TBA Funding Check Error: {}", err_msg));
-            first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-            info!("  -> Operator TBA Funding CHECK ERROR.");
-        }
-        if tba_funding_details.tba_needs_eth || tba_funding_details.tba_needs_usdc {
-            first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-            if tba_funding_details.tba_needs_eth { response.errors.push("Warning: Operator TBA requires ETH for gas.".to_string()); }
-            if tba_funding_details.tba_needs_usdc { response.errors.push("Warning: Operator TBA requires USDC for payments.".to_string()); }
-            info!("  -> Operator TBA Funding NEEDED.");
-        } else if tba_funding_details.check_error.is_none() {
-            info!("  -> Operator TBA Funding OK.");
-        }
-    } else {
-        info!("Skipping Operator TBA Funding check due to Identity failure.");
-        response.checks.tba_eth_funded = Some(false);
-        response.checks.tba_usdc_funded = Some(false);
-        response.checks.tba_funding_check_error = Some("Skipped due to identity failure".to_string());
-        // If identity failed, NeedsOnChainSetup is already set.
-    }
-
-    // --- 3. Linked Hot Wallets Checks (Delegation & Funding) ---
-    info!("Onboarding Check 3: Linked Hot Wallets...");
-    if response.checks.identity_configured {
-        // Fetch all on-chain linked hot wallet addresses
-        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(
-            response.checks.operator_entry.as_deref(),
-            // TODO: Consider how to best provide eth_provider if it's managed centrally
-            // For now, get_all_onchain_linked_hot_wallet_addresses creates its own.
-        ) {
-            Ok(linked_addresses) => {
-                info!("  -> Successfully fetched {} on-chain linked hot wallet addresses.", linked_addresses.len());
-
-                if linked_addresses.is_empty() {
-                    response.errors.push("No hot wallets appear to be linked on-chain to the operator identity.".to_string());
-                    first_failure_status.get_or_insert(OnboardingStatus::NeedsHotWallet);
-                    info!("  -> No linked hot wallets found for operator: {:?}", response.checks.operator_entry);
-        }
-
-                for hot_wallet_address_str in linked_addresses {
-                    info!("  Checking Hot Wallet: {}...", hot_wallet_address_str);
-
-                    // 3a. Get WalletSummary for this address
-                    let summary = wallet_manager::get_wallet_summary_for_address(state, &hot_wallet_address_str);
-
-                    // 3b. Delegation Check for this specific hot wallet
-                    let delegation_status = wallet_manager::verify_single_hot_wallet_delegation_detailed(
-                        state, // Though _state is unused in current verify_single_hot_wallet_delegation_detailed
-                        response.checks.operator_entry.as_deref(),
-                        &hot_wallet_address_str
-                    );
-
-                    if delegation_status != DelegationStatus::Verified {
-                        response.errors.push(format!(
-                            "Hot Wallet {} Delegation Issue: {:?}",
-                            hot_wallet_address_str, delegation_status
-                        ));
-                        match delegation_status {
-                            DelegationStatus::NeedsIdentity => first_failure_status.get_or_insert(OnboardingStatus::NeedsOnChainSetup),
-                            _ => first_failure_status.get_or_insert(OnboardingStatus::NeedsHotWallet),
-                        };
-                        info!("    -> Delegation FAILED for {}: {:?}", hot_wallet_address_str, delegation_status);
-                    } else {
-                        info!("    -> Delegation OK for {}.", hot_wallet_address_str);
-                    }
-
-                    // 3c. Funding Check for this specific hot wallet
-                    let (hw_needs_eth, hw_eth_balance_str, hw_funding_check_error) =
-                        wallet_manager::check_single_hot_wallet_funding_detailed(state, &hot_wallet_address_str);
-
-                    if let Some(err_msg) = &hw_funding_check_error {
-                        response.errors.push(format!("Hot Wallet {} Funding Check Error: {}", hot_wallet_address_str, err_msg));
-                        first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-                        info!("    -> Hot Wallet {} Funding CHECK ERROR.", hot_wallet_address_str);
-                    }
-                    if hw_needs_eth {
-                        response.errors.push(format!("Warning: Hot Wallet {} requires ETH for gas.", hot_wallet_address_str));
-                        first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-                        info!("    -> Hot Wallet {} Funding NEEDED.", hot_wallet_address_str);
-                    } else if hw_funding_check_error.is_none() {
-                        info!("    -> Hot Wallet {} Funding OK.", hot_wallet_address_str);
-                    }
-
-                    response.checks.linked_hot_wallets_info.push(LinkedHotWalletInfo {
-                        summary,
-                        delegation_status: Some(delegation_status),
-                        needs_eth_funding: hw_needs_eth,
-                        eth_balance_str: hw_eth_balance_str,
-                        funding_check_error: hw_funding_check_error,
-                    });
-                }
-        }
-        Err(e) => {
-                response.errors.push(format!("Failed to retrieve linked hot wallets: {}", e));
-                first_failure_status.get_or_insert(OnboardingStatus::Error); // Or NeedsOnChainSetup if appropriate
-                info!("  -> Failed to retrieve linked hot wallets: {}", e);
-            }
-        }
-    } else {
-        info!("Skipping Linked Hot Wallets check due to Identity failure.");
-        // No explicit error message here for skipping, as the identity failure is already primary.
-    }
-
-
-    // Determine final status
-    response.status = first_failure_status.unwrap_or(OnboardingStatus::Ready);
-    // If all checks passed but no hot wallets are linked, and identity IS configured,
-    // then status should probably be NeedsHotWallet.
-    if response.status == OnboardingStatus::Ready && response.checks.identity_configured && response.checks.linked_hot_wallets_info.is_empty() {
-        info!("All checks initially Ready, but no linked hot wallets found. Setting status to NeedsHotWallet.");
-        response.status = OnboardingStatus::NeedsHotWallet;
-        // Add a general error if not already present from the loop above.
-        if !response.errors.iter().any(|e| e.contains("No hot wallets appear to be linked")) {
-             response.errors.push("Operator identity is configured, but no hot wallets are linked on-chain.".to_string());
-        }
-    }
-
-
-    info!("Final Onboarding Status: {:?}, Linked Wallets: {}, Errors: {:?}",
-        response.status,
-        response.checks.linked_hot_wallets_info.len(),
-        response.errors
-    );
-    send_json_response(StatusCode::OK, &response)
-}
+//fn handle_get_onboarding_status(state: &State, our: &Address) -> anyhow::Result<()> {
+//    info!("Handling GET /onboarding-status for node {}...", our.node);
+//    
+//    let mut response = OnboardingStatusResponse {
+//        status: OnboardingStatus::Loading, // Start with Loading, will be updated
+//        checks: OnboardingCheckDetails::default(),
+//        errors: Vec::new(),
+//    };
+//    let mut first_failure_status: Option<OnboardingStatus> = None;
+//
+//    // --- 1. Identity Check (Operator General) ---
+//    info!("Onboarding Check 1: Identity...");
+//    let identity_status = identity::check_operator_identity_detailed(our);
+//    response.checks.identity_status = Some(identity_status.clone());
+//    match &identity_status {
+//        IdentityStatus::Verified { entry_name, tba_address, .. } => {
+//            response.checks.identity_configured = true;
+//            response.checks.operator_entry = Some(entry_name.clone());
+//            response.checks.operator_tba = Some(tba_address.clone());
+//            info!("  -> Identity OK (Verified). Entry: {}, TBA: {}", entry_name, tba_address);
+//        }
+//        status => {
+//            response.checks.identity_configured = false;
+//            response.errors.push(format!("Identity Check Failed: {:?}", status));
+//            first_failure_status.get_or_insert(OnboardingStatus::NeedsOnChainSetup);
+//            info!("  -> Identity FAILED.");
+//        }
+//    }
+//
+//    // --- 2. Operator TBA Funding Check ---
+//    // Only run if identity is configured (TBA exists to be funded).
+//    if response.checks.identity_configured {
+//        info!("Onboarding Check 2: Operator TBA Funding...");
+//        // This function call needs to be adapted or replaced if it also checks hot wallet funding.
+//        // For now, assuming wallet_manager::check_funding_status_detailed can be called
+//        // and we only use its TBA-related fields.
+//        // OR, we might need a new function wallet_manager::check_tba_funding_detailed(...)
+//        let tba_funding_details = wallet_manager::check_operator_tba_funding_detailed(
+//            response.checks.operator_tba.as_deref() // Pass the TBA verified in *this* request
+//        );
+//
+//        response.checks.tba_eth_funded = Some(!tba_funding_details.tba_needs_eth);
+//        response.checks.tba_usdc_funded = Some(!tba_funding_details.tba_needs_usdc);
+//        response.checks.tba_eth_balance_str = tba_funding_details.tba_eth_balance_str;
+//        response.checks.tba_usdc_balance_str = tba_funding_details.tba_usdc_balance_str;
+//        response.checks.tba_funding_check_error = tba_funding_details.check_error.clone();
+//
+//        if let Some(err_msg) = &tba_funding_details.check_error {
+//            response.errors.push(format!("Operator TBA Funding Check Error: {}", err_msg));
+//            first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
+//            info!("  -> Operator TBA Funding CHECK ERROR.");
+//        }
+//        if tba_funding_details.tba_needs_eth || tba_funding_details.tba_needs_usdc {
+//            first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
+//            if tba_funding_details.tba_needs_eth { response.errors.push("Warning: Operator TBA requires ETH for gas.".to_string()); }
+//            if tba_funding_details.tba_needs_usdc { response.errors.push("Warning: Operator TBA requires USDC for payments.".to_string()); }
+//            info!("  -> Operator TBA Funding NEEDED.");
+//        } else if tba_funding_details.check_error.is_none() {
+//            info!("  -> Operator TBA Funding OK.");
+//        }
+//    } else {
+//        info!("Skipping Operator TBA Funding check due to Identity failure.");
+//        response.checks.tba_eth_funded = Some(false);
+//        response.checks.tba_usdc_funded = Some(false);
+//        response.checks.tba_funding_check_error = Some("Skipped due to identity failure".to_string());
+//        // If identity failed, NeedsOnChainSetup is already set.
+//    }
+//
+//    // --- 3. Linked Hot Wallets Checks (Delegation & Funding) ---
+//    info!("Onboarding Check 3: Linked Hot Wallets...");
+//    if response.checks.identity_configured {
+//        // Fetch all on-chain linked hot wallet addresses
+//        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(
+//            response.checks.operator_entry.as_deref(),
+//            // TODO: Consider how to best provide eth_provider if it's managed centrally
+//            // For now, get_all_onchain_linked_hot_wallet_addresses creates its own.
+//        ) {
+//            Ok(linked_addresses) => {
+//                info!("  -> Successfully fetched {} on-chain linked hot wallet addresses.", linked_addresses.len());
+//
+//                if linked_addresses.is_empty() {
+//                    response.errors.push("No hot wallets appear to be linked on-chain to the operator identity.".to_string());
+//                    first_failure_status.get_or_insert(OnboardingStatus::NeedsHotWallet);
+//                    info!("  -> No linked hot wallets found for operator: {:?}", response.checks.operator_entry);
+//        }
+//
+//                for hot_wallet_address_str in linked_addresses {
+//                    info!("  Checking Hot Wallet: {}...", hot_wallet_address_str);
+//
+//                    // 3a. Get WalletSummary for this address
+//                    let summary = wallet_manager::get_wallet_summary_for_address(state, &hot_wallet_address_str);
+//
+//                    // 3b. Delegation Check for this specific hot wallet
+//                    let delegation_status = wallet_manager::verify_single_hot_wallet_delegation_detailed(
+//                        state, // Though _state is unused in current verify_single_hot_wallet_delegation_detailed
+//                        response.checks.operator_entry.as_deref(),
+//                        &hot_wallet_address_str
+//                    );
+//
+//                    if delegation_status != DelegationStatus::Verified {
+//                        response.errors.push(format!(
+//                            "Hot Wallet {} Delegation Issue: {:?}",
+//                            hot_wallet_address_str, delegation_status
+//                        ));
+//                        match delegation_status {
+//                            DelegationStatus::NeedsIdentity => first_failure_status.get_or_insert(OnboardingStatus::NeedsOnChainSetup),
+//                            _ => first_failure_status.get_or_insert(OnboardingStatus::NeedsHotWallet),
+//                        };
+//                        info!("    -> Delegation FAILED for {}: {:?}", hot_wallet_address_str, delegation_status);
+//                    } else {
+//                        info!("    -> Delegation OK for {}.", hot_wallet_address_str);
+//                    }
+//
+//                    // 3c. Funding Check for this specific hot wallet
+//                    let (hw_needs_eth, hw_eth_balance_str, hw_funding_check_error) =
+//                        wallet_manager::check_single_hot_wallet_funding_detailed(state, &hot_wallet_address_str);
+//
+//                    if let Some(err_msg) = &hw_funding_check_error {
+//                        response.errors.push(format!("Hot Wallet {} Funding Check Error: {}", hot_wallet_address_str, err_msg));
+//                        first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
+//                        info!("    -> Hot Wallet {} Funding CHECK ERROR.", hot_wallet_address_str);
+//                    }
+//                    if hw_needs_eth {
+//                        response.errors.push(format!("Warning: Hot Wallet {} requires ETH for gas.", hot_wallet_address_str));
+//                        first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
+//                        info!("    -> Hot Wallet {} Funding NEEDED.", hot_wallet_address_str);
+//                    } else if hw_funding_check_error.is_none() {
+//                        info!("    -> Hot Wallet {} Funding OK.", hot_wallet_address_str);
+//                    }
+//
+//                    response.checks.linked_hot_wallets_info.push(LinkedHotWalletInfo {
+//                        summary,
+//                        delegation_status: Some(delegation_status),
+//                        needs_eth_funding: hw_needs_eth,
+//                        eth_balance_str: hw_eth_balance_str,
+//                        funding_check_error: hw_funding_check_error,
+//                    });
+//                }
+//        }
+//        Err(e) => {
+//                response.errors.push(format!("Failed to retrieve linked hot wallets: {}", e));
+//                first_failure_status.get_or_insert(OnboardingStatus::Error); // Or NeedsOnChainSetup if appropriate
+//                info!("  -> Failed to retrieve linked hot wallets: {}", e);
+//            }
+//        }
+//    } else {
+//        info!("Skipping Linked Hot Wallets check due to Identity failure.");
+//        // No explicit error message here for skipping, as the identity failure is already primary.
+//    }
+//
+//
+//    // Determine final status
+//    response.status = first_failure_status.unwrap_or(OnboardingStatus::Ready);
+//    // If all checks passed but no hot wallets are linked, and identity IS configured,
+//    // then status should probably be NeedsHotWallet.
+//    if response.status == OnboardingStatus::Ready && response.checks.identity_configured && response.checks.linked_hot_wallets_info.is_empty() {
+//        info!("All checks initially Ready, but no linked hot wallets found. Setting status to NeedsHotWallet.");
+//        response.status = OnboardingStatus::NeedsHotWallet;
+//        // Add a general error if not already present from the loop above.
+//        if !response.errors.iter().any(|e| e.contains("No hot wallets appear to be linked")) {
+//             response.errors.push("Operator identity is configured, but no hot wallets are linked on-chain.".to_string());
+//        }
+//    }
+//
+//
+//    info!("Final Onboarding Status: {:?}, Linked Wallets: {}, Errors: {:?}",
+//        response.status,
+//        response.checks.linked_hot_wallets_info.len(),
+//        response.errors
+//    );
+//    send_json_response(StatusCode::OK, &response)
+//}
 
 /// Handles GET requests to /api/managed-wallets
 fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
     info!("Handling GET /api/managed-wallets...");
-    let (selected_id, summaries) = wallet_manager::get_wallet_summary_list(state);
+    let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
     // The frontend will primarily use the summaries (Vec<WalletSummary>).
     // We can decide if selected_id is also useful for this specific endpoint or if summaries alone suffice.
     // For now, returning both as per get_wallet_summary_list structure.
@@ -475,9 +469,9 @@ fn handle_get(
     );
     match path_str {
         "/api/setup-status" | "setup-status" => handle_get_setup_status(state)?,
-        "/api/onboarding-status" | "onboarding-status" => {
-            handle_get_onboarding_status(state, our)?
-        }
+        //"/api/onboarding-status" | "onboarding-status" => {
+        //    handle_get_onboarding_status(state, our)?
+        //}
         "/api/hpn-graph" | "/hpn-graph" => {
             info!("DEBUG: Handling GET /api/hpn-graph");
             handle_get_hpn_graph_layout(our, state, db)?
@@ -513,7 +507,13 @@ fn handle_get(
 }
 
 // Modify handle_mcp signature and how it calls handle_provider_call_request
-fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite, client_config_opt: Option<HotWalletAuthorizedClient>) -> anyhow::Result<()> {
+fn handle_mcp(
+    our: &Address, 
+    req: HttpMcpRequest, 
+    state: &mut State, 
+    db: &Sqlite, 
+    client_config_opt: Option<HotWalletAuthorizedClient>
+) -> anyhow::Result<()> {
     info!("mcp request: {:?}", req);
     match req {
         HttpMcpRequest::SearchRegistry(query) => {
@@ -541,26 +541,26 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
         // Wallet Summary/Selection Actions
         HttpMcpRequest::GetWalletSummaryList {} => {
             info!("DEBUG: Handling McpRequest::GetWalletSummaryList");
-            let (selected_id, summaries) = wallet_manager::get_wallet_summary_list(state);
+            let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
             send_json_response(StatusCode::OK, &json!({ "selected_id": selected_id, "wallets": summaries }))
         }
         HttpMcpRequest::SelectWallet { wallet_id } => {
             info!("DEBUG: Handling McpRequest::SelectWallet");
-            match wallet_manager::select_wallet(state, wallet_id) {
+            match wallet_service::select_wallet(state, wallet_id) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
             }
         }
         HttpMcpRequest::RenameWallet { wallet_id, new_name } => {
              info!("DEBUG: Handling McpRequest::RenameWallet");
-             match wallet_manager::rename_wallet(state, wallet_id, new_name) {
+             match wallet_service::rename_wallet(state, wallet_id, new_name) {
                  Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                  Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
              }
         }
          HttpMcpRequest::DeleteWallet { wallet_id } => {
              info!("DEBUG: Handling McpRequest::DeleteWallet");
-             match wallet_manager::delete_wallet(state, wallet_id) {
+             match wallet_service::delete_wallet(state, wallet_id) {
                  Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                  Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
              }
@@ -570,14 +570,14 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
          HttpMcpRequest::GenerateWallet {} => {
              info!("DEBUG: Handling McpRequest::GenerateWallet");
              // generate_initial_wallet returns the wallet, we need to add it to state
-             match wallet_manager::generate_initial_wallet() { 
+             match wallet_service::generate_initial_wallet() { 
                  Ok(wallet) => {
                      let wallet_id = wallet.id.clone();
                      state.managed_wallets.insert(wallet_id.clone(), wallet);
                      // Automatically select if none selected?
                      if state.selected_wallet_id.is_none() {
                           // Use the select function which handles cache etc.
-                          let _ = wallet_manager::select_wallet(state, wallet_id.clone());
+                          let _ = wallet_service::select_wallet(state, wallet_id.clone());
                      } else {
                          state.save(); // Save state if not selecting
                      }
@@ -588,7 +588,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
          }
         HttpMcpRequest::ImportWallet { private_key, password, name } => {
             info!("DEBUG: Handling McpRequest::ImportWallet");
-            match wallet_manager::import_new_wallet(state, private_key, password, name) {
+            match wallet_service::import_new_wallet(state, private_key, password, name) {
                 Ok(address) => send_json_response(StatusCode::OK, &json!({ "success": true, "address": address })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
             }
@@ -601,7 +601,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                  Some(id) => id,
                  None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
              };
-             match wallet_manager::activate_wallet(state, selected_id, password) {
+             match wallet_service::activate_wallet(state, selected_id, password) {
                 Ok(()) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
             }
@@ -612,7 +612,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                  Some(id) => id,
                  None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
              };
-             match wallet_manager::deactivate_wallet(state, selected_id) {
+             match wallet_service::deactivate_wallet(state, selected_id) {
                  Ok(()) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                  Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
              }
@@ -623,7 +623,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                  Some(id) => id,
                  None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
              };
-             match wallet_manager::set_wallet_spending_limits(state, selected_id, limits) {
+             match wallet_service::set_wallet_spending_limits(state, selected_id, limits) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
             }
@@ -634,7 +634,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                  Some(id) => id,
                  None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
              };
-            match wallet_manager::export_private_key(state, selected_id, password) {
+            match wallet_service::export_private_key(state, selected_id, password) {
                 Ok(private_key) => send_json_response(StatusCode::OK, &json!({ "success": true, "private_key": private_key })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
             }
@@ -645,7 +645,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                  Some(id) => id,
                  None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
              };
-             match wallet_manager::set_wallet_password(state, selected_id, new_password, old_password) {
+             match wallet_service::set_wallet_password(state, selected_id, new_password, old_password) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
             }
@@ -656,7 +656,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
                  Some(id) => id,
                  None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
              };
-             match wallet_manager::remove_wallet_password(state, selected_id, current_password) {
+             match wallet_service::remove_wallet_password(state, selected_id, current_password) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
             }
@@ -671,7 +671,7 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
 
             // Cache miss, proceed to fetch
             info!("Active account details cache miss. Fetching...");
-            match wallet_manager::get_active_account_details(state) {
+            match wallet_service::get_active_account_details(state) {
                 Ok(Some(details)) => {
                     // Store in cache before returning
                     info!("Fetched details successfully. Caching and returning.");
@@ -696,9 +696,9 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
         // --- Operator TBA Withdrawal Actions ---
         HttpMcpRequest::WithdrawEthFromOperatorTba { to_address, amount_wei_str } => {
             info!("MCP: Handling WithdrawEthFromOperatorTba to: {}, amount_wei: {}", to_address, amount_wei_str);
-            match wallet_manager::handle_operator_tba_withdrawal(
+            match wallet_payments::handle_operator_tba_withdrawal(
                 state, 
-                wallet_manager::AssetType::Eth, // Assuming you'll define this enum in wallet_manager
+                wallet_payments::AssetType::Eth,
                 to_address, 
                 amount_wei_str
             ) {
@@ -708,9 +708,9 @@ fn handle_mcp(our: &Address, req: HttpMcpRequest, state: &mut State, db: &Sqlite
         }
         HttpMcpRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => {
             info!("MCP: Handling WithdrawUsdcFromOperatorTba to: {}, amount_units: {}", to_address, amount_usdc_units_str);
-            match wallet_manager::handle_operator_tba_withdrawal(
+            match wallet_payments::handle_operator_tba_withdrawal(
                 state, 
-                wallet_manager::AssetType::Usdc, // Assuming you'll define this enum
+                wallet_payments::AssetType::Usdc,
                 to_address, 
                 amount_usdc_units_str
             ) {
@@ -914,7 +914,7 @@ fn handle_payment(state: &mut State, provider_details: &ProviderDetails, client_
     info!("Payment required for provider {} (ID: {}): Attempting pre-payment of {} to {} using hot wallet {}", 
           provider_details.provider_id, provider_details.provider_id, provider_details.price_str, provider_details.wallet_address, associated_hot_wallet_id_str);
     
-    let payment_result = wallet_manager::execute_payment_if_needed(
+    let payment_result = wallet_payments::execute_payment_if_needed(
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,

@@ -1,5 +1,4 @@
 use serde_json::json;
-use std::collections::HashMap;
 use hyperware_process_lib::{
     Address,
     http::StatusCode,
@@ -22,7 +21,7 @@ use crate::structs::{
     HotWalletFundingInfo,
     NoteInfo,
     WalletSummary, // For getting hot wallet names if managed
-    IdentityStatus, DelegationStatus, TbaFundingDetails, // For interpreting check results
+    IdentityStatus, DelegationStatus, 
     MintOperatorWalletActionNodeData,
 };
 use crate::wallet_manager::{ // For fetching wallet related info

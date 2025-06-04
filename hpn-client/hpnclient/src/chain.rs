@@ -66,8 +66,53 @@ pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
         warn!("Timers already initialized, skipping timer initialization in start_fetch");
     }
     
+    //// --- New: Try to get historical logs from the local hypermap-cacher ---
+    //Info!("Attempting to bootstrap historical Mint/Note logs from local hypermap cache :-)");
+    //Let filters_vec = vec![mints_filter.clone(), notes_filter.clone()];
+
+    //Match state
+    //    .hypermap
+    //    .bootstrap(
+    //        Some(state.last_checkpoint_block), 
+    //        filters_vec, 
+    //        Some((2, 3)), // (retry_delay_s, retry_count)
+    //        None
+    //    )
+    //{
+    //    Ok(results_per_filter) => {
+    //        if results_per_filter.len() == 2 {
+    //            let mint_logs = &results_per_filter[0];
+    //            let note_logs = &results_per_filter[1];
+
+    //            info!("Bootstrapped {} mint logs and {} note logs from cache.", mint_logs.len(), note_logs.len());
+
+    //            for log in mint_logs {
+    //                if let Err(e) = handle_log(state, db, &mut pending_logs, log, 0) {
+    //                    print_to_terminal(1, &format!("log-handling error! {e:?}"));
+    //                }
+    //            }
+
+    //            for log in note_logs {
+    //                if let Err(e) = handle_log(state, db, &mut pending_logs, log, 0) {
+    //                    print_to_terminal(1, &format!("log-handling error! {e:?}"));
+    //                }
+    //            }
+    //        } else {
+    //            warn!("Unexpected bootstrap result length: {}, falling back to RPC get_logs", results_per_filter.len());
+    //            fetch_and_process_logs(state, db, &mut pending_logs, &mints_filter);
+    //            fetch_and_process_logs(state, db, &mut pending_logs, &notes_filter);
+    //        }
+    //    }
+    //    Err(e) => {
+    //        error!("Bootstrap from cache failed: {:?}. Falling back to RPC get_logs", e);
+    //        fetch_and_process_logs(state, db, &mut pending_logs, &mints_filter);
+    //        fetch_and_process_logs(state, db, &mut pending_logs, &notes_filter);
+    //    }
+    //}
+
     fetch_and_process_logs(state, db, &mut pending_logs, &mints_filter);
     fetch_and_process_logs(state, db, &mut pending_logs, &notes_filter);
+
     pending_logs
 }
 
@@ -78,7 +123,7 @@ fn fetch_and_process_logs(
     filter: &Filter,
 ) {
     let mut retries = 0;
-    const MAX_FETCH_RETRIES: u32 = 5; // Max 5 retries for a given fetch attempt
+    const MAX_FETCH_RETRIES: u32 = 2; // Max 2 retries for a given fetch attempt
     let mut current_delay_secs = 5; // Initial delay, can be made dynamic
 
     loop {
@@ -148,11 +193,11 @@ pub fn handle_log(
 
     match processed {
         Ok(_) => (),
-        Err(_e) => {
+        Err(e) => {
             if attempt < MAX_PENDING_ATTEMPTS {
                 pending.push((log.to_owned(), attempt + 1));
             } else {
-                 info!("Max attempts reached for log processing: {:?}", log);
+                 info!("Max attempts reached for log processing: {:?}. Error: {:?}", log, e);
             }
         }
     };

@@ -7,16 +7,18 @@ mod chain;
 mod helpers;
 mod identity;
 mod authorized_services;
+pub mod wallet;
 
 use hyperware_process_lib::homepage::add_to_homepage;
 use hyperware_process_lib::http::server::{HttpBindingConfig, HttpServer};
 use hyperware_process_lib::logging::{info, init_logging, Level, error};
-use hyperware_process_lib::{await_message, call_init, Address, Message, eth, hypermap, wallet, signer};
+use hyperware_process_lib::{await_message, call_init, Address, Message, eth, hypermap, wallet as hpl_wallet, signer};
 use hyperware_process_lib::sqlite::Sqlite;
 use std::str::FromStr;
 use structs::*;
 
 use crate::helpers::handle_terminal_debug;
+use crate::wallet::{service as wallet_service};
 
 
 // TODO b4 beta: clean these endpoints up
@@ -74,7 +76,7 @@ fn init(our: Address) {
     }
 
     // Initialize Wallet Manager
-    wallet_manager::initialize_wallet(&mut state);
+    wallet_service::initialize_wallet(&mut state);
 
     // Initialize DB as local variable
     info!("Loading database..");

@@ -2,14 +2,12 @@ use hyperware_process_lib::{eth, get_state, set_state, hypermap};
 use hyperware_process_lib::signer::LocalSigner;
 use hyperware_process_lib::logging::{info, error};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use hyperware_process_lib::wallet::KeyStorage;
 use rmp_serde;
-use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
-use sha2::{Sha256, Digest};
+use crate::authorized_services::HotWalletAuthorizedClient;
 
 wit_bindgen::generate!({
     path: "target/wit",

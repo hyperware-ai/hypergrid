@@ -1,8 +1,6 @@
 use anyhow::{anyhow, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use chrono::Utc;
 use sha2::{Sha256, Digest};
 use hyperware_process_lib::logging::{info, error};
 use hyperware_process_lib::Address as HyperAddress;
@@ -11,7 +9,7 @@ use hyperware_process_lib::wallet;
 use hyperware_process_lib::hypermap;
 use hyperware_process_lib::eth;
 use hyperware_process_lib::http::{StatusCode, server::send_response};
-use alloy_primitives::{Address as EthAddress, U256, Bytes, B256};
+use alloy_primitives::{Address as EthAddress, U256, B256};
 use alloy_sol_types::SolValue; // for decoding ABI-encoded data
 use std::str::FromStr;
 use hex;
@@ -83,7 +81,7 @@ pub fn authenticate_shim_client<'a>(
     client_id: &str,
     raw_token: &str,
 ) -> Result<&'a HotWalletAuthorizedClient, AuthError> {
-    // 1. Lookup Client
+    // 1. Lookup Clien
     match state.authorized_clients.get(client_id) {
         Some(client_config) => {
             // 2. Verify Token

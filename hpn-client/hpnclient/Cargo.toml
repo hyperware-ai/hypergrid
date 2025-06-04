@@ -10,8 +10,8 @@ alloy-primitives = "0.8.15"
 hex = "0.4.3"
 rmp-serde = "1.1.2"
 anyhow = "1.0"
-# hyperware_process_lib = { version = "1.0.4", features = ["logging"] } # Old version
-hyperware_process_lib = { git = "https://github.com/hyperware-ai/process_lib", branch = "wh/wallet-signer", features = ["logging"] }
+# hyperware_process_lib = { git = "https://github.com/hyperware-ai/process_lib", branch = "wh/wallet-signer", features = ["logging"] }
+hyperware_process_lib = { git = "https://github.com/hyperware-ai/process_lib", rev = "17627e14dc277b242d30187be4a1230fe58aeba9", features = ["logging"] }
 process_macros = "0.1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
