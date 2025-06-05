@@ -25,489 +25,317 @@ use crate::{
     db as dbm,
     helpers::{send_json_response},
     identity,
-    structs::{*, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse},
-    //wallet_manager,
+    structs::{*, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse, McpRequest, ApiRequest},
     wallet::{service as wallet_service, payments as wallet_payments},
     graph::handle_get_hpn_graph_layout,
 };
 
-// ------------------------------------------------------------------------------------------------
-// Hallman: here there be misnomers and uglyness
-// ------------------------------------------------------------------------------------------------
-// TODO: refactor
-pub fn handle_frontend(our: &Address, body: &[u8], state: &mut State, db: &Sqlite) -> anyhow::Result<()> {
-    info!("handle_frontend received request");
-    let server_request: HttpServerRequest = match serde_json::from_slice(body) {
-        Ok(req) => req,
-        Err(e) => {
-            error!("Failed to deserialize HttpServerRequest: {}", e);
-            send_response(StatusCode::BAD_REQUEST, None, b"Invalid request format".to_vec());
-            return Ok(());
-        }
-    };
+// ===========================================================================================
+// TYPE DEFINITIONS - Domain models for HTTP handling
+// ===========================================================================================
 
-    info!("Deserialized HttpServerRequest: {:?}", server_request);
-
-    match server_request {
-        HttpServerRequest::Http(req) => {
-            let method = req.method()?;
-            let url_path_result = req.path(); // Result<String, _>
-            info!("Processing HTTP request: Method={}, Path={:?}", method, url_path_result);
-
-            // Refined Routing Logic
-            match (method.clone(), url_path_result) {
-                (Method::POST, Ok(path)) if path.as_str() == "/api/authorize-shim" => {
-                    info!("Routing to handle_authorize_shim_request");
-                    match handle_authorize_shim_request(our, &req, state, db) {
-                        Ok(response) => {
-                            // Manually create headers HashMap for send_response
-                            let mut headers = HashMap::new();
-                            if let Some(content_type) = response.headers().get("Content-Type") {
-                                // Convert HeaderValue to String - handle potential errors
-                                if let Ok(ct_str) = content_type.to_str() {
-                                     headers.insert("Content-Type".to_string(), ct_str.to_string());
-                                }
-                            }
-                            
-                            send_response(
-                                response.status(),
-                                Some(headers),
-                                response.body().clone(),
-                            );
-                        }
-                        Err(e) => {
-                            error!("Error in handle_authorize_shim_request: {:?}", e);
-                            send_json_response(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                &json!({ "error": format!("Internal Server Error: {}", e) })
-                            )?;
-                        }
-                    }
-                }
-                (Method::POST, Ok(path)) if path.as_str() == "/api/configure-authorized-client" => {
-                    info!("Routing to handle_configure_authorized_client");
-                    match handle_configure_authorized_client(our, &req, state, db) {
-                        Ok(response) => {
-                            let mut headers = HashMap::new();
-                            if let Some(content_type) = response.headers().get("Content-Type") {
-                                if let Ok(ct_str) = content_type.to_str() {
-                                     headers.insert("Content-Type".to_string(), ct_str.to_string());
-                                }
-                            }
-                            
-                            send_response(
-                                response.status(),
-                                Some(headers),
-                                response.body().clone(),
-                            );
-                        }
-                        Err(e) => {
-                            error!("Error in handle_configure_authorized_client: {:?}", e);
-                            send_json_response(
-                                StatusCode::INTERNAL_SERVER_ERROR,
-                                &json!({ "error": format!("Internal Server Error: {}", e) })
-                            )?;
-                        }
-                    }
-                }
-                (Method::POST, Ok(path)) if path.as_str() == "/api/mcp" => {
-                    // This path is now for the UI (cookie authenticated by binding)
-                    info!("Routing to handle_post (for UI MCP)");
-                    
-                    // Directly call handle_post to process the body for UI
-                    if let Err(e) = handle_post(our, state, db, None) { 
-                        error!("Error in handle_post: {:?}", e);
-                        let _ = send_json_response(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            &json!({ "error": format!("Failed to handle POST request: {}", e) })
-                        );
-                    }
-                }
-                (Method::POST, Ok(path)) if path.as_str() == "/shim/mcp" => {
-                    info!("Routing to handle_post (for Shim MCP) - Performing new Client Auth...");
-                    
-                    let client_id_header_opt: Option<String> = req.headers().get("X-Client-ID")
-                        .and_then(|v| v.to_str().ok())
-                        .map(String::from);
-                    let token_header_opt: Option<String> = req.headers().get("X-Token")
-                        .and_then(|v| v.to_str().ok())
-                        .map(String::from);
-
-                    let auth_result = match (&client_id_header_opt, &token_header_opt) {
-                        (Some(id), Some(token)) => authenticate_shim_client(state, id, token),
-                        (None, _) => Err(AuthError::MissingClientId),
-                        (_, None) => Err(AuthError::MissingToken),
-                    };
-
-                    match auth_result {
-                        Ok(client_config) => {
-                            info!(
-                                "Shim Client Auth: Validated successfully for Client ID: {}. Associated Hot Wallet: {}", 
-                                client_config.id, 
-                                client_config.associated_hot_wallet_address
-                            );
-                            // Store client_config or relevant parts (like associated_hot_wallet_address)
-                            // in a way that handle_post (and subsequently handle_mcp -> handle_provider_call_request -> handle_payment)
-                            // can access it. 
-                            // For now, we assume client_config is available in the scope of handle_payment if it's called from here.
-                            // This might require passing client_config through a few function calls.
-
-                            // For the direct call path for handle_post with shim auth, we might need to modify handle_post to accept client_config
-                            // or store it in a request-scoped context if your web framework supports it.
-                            // Let's assume for now `handle_payment` will be modified to take `associated_hot_wallet_id`
-                            // and the caller of `handle_payment` will provide it from `client_config`.
-
-                            // If handle_post calls handle_mcp, which calls handle_provider_call_request, which calls handle_payment:
-                            // We need to ensure client_config.associated_hot_wallet_address reaches handle_payment.
-                            // A simple way for now is to modify handle_payment to accept it directly.
-
-                            // The actual call to handle_post / mcp processing happens here.
-                            // The modification will be in handle_payment, which is called deeper.
-                            if let Err(e) = handle_post(our, state, db, Some(client_config.clone())) { // Pass client_config to handle_post
-                                error!("Error in handle_post after shim auth: {:?}", e);
-                                let _ = send_json_response(
-                                    StatusCode::INTERNAL_SERVER_ERROR,
-                                    &json!({ "error": format!("Failed to handle POST request: {}", e) })
-                                );
-                            }
-                        }
-                        Err(auth_error) => {
-                            match auth_error {
-                                AuthError::MissingClientId => {
-                                    error!("Shim Client Auth: Missing X-Client-ID header.");
-                                    send_json_response(StatusCode::UNAUTHORIZED, &json!({ "error": "Missing X-Client-ID header" }))?;
-                                }
-                                AuthError::MissingToken => {
-                                    error!("Shim Client Auth: Missing X-Token header.");
-                                    send_json_response(StatusCode::UNAUTHORIZED, &json!({ "error": "Missing X-Token header" }))?;
-                                }
-                                AuthError::ClientNotFound => {
-                                    // Use client_id_header_opt.as_deref() to safely get an &str for logging
-                                    error!("Shim Client Auth: Client ID: {} not found.", client_id_header_opt.as_deref().unwrap_or("UNKNOWN"));
-                                    send_json_response(StatusCode::UNAUTHORIZED, &json!({ "error": "Client ID not found" }))?;
-                                }
-                                AuthError::InvalidToken => {
-                                    error!("Shim Client Auth: Invalid token for Client ID: {}.", client_id_header_opt.as_deref().unwrap_or("UNKNOWN"));
-                                    send_json_response(StatusCode::FORBIDDEN, &json!({ "error": "Invalid token" }))?;
-                                }
-                                AuthError::InsufficientCapabilities => {
-                                    error!("Shim Client Auth: Client ID: {} does not have required capabilities.", client_id_header_opt.as_deref().unwrap_or("UNKNOWN"));
-                                    send_json_response(StatusCode::FORBIDDEN, &json!({ "error": "Client lacks necessary capabilities" }))?;
-                                }
-                            }
-                        }
-                    }
-                }
-                (Method::GET, Ok(path_str)) => {
-                    info!("Routing to handle_get");
-                    // Use &path_str in unwrap_or
-                    if let Err(e) = handle_get(our, &path_str, req.query_params(), state, db) {
-                        error!("Error in handle_get: {:?}", e);
-                        send_json_response(
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            &json!({ "error": format!("Internal Server Error: {}", e) })
-                        )?;
-                    }
-                }
-                (Method::POST, Ok(path)) if {
-                        let path_str = path.as_str();
-                        let comparison_result = path_str == "/api/generate-api-config";
-                        info!("Path comparison: '{}' == '{}' -> {}", path_str, "/api/generate-api-config", comparison_result);
-                        comparison_result
-                    } => 
-                {
-                    info!("Routing to handle_generate_api_config");
-                }
-                (_, Ok(unknown_path)) => {
-                    warn!("Unhandled path: {} {}", method, unknown_path);
-                    send_response(StatusCode::NOT_FOUND, None, b"Not Found".to_vec());
-                }
-                 (_, Err(path_err)) => { // Handle error getting path
-                    error!("Error parsing request path: {:?}", path_err);
-                    send_response(StatusCode::BAD_REQUEST, None, b"Invalid request path".to_vec());
-                 }
-            }
-        }
-        _ => { 
-             // Handle non-HTTP requests if necessary, otherwise ignore
-             info!("Ignoring non-HTTP ServerRequest");
-        },
-    };
-    Ok(())
+/// Details about a provider fetched from the database
+pub struct ProviderDetails {
+    wallet_address: String,
+    price_str: String,
+    provider_id: String,
 }
 
-// Modify handle_post signature and how it calls handle_mcp
-fn handle_post(our: &Address, state: &mut State, db: &Sqlite, client_config_opt: Option<HotWalletAuthorizedClient>) -> anyhow::Result<()> {
-    let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing for MCP request"))?;
-    match serde_json::from_slice::<HttpMcpRequest>(blob.bytes()) {
-        Ok(body) => handle_mcp(our, body, state, db, client_config_opt), // Pass client_config_opt to handle_mcp
-        Err(e) => {
-            if e.is_syntax() || e.is_data() {
-                error!("Failed to deserialize MCP request JSON: {}", e);
-                send_json_response(
-                    StatusCode::BAD_REQUEST,
-                    &json!({ "error": format!("Invalid MCP request body: {}", e) })
-                )?;
-                Ok(()) 
-            } else {
-                 error!("Unexpected error reading MCP request blob: {}", e);
-                 Err(anyhow::anyhow!("Error reading MCP request body: {}", e))
-            }
+/// Result of attempting to fetch provider details
+enum FetchProviderResult {
+    Success(ProviderDetails),
+    NotFound(String),
+}
+
+/// Result of attempting a payment
+enum PaymentResult {
+    NotRequired,
+    Success(String), // tx hash
+    Failed(PaymentAttemptResult),
+}
+
+/// Result of calling a provider
+enum ProviderCallResult {
+    Success(Vec<u8>),
+    Failed(anyhow::Error),
+}
+
+// ===========================================================================================
+// MAIN ENTRY POINT - Routes all HTTP requests from http-server
+// ===========================================================================================
+
+/// Main HTTP request handler - receives all requests from http-server:distro:sys
+/// Deserializes the request and routes to appropriate handler based on path/method
+pub fn handle_frontend(our: &Address, body: &[u8], state: &mut State, db: &Sqlite) -> anyhow::Result<()> {
+    info!("handle_frontend received request");
+    
+    let server_request = deserialize_request(body)?;
+    let HttpServerRequest::Http(req) = server_request else {
+        info!("Ignoring non-HTTP ServerRequest");
+            return Ok(());
+    };
+
+    route_http_request(our, &req, state, db)
+}
+
+// ===========================================================================================
+// REQUEST ROUTING - Maps HTTP paths to handler functions
+// ===========================================================================================
+
+fn deserialize_request(body: &[u8]) -> anyhow::Result<HttpServerRequest> {
+    serde_json::from_slice(body).map_err(|e| {
+        error!("Failed to deserialize HttpServerRequest: {}", e);
+        send_response(StatusCode::BAD_REQUEST, None, b"Invalid request format".to_vec());
+        anyhow::anyhow!("Deserialization failed: {}", e)
+    })
+}
+
+fn route_http_request(
+    our: &Address,
+    req: &IncomingHttpRequest,
+    state: &mut State,
+    db: &Sqlite,
+) -> anyhow::Result<()> {
+            let method = req.method()?;
+    let path = req.path()?;
+    
+    info!("Processing HTTP request: {} {}", method, path);
+
+    match (method.clone(), path.as_str()) {
+        // Shim authentication endpoints
+        (Method::POST, "/api/authorize-shim") => handle_authorize_shim_route(our, req, state, db),
+        (Method::POST, "/api/configure-authorized-client") => handle_configure_client_route(our, req, state, db),
+        
+        // MCP endpoints (actual Model Context Provider operations)
+        (Method::POST, "/api/mcp") => handle_mcp_route(our, state, db, None),
+        (Method::POST, "/shim/mcp") => handle_shim_mcp_route(our, req, state, db),
+        
+        // Regular API endpoints (wallet, history, etc)
+        (Method::POST, "/api/actions") => handle_api_actions_route(our, state, db),
+        
+        // GET endpoints
+        (Method::GET, path) => handle_get(our, path, req.query_params(), state, db),
+        
+        // Unhandled routes
+        _ => {
+            warn!("Unhandled route: {:?} {:?}", method, path);
+            send_response(StatusCode::NOT_FOUND, None, b"Not Found".to_vec());
+            Ok(())
         }
     }
 }
 
-/// Handles GET requests to /api/setup-status
-fn handle_get_setup_status(state: &State) -> anyhow::Result<()> {
-    info!("Checking setup status...");
-    let is_configured = state.operator_tba_address.is_some();
-    info!("Operator identity configured: {}", is_configured);
-    send_json_response(StatusCode::OK, &json!({ "configured": is_configured }))
-}
+// ===========================================================================================
+// ROUTE HANDLERS - Individual endpoint implementations
+// ===========================================================================================
 
-/// Determines the current onboarding status by performing necessary checks.
-/// Uses the new detailed check functions.
-//fn handle_get_onboarding_status(state: &State, our: &Address) -> anyhow::Result<()> {
-//    info!("Handling GET /onboarding-status for node {}...", our.node);
-//    
-//    let mut response = OnboardingStatusResponse {
-//        status: OnboardingStatus::Loading, // Start with Loading, will be updated
-//        checks: OnboardingCheckDetails::default(),
-//        errors: Vec::new(),
-//    };
-//    let mut first_failure_status: Option<OnboardingStatus> = None;
-//
-//    // --- 1. Identity Check (Operator General) ---
-//    info!("Onboarding Check 1: Identity...");
-//    let identity_status = identity::check_operator_identity_detailed(our);
-//    response.checks.identity_status = Some(identity_status.clone());
-//    match &identity_status {
-//        IdentityStatus::Verified { entry_name, tba_address, .. } => {
-//            response.checks.identity_configured = true;
-//            response.checks.operator_entry = Some(entry_name.clone());
-//            response.checks.operator_tba = Some(tba_address.clone());
-//            info!("  -> Identity OK (Verified). Entry: {}, TBA: {}", entry_name, tba_address);
-//        }
-//        status => {
-//            response.checks.identity_configured = false;
-//            response.errors.push(format!("Identity Check Failed: {:?}", status));
-//            first_failure_status.get_or_insert(OnboardingStatus::NeedsOnChainSetup);
-//            info!("  -> Identity FAILED.");
-//        }
-//    }
-//
-//    // --- 2. Operator TBA Funding Check ---
-//    // Only run if identity is configured (TBA exists to be funded).
-//    if response.checks.identity_configured {
-//        info!("Onboarding Check 2: Operator TBA Funding...");
-//        // This function call needs to be adapted or replaced if it also checks hot wallet funding.
-//        // For now, assuming wallet_manager::check_funding_status_detailed can be called
-//        // and we only use its TBA-related fields.
-//        // OR, we might need a new function wallet_manager::check_tba_funding_detailed(...)
-//        let tba_funding_details = wallet_manager::check_operator_tba_funding_detailed(
-//            response.checks.operator_tba.as_deref() // Pass the TBA verified in *this* request
-//        );
-//
-//        response.checks.tba_eth_funded = Some(!tba_funding_details.tba_needs_eth);
-//        response.checks.tba_usdc_funded = Some(!tba_funding_details.tba_needs_usdc);
-//        response.checks.tba_eth_balance_str = tba_funding_details.tba_eth_balance_str;
-//        response.checks.tba_usdc_balance_str = tba_funding_details.tba_usdc_balance_str;
-//        response.checks.tba_funding_check_error = tba_funding_details.check_error.clone();
-//
-//        if let Some(err_msg) = &tba_funding_details.check_error {
-//            response.errors.push(format!("Operator TBA Funding Check Error: {}", err_msg));
-//            first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-//            info!("  -> Operator TBA Funding CHECK ERROR.");
-//        }
-//        if tba_funding_details.tba_needs_eth || tba_funding_details.tba_needs_usdc {
-//            first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-//            if tba_funding_details.tba_needs_eth { response.errors.push("Warning: Operator TBA requires ETH for gas.".to_string()); }
-//            if tba_funding_details.tba_needs_usdc { response.errors.push("Warning: Operator TBA requires USDC for payments.".to_string()); }
-//            info!("  -> Operator TBA Funding NEEDED.");
-//        } else if tba_funding_details.check_error.is_none() {
-//            info!("  -> Operator TBA Funding OK.");
-//        }
-//    } else {
-//        info!("Skipping Operator TBA Funding check due to Identity failure.");
-//        response.checks.tba_eth_funded = Some(false);
-//        response.checks.tba_usdc_funded = Some(false);
-//        response.checks.tba_funding_check_error = Some("Skipped due to identity failure".to_string());
-//        // If identity failed, NeedsOnChainSetup is already set.
-//    }
-//
-//    // --- 3. Linked Hot Wallets Checks (Delegation & Funding) ---
-//    info!("Onboarding Check 3: Linked Hot Wallets...");
-//    if response.checks.identity_configured {
-//        // Fetch all on-chain linked hot wallet addresses
-//        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(
-//            response.checks.operator_entry.as_deref(),
-//            // TODO: Consider how to best provide eth_provider if it's managed centrally
-//            // For now, get_all_onchain_linked_hot_wallet_addresses creates its own.
-//        ) {
-//            Ok(linked_addresses) => {
-//                info!("  -> Successfully fetched {} on-chain linked hot wallet addresses.", linked_addresses.len());
-//
-//                if linked_addresses.is_empty() {
-//                    response.errors.push("No hot wallets appear to be linked on-chain to the operator identity.".to_string());
-//                    first_failure_status.get_or_insert(OnboardingStatus::NeedsHotWallet);
-//                    info!("  -> No linked hot wallets found for operator: {:?}", response.checks.operator_entry);
-//        }
-//
-//                for hot_wallet_address_str in linked_addresses {
-//                    info!("  Checking Hot Wallet: {}...", hot_wallet_address_str);
-//
-//                    // 3a. Get WalletSummary for this address
-//                    let summary = wallet_manager::get_wallet_summary_for_address(state, &hot_wallet_address_str);
-//
-//                    // 3b. Delegation Check for this specific hot wallet
-//                    let delegation_status = wallet_manager::verify_single_hot_wallet_delegation_detailed(
-//                        state, // Though _state is unused in current verify_single_hot_wallet_delegation_detailed
-//                        response.checks.operator_entry.as_deref(),
-//                        &hot_wallet_address_str
-//                    );
-//
-//                    if delegation_status != DelegationStatus::Verified {
-//                        response.errors.push(format!(
-//                            "Hot Wallet {} Delegation Issue: {:?}",
-//                            hot_wallet_address_str, delegation_status
-//                        ));
-//                        match delegation_status {
-//                            DelegationStatus::NeedsIdentity => first_failure_status.get_or_insert(OnboardingStatus::NeedsOnChainSetup),
-//                            _ => first_failure_status.get_or_insert(OnboardingStatus::NeedsHotWallet),
-//                        };
-//                        info!("    -> Delegation FAILED for {}: {:?}", hot_wallet_address_str, delegation_status);
-//                    } else {
-//                        info!("    -> Delegation OK for {}.", hot_wallet_address_str);
-//                    }
-//
-//                    // 3c. Funding Check for this specific hot wallet
-//                    let (hw_needs_eth, hw_eth_balance_str, hw_funding_check_error) =
-//                        wallet_manager::check_single_hot_wallet_funding_detailed(state, &hot_wallet_address_str);
-//
-//                    if let Some(err_msg) = &hw_funding_check_error {
-//                        response.errors.push(format!("Hot Wallet {} Funding Check Error: {}", hot_wallet_address_str, err_msg));
-//                        first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-//                        info!("    -> Hot Wallet {} Funding CHECK ERROR.", hot_wallet_address_str);
-//                    }
-//                    if hw_needs_eth {
-//                        response.errors.push(format!("Warning: Hot Wallet {} requires ETH for gas.", hot_wallet_address_str));
-//                        first_failure_status.get_or_insert(OnboardingStatus::NeedsFunding);
-//                        info!("    -> Hot Wallet {} Funding NEEDED.", hot_wallet_address_str);
-//                    } else if hw_funding_check_error.is_none() {
-//                        info!("    -> Hot Wallet {} Funding OK.", hot_wallet_address_str);
-//                    }
-//
-//                    response.checks.linked_hot_wallets_info.push(LinkedHotWalletInfo {
-//                        summary,
-//                        delegation_status: Some(delegation_status),
-//                        needs_eth_funding: hw_needs_eth,
-//                        eth_balance_str: hw_eth_balance_str,
-//                        funding_check_error: hw_funding_check_error,
-//                    });
-//                }
-//        }
-//        Err(e) => {
-//                response.errors.push(format!("Failed to retrieve linked hot wallets: {}", e));
-//                first_failure_status.get_or_insert(OnboardingStatus::Error); // Or NeedsOnChainSetup if appropriate
-//                info!("  -> Failed to retrieve linked hot wallets: {}", e);
-//            }
-//        }
-//    } else {
-//        info!("Skipping Linked Hot Wallets check due to Identity failure.");
-//        // No explicit error message here for skipping, as the identity failure is already primary.
-//    }
-//
-//
-//    // Determine final status
-//    response.status = first_failure_status.unwrap_or(OnboardingStatus::Ready);
-//    // If all checks passed but no hot wallets are linked, and identity IS configured,
-//    // then status should probably be NeedsHotWallet.
-//    if response.status == OnboardingStatus::Ready && response.checks.identity_configured && response.checks.linked_hot_wallets_info.is_empty() {
-//        info!("All checks initially Ready, but no linked hot wallets found. Setting status to NeedsHotWallet.");
-//        response.status = OnboardingStatus::NeedsHotWallet;
-//        // Add a general error if not already present from the loop above.
-//        if !response.errors.iter().any(|e| e.contains("No hot wallets appear to be linked")) {
-//             response.errors.push("Operator identity is configured, but no hot wallets are linked on-chain.".to_string());
-//        }
-//    }
-//
-//
-//    info!("Final Onboarding Status: {:?}, Linked Wallets: {}, Errors: {:?}",
-//        response.status,
-//        response.checks.linked_hot_wallets_info.len(),
-//        response.errors
-//    );
-//    send_json_response(StatusCode::OK, &response)
-//}
-
-/// Handles GET requests to /api/managed-wallets
-fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
-    info!("Handling GET /api/managed-wallets...");
-    let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
-    // The frontend will primarily use the summaries (Vec<WalletSummary>).
-    // We can decide if selected_id is also useful for this specific endpoint or if summaries alone suffice.
-    // For now, returning both as per get_wallet_summary_list structure.
-    let response_data = json!({ 
-        "selected_wallet_id": selected_id,
-        "managed_wallets": summaries 
-    });
-    send_json_response(StatusCode::OK, &response_data)
-}
-
-fn handle_get(
+fn handle_authorize_shim_route(
     our: &Address,
-    path_str: &str,
-    params: &HashMap<String, String>,
-    state: &State,
+    req: &IncomingHttpRequest,
+    state: &mut State,
     db: &Sqlite,
 ) -> anyhow::Result<()> {
-    info!(
-        "handle_get, our: {}, path_str: {:?}, params: {:?}",
-        our.node,
-        path_str,
-        params
-    );
-    match path_str {
-        "/api/setup-status" | "setup-status" => handle_get_setup_status(state)?,
-        //"/api/onboarding-status" | "onboarding-status" => {
-        //    handle_get_onboarding_status(state, our)?
-        //}
-        "/api/hpn-graph" | "/hpn-graph" => {
-            info!("DEBUG: Handling GET /api/hpn-graph");
-            handle_get_hpn_graph_layout(our, state, db)?
+                    info!("Routing to handle_authorize_shim_request");
+    match handle_authorize_shim_request(our, req, state, db) {
+        Ok(response) => {
+            let mut headers = HashMap::new();
+
+            if let Some(content_type) = response.headers().get("Content-Type") {
+                if let Ok(ct_str) = content_type.to_str() {
+                     headers.insert("Content-Type".to_string(), ct_str.to_string());
+                }
+            }
+            send_response(response.status(), Some(headers), response.body().clone());
+            Ok(())
         }
-        "/api/state" | "state" => send_json_response(StatusCode::OK, &json!(state))?,
-        "/api/all" | "all" => {
-            let data = dbm::get_all(db)?;
-            send_json_response(StatusCode::OK, &json!(data))?
+        Err(e) => {
+            error!("Error in handle_authorize_shim_request: {:?}", e);
+            send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({ "error": format!("Internal Server Error: {}", e) })
+            )
         }
-        "/api/cat" | "cat" => {
-            let query = params
-                .get("cat")
-                .ok_or(anyhow::anyhow!("Missing 'cat' query parameter"))?;
-            let data = dbm::get_by_category(db, query.to_string())?;
-            send_json_response(StatusCode::OK, &json!(data))?
-        }
-        "/api/search" | "search" => {
-            let query = params
-                .get("q")
-                .ok_or(anyhow::anyhow!("Missing 'q' query parameter"))?;
-            let data = dbm::search_provider(db, query.to_string())?;
-            send_json_response(StatusCode::OK, &json!(data))?
-        }
-        "/api/managed-wallets" => {
-            handle_get_managed_wallets(state)?
-        }
-        _ => send_json_response(
-            StatusCode::NOT_FOUND,
-            &json!({ "error": "API endpoint not found" }),
-        )?,
-    };
-    Ok(())
+    }
 }
 
-// Modify handle_mcp signature and how it calls handle_provider_call_request
+fn handle_configure_client_route(
+    our: &Address,
+    req: &IncomingHttpRequest,
+    state: &mut State,
+    db: &Sqlite,
+) -> anyhow::Result<()> {
+    info!("Routing to handle_configure_authorized_client");
+    match handle_configure_authorized_client(our, req, state, db) {
+        Ok(response) => {
+            let mut headers = HashMap::new();
+
+            if let Some(content_type) = response.headers().get("Content-Type") {
+                if let Ok(ct_str) = content_type.to_str() {
+                     headers.insert("Content-Type".to_string(), ct_str.to_string());
+                }
+            }
+            send_response(response.status(), Some(headers), response.body().clone());
+            Ok(())
+        }
+        Err(e) => {
+            error!("Error in handle_configure_authorized_client: {:?}", e);
+            send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({ "error": format!("Internal Server Error: {}", e) })
+            )
+        }
+    }
+}
+
+fn handle_mcp_route(
+    our: &Address,
+    state: &mut State,
+    db: &Sqlite,
+    client_config: Option<HotWalletAuthorizedClient>,
+) -> anyhow::Result<()> {
+    info!("Routing to handle_post (for UI MCP)");
+    handle_post(our, state, db, client_config)
+}
+
+fn handle_shim_mcp_route(
+    our: &Address,
+    req: &IncomingHttpRequest,
+    state: &mut State,
+    db: &Sqlite,
+) -> anyhow::Result<()> {
+    info!("Routing to handle_post (for Shim MCP) - Performing new Client Auth...");
+                    
+    // Extract authentication headers
+    let client_id = req.headers().get("X-Client-ID")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
+    let token = req.headers().get("X-Token")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
+    // Authenticate shim client
+    match authenticate_shim_with_headers(state, client_id, token) {
+        Ok(client_config) => {
+            info!(
+                "Shim Client Auth: Validated successfully for Client ID: {}. Associated Hot Wallet: {}", 
+                client_config.id, 
+                client_config.associated_hot_wallet_address
+            );
+
+            handle_post(our, state, db, Some(client_config.clone()))
+        }
+        Err(auth_error) => {
+            handle_shim_auth_error(auth_error)
+        }
+    }
+}
+
+fn handle_api_actions_route(
+    our: &Address,
+    state: &mut State,
+    db: &Sqlite,
+) -> anyhow::Result<()> {
+    info!("Routing to handle_api_actions (for UI API operations)");
+    handle_api_actions( state)
+}
+
+fn authenticate_shim_with_headers(
+    state: &State,
+    client_id: Option<String>,
+    token: Option<String>,
+) -> Result<&HotWalletAuthorizedClient, AuthError> {
+    let id = client_id.ok_or(AuthError::MissingClientId)?;
+    let tok = token.ok_or(AuthError::MissingToken)?;
+    authenticate_shim_client(state, &id, &tok)
+}
+
+fn handle_shim_auth_error(auth_error: AuthError) -> anyhow::Result<()> {
+    let (status, message) = match auth_error {
+        AuthError::MissingClientId => (StatusCode::UNAUTHORIZED, "Missing X-Client-ID header"),
+        AuthError::MissingToken => (StatusCode::UNAUTHORIZED, "Missing X-Token header"),
+        AuthError::ClientNotFound => (StatusCode::UNAUTHORIZED, "Client ID not found"),
+        AuthError::InvalidToken => (StatusCode::FORBIDDEN, "Invalid token"),
+        AuthError::InsufficientCapabilities => (StatusCode::FORBIDDEN, "Client lacks necessary capabilities")
+    };
+    
+    send_json_response(status, &json!({ "error": message }))
+}
+
+// ===========================================================================================
+// MCP REQUEST HANDLING - Core business logic dispatcher
+// ===========================================================================================
+
+/// Main MCP request dispatcher - routes Model Context Provider operations
+/// Only handles SearchRegistry and CallProvider - the actual MCP operations
 fn handle_mcp(
+    our: &Address, 
+    req: McpRequest, 
+    state: &mut State, 
+    db: &Sqlite, 
+    client_config_opt: Option<HotWalletAuthorizedClient>
+) -> anyhow::Result<()> {
+    info!("MCP request: {:?}", req);
+    match req {
+        // Registry operations
+        McpRequest::SearchRegistry(query) => handle_search_registry(db, query),
+        
+        // Provider operations
+        McpRequest::CallProvider {
+            provider_id,
+            provider_name,
+            arguments,
+        } => handle_provider_call_request(our, state, db, provider_id, provider_name, arguments, client_config_opt),
+    }
+}
+
+/// API request dispatcher - routes regular application operations
+/// Handles wallet management, history, withdrawals, etc.
+fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
+    let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing for API request"))?;
+    
+    match serde_json::from_slice::<ApiRequest>(blob.bytes()) {
+        Ok(req) => {
+            info!("API request: {:?}", req);
+            match req {
+                ApiRequest::GetCallHistory {} => handle_get_call_history(state),
+                ApiRequest::GetActiveAccountDetails {} => handle_get_active_account_details(state),
+                ApiRequest::GetWalletSummaryList {} => handle_get_wallet_summary_list(state),
+                ApiRequest::SelectWallet { wallet_id } => handle_select_wallet(state, wallet_id),
+                ApiRequest::RenameWallet { wallet_id, new_name } => handle_rename_wallet(state, wallet_id, new_name),
+                ApiRequest::DeleteWallet { wallet_id } => handle_delete_wallet(state, wallet_id),
+                ApiRequest::GenerateWallet {} => handle_generate_wallet(state),
+                ApiRequest::ImportWallet { private_key, password, name } => handle_import_wallet(state, private_key, password, name),
+                ApiRequest::ActivateWallet { password } => handle_activate_wallet(state, password),
+                ApiRequest::DeactivateWallet {} => handle_deactivate_wallet(state),
+                ApiRequest::SetWalletLimits { limits } => handle_set_wallet_limits(state, limits),
+                ApiRequest::ExportSelectedPrivateKey { password } => handle_export_private_key(state, password),
+                ApiRequest::SetSelectedWalletPassword { new_password, old_password } => handle_set_wallet_password(state, new_password, old_password),
+                ApiRequest::RemoveSelectedWalletPassword { current_password } => handle_remove_wallet_password(state, current_password),
+                
+                // Withdrawal from ui
+                ApiRequest::WithdrawEthFromOperatorTba { to_address, amount_wei_str } => handle_withdraw_eth(state, to_address, amount_wei_str),
+                ApiRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => handle_withdraw_usdc(state, to_address, amount_usdc_units_str),
+            }
+        }
+        Err(e) if e.is_syntax() || e.is_data() => {
+            error!("Failed to deserialize API request JSON: {}", e);
+            send_json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": format!("Invalid API request body: {}", e) })
+            )?;
+            Ok(())
+        }
+        Err(e) => {
+            error!("Unexpected error reading API request blob: {}", e);
+            Err(anyhow::anyhow!("Error reading API request body: {}", e))
+        }
+    }
+}
+
+// DEPRECATED: This function handles the old combined HttpMcpRequest format
+// It remains for backwards compatibility but should be phased out
+fn handle_legacy_mcp(
     our: &Address, 
     req: HttpMcpRequest, 
     state: &mut State, 
@@ -516,296 +344,528 @@ fn handle_mcp(
 ) -> anyhow::Result<()> {
     info!("mcp request: {:?}", req);
     match req {
+        // Registry operations
         HttpMcpRequest::SearchRegistry(query) => {
-            let data = dbm::search_provider(db, query)?;
-            send_json_response(StatusCode::OK, &json!(data))?;
-            Ok(())
+            handle_search_registry(db, query)
         }
+        
+        // Provider operations
         HttpMcpRequest::CallProvider {
             provider_id,
             provider_name,
             arguments,
         } => {
-            // Pass client_config_opt to handle_provider_call_request
             handle_provider_call_request(our, state, db, provider_id, provider_name, arguments, client_config_opt)
         }
-
-        // History
+        
+        // History operations
         HttpMcpRequest::GetCallHistory {} => {
-            info!("DEBUG: Handling McpRequest::GetCallHistory");
-            // Return a clone of the history from state
-            let history_clone = state.call_history.clone(); 
-            send_json_response(StatusCode::OK, &history_clone)
+            handle_get_call_history(state)
         }
-
-        // Wallet Summary/Selection Actions
+        
+        // Wallet operations - grouped by function
         HttpMcpRequest::GetWalletSummaryList {} => {
-            info!("DEBUG: Handling McpRequest::GetWalletSummaryList");
-            let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
-            send_json_response(StatusCode::OK, &json!({ "selected_id": selected_id, "wallets": summaries }))
+            handle_get_wallet_summary_list(state)
         }
         HttpMcpRequest::SelectWallet { wallet_id } => {
-            info!("DEBUG: Handling McpRequest::SelectWallet");
-            match wallet_service::select_wallet(state, wallet_id) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
-            }
+            handle_select_wallet(state, wallet_id)
         }
         HttpMcpRequest::RenameWallet { wallet_id, new_name } => {
-             info!("DEBUG: Handling McpRequest::RenameWallet");
-             match wallet_service::rename_wallet(state, wallet_id, new_name) {
-                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
-             }
+            handle_rename_wallet(state, wallet_id, new_name)
         }
-         HttpMcpRequest::DeleteWallet { wallet_id } => {
-             info!("DEBUG: Handling McpRequest::DeleteWallet");
-             match wallet_service::delete_wallet(state, wallet_id) {
-                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
-             }
+        HttpMcpRequest::DeleteWallet { wallet_id } => {
+            handle_delete_wallet(state, wallet_id)
         }
-
-         // Wallet Creation/Import
-         HttpMcpRequest::GenerateWallet {} => {
-             info!("DEBUG: Handling McpRequest::GenerateWallet");
-             // generate_initial_wallet returns the wallet, we need to add it to state
-             match wallet_service::generate_initial_wallet() { 
-                 Ok(wallet) => {
-                     let wallet_id = wallet.id.clone();
-                     state.managed_wallets.insert(wallet_id.clone(), wallet);
-                     // Automatically select if none selected?
-                     if state.selected_wallet_id.is_none() {
-                          // Use the select function which handles cache etc.
-                          let _ = wallet_service::select_wallet(state, wallet_id.clone());
-                     } else {
-                         state.save(); // Save state if not selecting
-                     }
-                     send_json_response(StatusCode::OK, &json!({ "success": true, "id": wallet_id }))
-                 }
-                 Err(e) => send_json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({ "success": false, "error": e }))
-             }
-         }
+        HttpMcpRequest::GenerateWallet {} => {
+            handle_generate_wallet(state)
+        }
         HttpMcpRequest::ImportWallet { private_key, password, name } => {
-            info!("DEBUG: Handling McpRequest::ImportWallet");
-            match wallet_service::import_new_wallet(state, private_key, password, name) {
-                Ok(address) => send_json_response(StatusCode::OK, &json!({ "success": true, "address": address })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
-            }
+            handle_import_wallet(state, private_key, password, name)
         }
-
-        // Wallet State & Config (Operate on SELECTED wallet implicitly)
         HttpMcpRequest::ActivateWallet { password } => {
-             info!("DEBUG: Handling McpRequest::ActivateWallet");
-             let selected_id = match state.selected_wallet_id.clone() {
-                 Some(id) => id,
-                 None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
-             };
-             match wallet_service::activate_wallet(state, selected_id, password) {
-                Ok(()) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
-            }
+            handle_activate_wallet(state, password)
         }
         HttpMcpRequest::DeactivateWallet {} => {
-             info!("DEBUG: Handling McpRequest::DeactivateWallet");
-             let selected_id = match state.selected_wallet_id.clone() {
-                 Some(id) => id,
-                 None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
-             };
-             match wallet_service::deactivate_wallet(state, selected_id) {
-                 Ok(()) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
-             }
+            handle_deactivate_wallet(state)
         }
         HttpMcpRequest::SetWalletLimits { limits } => {
-            info!("DEBUG: Handling McpRequest::SetWalletLimits");
-            let selected_id = match state.selected_wallet_id.clone() {
-                 Some(id) => id,
-                 None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
-             };
-             match wallet_service::set_wallet_spending_limits(state, selected_id, limits) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
-            }
+            handle_set_wallet_limits(state, limits)
         }
         HttpMcpRequest::ExportSelectedPrivateKey { password } => {
-            info!("DEBUG: Handling McpRequest::ExportSelectedPrivateKey");
-             let selected_id = match state.selected_wallet_id.clone() {
-                 Some(id) => id,
-                 None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
-             };
-            match wallet_service::export_private_key(state, selected_id, password) {
-                Ok(private_key) => send_json_response(StatusCode::OK, &json!({ "success": true, "private_key": private_key })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
-            }
+            handle_export_private_key(state, password)
         }
         HttpMcpRequest::SetSelectedWalletPassword { new_password, old_password } => {
-            info!("DEBUG: Handling McpRequest::SetSelectedWalletPassword");
-             let selected_id = match state.selected_wallet_id.clone() {
-                 Some(id) => id,
-                 None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
-             };
-             match wallet_service::set_wallet_password(state, selected_id, new_password, old_password) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
-            }
+            handle_set_wallet_password(state, new_password, old_password)
         }
         HttpMcpRequest::RemoveSelectedWalletPassword { current_password } => {
-            info!("DEBUG: Handling McpRequest::RemoveSelectedWalletPassword");
-             let selected_id = match state.selected_wallet_id.clone() {
-                 Some(id) => id,
-                 None => return send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": "No wallet selected" }))
-             };
-             match wallet_service::remove_wallet_password(state, selected_id, current_password) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })), 
-            }
+            handle_remove_wallet_password(state, current_password)
         }
-
         HttpMcpRequest::GetActiveAccountDetails {} => {
-            // Check cache first
-            if let Some(cached_details) = state.cached_active_details.clone() {
-                info!("Returning cached active account details.");
-                return send_json_response(StatusCode::OK, &cached_details);
-            }
-
-            // Cache miss, proceed to fetch
-            info!("Active account details cache miss. Fetching...");
-            match wallet_service::get_active_account_details(state) {
-                Ok(Some(details)) => {
-                    // Store in cache before returning
-                    info!("Fetched details successfully. Caching and returning.");
-                    state.cached_active_details = Some(details.clone());
-                    send_json_response(StatusCode::OK, &details)
-                }
-                Ok(None) => {
-                    // No active/unlocked account found, ensure cache is clear
-                    info!("No active/unlocked account found. Clearing cache and returning null.");
-                    state.cached_active_details = None;
-                    send_json_response(StatusCode::OK, &json!(null))
-                }
-                Err(e) => {
-                    // Error fetching details, ensure cache is clear
-                    error!("Error getting active account details: {:?}", e);
-                    state.cached_active_details = None; 
-                    send_json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({ "error": "Failed to retrieve account details" }))
-                }
-            }
+            handle_get_active_account_details(state)
         }
-
-        // --- Operator TBA Withdrawal Actions ---
+        
+        // Withdrawal operations
         HttpMcpRequest::WithdrawEthFromOperatorTba { to_address, amount_wei_str } => {
-            info!("MCP: Handling WithdrawEthFromOperatorTba to: {}, amount_wei: {}", to_address, amount_wei_str);
-            match wallet_payments::handle_operator_tba_withdrawal(
-                state, 
-                wallet_payments::AssetType::Eth,
-                to_address, 
-                amount_wei_str
-            ) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true, "message": "ETH withdrawal initiated." })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e.to_string() })),
-            }
+            handle_withdraw_eth(state, to_address, amount_wei_str)
         }
         HttpMcpRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => {
-            info!("MCP: Handling WithdrawUsdcFromOperatorTba to: {}, amount_units: {}", to_address, amount_usdc_units_str);
-            match wallet_payments::handle_operator_tba_withdrawal(
-                state, 
-                wallet_payments::AssetType::Usdc,
-                to_address, 
-                amount_usdc_units_str
-            ) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true, "message": "USDC withdrawal initiated." })),
-                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e.to_string() })),
-            }
+            handle_withdraw_usdc(state, to_address, amount_usdc_units_str)
         }
-        // --- End Operator TBA Withdrawal Actions ---
     }
 }
 
-// Structure to hold provider details from the database
-pub struct ProviderDetails {
-    wallet_address: String,  // Provider's wallet address
-    price_str: String,       // Price as string (e.g., "0.001")
-    provider_id: String,     // The actual provider ID (e.g., "node.os")
-}
+// ===========================================================================================
+// GET REQUEST HANDLING - REST API endpoints
+// ===========================================================================================
 
-// Result of fetching provider details
-enum FetchProviderResult {
-    Success(ProviderDetails),
-    NotFound(String), // Contains lookup key that wasn't found
-}
-
-// Result of payment attempt
-enum PaymentResult {
-    NotRequired,
-    Success(String), // Contains transaction hash
-    Failed(PaymentAttemptResult),
-}
-
-// Result of provider call
-enum ProviderCallResult {
-    Success(Vec<u8>),
-    Failed(anyhow::Error),
-}
-
-// Modify handle_provider_call_request signature and how it calls handle_payment
-fn handle_provider_call_request(
+/// Routes GET requests to appropriate handlers based on path
+fn handle_get(
     our: &Address,
-    state: &mut State,
+    path_str: &str,
+    params: &HashMap<String, String>,
+    state: &State,
+    db: &Sqlite,
+) -> anyhow::Result<()> {
+    info!("GET {} with params: {:?}", path_str, params);
+    
+    match path_str {
+        // Status endpoints
+        "/api/setup-status" | "setup-status" => handle_get_setup_status(state),
+        
+        // Graph visualization
+        "/api/hpn-graph" | "/hpn-graph" => handle_get_hpn_graph_layout(our, state, db),
+        
+        // State inspection (debug)
+        "/api/state" | "state" => handle_get_state(state),
+        
+        // Provider registry queries
+        "/api/all" | "all" => handle_get_all_providers(db),
+        "/api/cat" | "cat" => handle_get_providers_by_category(db, params),
+        "/api/search" | "search" => handle_search_providers(db, params),
+        
+        // Wallet endpoints
+        "/api/managed-wallets" => handle_get_managed_wallets(state),
+        
+        // Unknown endpoint
+        _ => {
+            warn!("Unknown GET endpoint: {}", path_str);
+            send_json_response(
+                StatusCode::NOT_FOUND,
+                &json!({ "error": "API endpoint not found" }),
+            )
+        }
+    }
+}
+
+// --- GET Handler Functions ---
+
+fn handle_get_setup_status(state: &State) -> anyhow::Result<()> {
+    let is_configured = state.operator_tba_address.is_some();
+    info!("Setup status check: configured={}", is_configured);
+    send_json_response(StatusCode::OK, &json!({ "configured": is_configured }))
+}
+
+fn handle_get_state(state: &State) -> anyhow::Result<()> {
+    info!("Returning full application state");
+    send_json_response(StatusCode::OK, &json!(state))
+}
+
+fn handle_get_all_providers(db: &Sqlite) -> anyhow::Result<()> {
+    info!("Getting all providers");
+    let data = dbm::get_all(db)?;
+    send_json_response(StatusCode::OK, &json!(data))
+}
+
+fn handle_get_providers_by_category(db: &Sqlite, params: &HashMap<String, String>) -> anyhow::Result<()> {
+    let category = params
+                .get("cat")
+                .ok_or(anyhow::anyhow!("Missing 'cat' query parameter"))?;
+    
+    info!("Getting providers by category: {}", category);
+    let data = dbm::get_by_category(db, category.to_string())?;
+    send_json_response(StatusCode::OK, &json!(data))
+}
+
+fn handle_search_providers(db: &Sqlite, params: &HashMap<String, String>) -> anyhow::Result<()> {
+            let query = params
+                .get("q")
+                .ok_or(anyhow::anyhow!("Missing 'q' query parameter"))?;
+    
+    info!("Searching providers with query: {}", query);
+            let data = dbm::search_provider(db, query.to_string())?;
+    send_json_response(StatusCode::OK, &json!(data))
+}
+
+fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
+    info!("Getting managed wallets");
+    let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
+    
+    send_json_response(StatusCode::OK, &json!({ 
+        "selected_wallet_id": selected_id,
+        "managed_wallets": summaries 
+    }))
+}
+
+// ===========================================================================================
+// PROVIDER CALL HANDLING - Complex payment & provider interaction flow
+// ===========================================================================================
+
+/// Main entry point for provider calls - orchestrates payment and execution
+fn handle_provider_call_request(
+    our: &Address, 
+    state: &mut State, 
     db: &Sqlite, 
     provider_id: String,
     provider_name: String,
     arguments: Vec<(String, String)>,
-    client_config_opt: Option<HotWalletAuthorizedClient> // New param
+    client_config_opt: Option<HotWalletAuthorizedClient>
 ) -> anyhow::Result<()> {
     info!("Handling call request for provider ID='{}', Name='{}'", provider_id, provider_name);
+    
     let timestamp_start_ms = Utc::now().timestamp_millis() as u128;
     let call_args_json = serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string());
-    let lookup_key = if !provider_id.is_empty() { provider_id.clone() } else { provider_name.clone() };
+    let lookup_key_for_db = if !provider_id.is_empty() { provider_id.clone() } else { provider_name.clone() };
 
-    // Step 1: Fetch provider details
-    match fetch_provider_details(db, &lookup_key) {
+    // Fetch provider details from database
+    match fetch_provider_details(db, &lookup_key_for_db) {
         FetchProviderResult::Success(provider_details) => {
-            // Step 2: Handle payment if required
-            match handle_payment(state, &provider_details, client_config_opt.as_ref()) {
-                PaymentResult::NotRequired => {
-                    info!("No payment required for this provider");
-                    execute_provider_call(our, state, &provider_details, provider_name, arguments, timestamp_start_ms, call_args_json)
+            execute_provider_flow(
+                our,
+                state,
+                provider_details,
+                provider_name,
+                arguments,
+                timestamp_start_ms,
+                call_args_json,
+                client_config_opt
+            )
+        }
+        FetchProviderResult::NotFound(returned_lookup_key) => {
+            error!("Provider '{}' not found in local DB.", returned_lookup_key);
+            let wallet_id_for_failure = client_config_opt.as_ref()
+                .map(|config| config.associated_hot_wallet_address.clone())
+                .or_else(|| state.selected_wallet_id.clone());
+            record_call_failure(
+                state,
+                timestamp_start_ms,
+                returned_lookup_key.clone(),
+                if provider_id.is_empty() { "".to_string() } else { provider_id.clone() },
+                call_args_json,
+                PaymentAttemptResult::Skipped {
+                    reason: format!("DB Lookup Failed: Key '{}' not found", returned_lookup_key)
                 },
-                PaymentResult::Success(tx_hash) => {
-                    info!("Payment successful with tx hash: {}", tx_hash);
-                    execute_provider_call_with_payment(our, state, &provider_details, provider_name, arguments, timestamp_start_ms, call_args_json, tx_hash)
-                },
-                PaymentResult::Failed(payment_result) => {
-                    error!("Payment failed: {:?}", payment_result);
-                    let payment_result_clone = payment_result.clone(); // Clone to avoid move error
-                    record_call_failure(
-                        state, 
-                        timestamp_start_ms, 
-                        lookup_key, 
-                        provider_details.provider_id, 
-                        call_args_json, 
-                        payment_result
-                    );
-                    send_json_response(StatusCode::PAYMENT_REQUIRED, &json!({ 
-                        "error": "Pre-payment failed or was skipped.", 
-                        "details": payment_result_clone 
-                    }))
-                }
-            }
-        },
-        FetchProviderResult::NotFound(lookup_key) => {
-            error!("Provider '{}' not found in local DB.", lookup_key);
+                wallet_id_for_failure
+            );
+            send_json_response(StatusCode::NOT_FOUND, &json!({ 
+                "error": format!("Provider '{}' not found", returned_lookup_key) 
+            }))
+        }
+    }
+}
+
+/// Execute the full provider flow: payment (if needed) then provider call
+fn execute_provider_flow(
+    our: &Address,
+    state: &mut State,
+    provider_details: ProviderDetails,
+    provider_name: String,
+    arguments: Vec<(String, String)>,
+    timestamp_start_ms: u128,
+    call_args_json: String,
+    client_config_opt: Option<HotWalletAuthorizedClient>
+) -> anyhow::Result<()> {
+    // Attempt payment if required
+    match handle_payment(state, &provider_details, client_config_opt.as_ref()) {
+        PaymentResult::NotRequired => {
+            info!("No payment required for provider {}", provider_details.provider_id);
+            execute_provider_call(our, state, &provider_details, provider_name, arguments, 
+                                timestamp_start_ms, call_args_json, None, client_config_opt)
+        }
+        PaymentResult::Success(tx_hash) => {
+            info!("Payment successful for provider {}: tx={}", provider_details.provider_id, tx_hash);
+            execute_provider_call(our, state, &provider_details, provider_name, arguments, 
+                                timestamp_start_ms, call_args_json, Some(tx_hash), client_config_opt)
+        }
+        PaymentResult::Failed(payment_result) => {
+            error!("Payment failed for provider {}: {:?}", provider_details.provider_id, payment_result);
+            let wallet_id_for_failure = client_config_opt.as_ref()
+                .map(|config| config.associated_hot_wallet_address.clone())
+                .or_else(|| state.selected_wallet_id.clone());
             record_call_failure(
                 state, 
                 timestamp_start_ms, 
-                lookup_key.clone(), 
-                provider_id, 
+                provider_details.provider_id.clone(),
+                provider_details.provider_id.clone(),
                 call_args_json, 
-                PaymentAttemptResult::Skipped { reason: format!("DB Lookup Failed: Key '{}' not found", lookup_key) }
+                payment_result.clone(),
+                wallet_id_for_failure
             );
-            send_json_response(StatusCode::NOT_FOUND, &json!({ "error": format!("Provider '{}' not found", lookup_key) }))
+            send_json_response(StatusCode::PAYMENT_REQUIRED, &json!({ 
+                "error": "Pre-payment failed or was skipped.", 
+                "details": payment_result 
+            }))
         }
+    }
+}
+
+// ===========================================================================================
+// MCP HANDLER FUNCTIONS - Individual operation implementations
+// ===========================================================================================
+
+// --- Registry Operations ---
+
+fn handle_search_registry(db: &Sqlite, query: String) -> anyhow::Result<()> {
+    info!("Searching registry for: {}", query);
+    let data = dbm::search_provider(db, query)?;
+    send_json_response(StatusCode::OK, &json!(data))
+}
+
+// --- History Operations ---
+
+fn handle_get_call_history(state: &State) -> anyhow::Result<()> {
+    info!("Getting call history");
+            let history_clone = state.call_history.clone(); 
+            send_json_response(StatusCode::OK, &history_clone)
+        }
+
+// --- Wallet Management Operations ---
+
+fn handle_get_wallet_summary_list(state: &State) -> anyhow::Result<()> {
+    info!("Getting wallet summary list");
+    let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
+    send_json_response(StatusCode::OK, &json!({ 
+        "selected_id": selected_id, 
+        "wallets": summaries 
+    }))
+}
+
+fn handle_select_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<()> {
+    info!("Selecting wallet: {}", wallet_id);
+    match wallet_service::select_wallet(state, wallet_id) {
+                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+                Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
+            }
+        }
+
+fn handle_rename_wallet(state: &mut State, wallet_id: String, new_name: String) -> anyhow::Result<()> {
+    info!("Renaming wallet {} to '{}'", wallet_id, new_name);
+    match wallet_service::rename_wallet(state, wallet_id, new_name) {
+                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
+             }
+        }
+
+fn handle_delete_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<()> {
+    info!("Deleting wallet: {}", wallet_id);
+    match wallet_service::delete_wallet(state, wallet_id) {
+                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
+             }
+        }
+
+fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
+    info!("Generating new wallet");
+    match wallet_service::generate_initial_wallet() {
+        Ok(wallet) => {
+            let wallet_id = wallet.id.clone();
+            state.managed_wallets.insert(wallet_id.clone(), wallet);
+            
+        // Auto-select if none selected
+            if state.selected_wallet_id.is_none() {
+            let _ = wallet_service::select_wallet(state, wallet_id.clone());
+            } else {
+                state.save();
+            }
+            info!("Generated wallet: {}", wallet_id);
+            send_json_response(StatusCode::OK, &json!({ "success": true, "id": wallet_id }))
+        },
+        Err(e) => send_json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({ 
+            "success": false, 
+            "error": e 
+        }))
+    }
+}
+
+fn handle_import_wallet(
+    state: &mut State, 
+    private_key: String, 
+    password: String, 
+    name: Option<String>
+) -> anyhow::Result<()> {
+    info!("Importing wallet");
+    match wallet_service::import_new_wallet(state, private_key, password, name) {
+        Ok(address) => send_json_response(StatusCode::OK, &json!({ 
+            "success": true, 
+            "address": address 
+        })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+    }
+}
+
+// --- Wallet State Operations ---
+
+fn get_selected_wallet_id(state: &State) -> anyhow::Result<String> {
+    state.selected_wallet_id.clone()
+        .ok_or_else(|| anyhow::anyhow!("No wallet selected"))
+}
+
+fn handle_activate_wallet(state: &mut State, password: Option<String>) -> anyhow::Result<()> {
+    info!("Activating wallet");
+    let wallet_id = get_selected_wallet_id(state)?;
+    
+    match wallet_service::activate_wallet(state, wallet_id, password) {
+        Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+    }
+}
+
+fn handle_deactivate_wallet(state: &mut State) -> anyhow::Result<()> {
+    info!("Deactivating wallet");
+    let wallet_id = get_selected_wallet_id(state)?;
+    
+    match wallet_service::deactivate_wallet(state, wallet_id) {
+        Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+    }
+}
+
+fn handle_set_wallet_limits(state: &mut State, limits: SpendingLimits) -> anyhow::Result<()> {
+    info!("Setting wallet spending limits");
+    let wallet_id = get_selected_wallet_id(state)?;
+    
+    match wallet_service::set_wallet_spending_limits(state, wallet_id, limits) {
+                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+    }
+}
+
+// Similar pattern for other wallet operations...
+fn handle_export_private_key(state: &State, password: Option<String>) -> anyhow::Result<()> {
+    info!("Exporting private key");
+    let wallet_id = state.selected_wallet_id.clone()
+        .ok_or_else(|| anyhow::anyhow!("No wallet selected"))?;
+    
+    match wallet_service::export_private_key(state, wallet_id, password) {
+        Ok(private_key) => send_json_response(StatusCode::OK, &json!({ 
+            "success": true, 
+            "private_key": private_key 
+        })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+    }
+}
+
+fn handle_set_wallet_password(
+    state: &mut State, 
+    new_password: String, 
+    old_password: Option<String>
+) -> anyhow::Result<()> {
+    info!("Setting wallet password");
+    let wallet_id = get_selected_wallet_id(state)?;
+    
+    match wallet_service::set_wallet_password(state, wallet_id, new_password, old_password) {
+                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+    }
+}
+
+fn handle_remove_wallet_password(state: &mut State, current_password: String) -> anyhow::Result<()> {
+    info!("Removing wallet password");
+    let wallet_id = get_selected_wallet_id(state)?;
+    
+    match wallet_service::remove_wallet_password(state, wallet_id, current_password) {
+                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e 
+        })),
+            }
+        }
+
+fn handle_get_active_account_details(state: &mut State) -> anyhow::Result<()> {
+            // Check cache first
+            if let Some(cached_details) = state.cached_active_details.clone() {
+        info!("Returning cached active account details");
+                return send_json_response(StatusCode::OK, &cached_details);
+            }
+
+    // Cache miss, fetch fresh
+    info!("Active account details cache miss, fetching...");
+    match wallet_service::get_active_account_details(state) {
+                Ok(Some(details)) => {
+            info!("Fetched details successfully, caching...");
+                    state.cached_active_details = Some(details.clone());
+                    send_json_response(StatusCode::OK, &details)
+                }
+                Ok(None) => {
+            info!("No active/unlocked account found");
+                    state.cached_active_details = None;
+                    send_json_response(StatusCode::OK, &json!(null))
+                }
+                Err(e) => {
+                    error!("Error getting active account details: {:?}", e);
+                    state.cached_active_details = None; 
+            send_json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({ 
+                "error": "Failed to retrieve account details" 
+            }))
+        }
+    }
+}
+
+// --- Withdrawal Operations ---
+
+fn handle_withdraw_eth(state: &mut State, to_address: String, amount_wei_str: String) -> anyhow::Result<()> {
+    info!("Withdrawing ETH to: {}, amount: {} wei", to_address, amount_wei_str);
+    match wallet_payments::handle_operator_tba_withdrawal(
+                state, 
+        wallet_payments::AssetType::Eth,
+                to_address, 
+                amount_wei_str
+            ) {
+        Ok(_) => send_json_response(StatusCode::OK, &json!({ 
+            "success": true, 
+            "message": "ETH withdrawal initiated." 
+        })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e.to_string() 
+        })),
+    }
+}
+
+fn handle_withdraw_usdc(state: &mut State, to_address: String, amount_usdc_units_str: String) -> anyhow::Result<()> {
+    info!("Withdrawing USDC to: {}, amount: {} units", to_address, amount_usdc_units_str);
+    match wallet_payments::handle_operator_tba_withdrawal(
+                state, 
+        wallet_payments::AssetType::Usdc,
+                to_address, 
+                amount_usdc_units_str
+            ) {
+        Ok(_) => send_json_response(StatusCode::OK, &json!({ 
+            "success": true, 
+            "message": "USDC withdrawal initiated." 
+        })),
+        Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
+            "success": false, 
+            "error": e.to_string() 
+        })),
     }
 }
 
@@ -813,133 +873,107 @@ fn handle_provider_call_request(
 fn fetch_provider_details(db: &Sqlite, lookup_key: &str) -> FetchProviderResult {
     info!("Fetching provider details for lookup key: {}", lookup_key);
     
-    // Special case for hpn-provider-beta.os
-    //if lookup_key == "hpn-provider-beta.os" {
-    //    info!("Returning hardcoded details for hpn-provider-beta.os");
-    //    return FetchProviderResult::Success(ProviderDetails {
-    //        wallet_address: "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d".to_string(),
-    //        price_str: "0.0002".to_string(),
-    //        provider_id: "hpn-provider-beta.os".to_string(),
-    //    });
-    //}
-    
     match dbm::get_provider_details(db, lookup_key) {
         Ok(Some(details_map)) => {
-            // Extract the provider ID
-            let provider_id = match details_map.get("provider_id").and_then(Value::as_str).map(String::from) {
-                Some(id) => id,
+            extract_provider_from_json(details_map, lookup_key)
+        }
+        _ => FetchProviderResult::NotFound(lookup_key.to_string()),
+    }
+}
+
+fn extract_provider_from_json(details_map: HashMap<String, Value>, lookup_key: &str) -> FetchProviderResult {
+    let provider_id = match details_map.get("provider_id").and_then(Value::as_str) {
+        Some(id) => id.to_string(),
                 None => return FetchProviderResult::NotFound(lookup_key.to_string()),
             };
             
-            // Extract wallet address (default to "0x0" if not found)
-            let wallet = details_map.get("wallet").and_then(Value::as_str)
+    let wallet = details_map.get("wallet")
+        .and_then(Value::as_str)
                 .map(String::from)
                 .unwrap_or_else(|| "0x0".to_string());
             
-            // Extract price (default to "0.0" if not found)
-            let price = details_map.get("price").and_then(Value::as_str)
+    let price = details_map.get("price")
+        .and_then(Value::as_str)
                 .map(String::from)
                 .unwrap_or_else(|| "0.0".to_string());
             
-            info!("Found provider details in DB: ID={}, Wallet={}, Price={}", provider_id, wallet, price);
+    info!("Provider details: ID={}, Wallet={}, Price={}", provider_id, wallet, price);
             
             FetchProviderResult::Success(ProviderDetails {
                 wallet_address: wallet,
                 price_str: price,
                 provider_id,
             })
-        },
-        _ => FetchProviderResult::NotFound(lookup_key.to_string()),
+}
+
+// Helper function to authenticate a shim client
+fn authenticate_shim_client<'a>(
+    state: &'a State,
+    client_id: &str,
+    raw_token: &str,
+) -> Result<&'a HotWalletAuthorizedClient, AuthError> {
+    // 1. Lookup Client
+    match state.authorized_clients.get(client_id) {
+        Some(client_config) => {
+            // 2. Verify Token
+            let mut hasher = Sha256::new();
+            hasher.update(raw_token.as_bytes());
+            let hashed_received_token = format!("{:x}", hasher.finalize());
+
+            if hashed_received_token != client_config.authentication_token {
+                return Err(AuthError::InvalidToken);
+            }
+
+            // 3. Check Capabilities
+            if client_config.capabilities != ServiceCapabilities::All {
+                return Err(AuthError::InsufficientCapabilities);
+            }
+            
+            // All checks passed
+            Ok(client_config)
+        }
+        None => Err(AuthError::ClientNotFound),
     }
 }
 
-// Modify handle_payment signature
-fn handle_payment(state: &mut State, provider_details: &ProviderDetails, client_config_opt: Option<&HotWalletAuthorizedClient>) -> PaymentResult {
-    let price_f64 = provider_details.price_str.parse::<f64>().unwrap_or(0.0);
-    if price_f64 <= 0.0 {
-        info!("No payment required (Price: {} is zero or invalid).", provider_details.price_str);
-        return PaymentResult::NotRequired;
-    }
-
-    let associated_hot_wallet_id_str: String;
-
+// Helper function to determine which wallet to use for payment based on request context
+fn determine_payment_wallet(
+    state: &State,
+    client_config_opt: Option<&HotWalletAuthorizedClient>
+) -> Result<String, PaymentAttemptResult> {
     if let Some(client_config) = client_config_opt {
-        // Shim-initiated request: use the wallet associated with the client_id
-        associated_hot_wallet_id_str = client_config.associated_hot_wallet_address.clone();
-        info!(
-            "Payment for shim client: {}, Associated Hot Wallet: {}", 
-            client_config.id, associated_hot_wallet_id_str
-        );
-    } else {
-        // UI-initiated request: try to use the globally selected and active/unlocked wallet
-        info!("Payment attempt from UI/non-shim context.");
-        if let Some(selected_id) = &state.selected_wallet_id {
-            // Check if this selected wallet is actually active and unlocked (signer in cache)
-            if state.active_signer_cache.is_some() {
-                // And ensure the signer in cache actually corresponds to the selected_id
-                // (This check might be redundant if active_signer_cache is managed strictly upon selection/activation)
-                if let Some(signer) = &state.active_signer_cache {
-                    if signer.address().to_string().eq_ignore_ascii_case(selected_id) {
-                        associated_hot_wallet_id_str = selected_id.clone();
-                        info!("Using selected and unlocked hot wallet for UI payment: {}", associated_hot_wallet_id_str);
-                    } else {
-                        error!(
-                            "Mismatch: Selected wallet ID {} does not match active signer cache address {}. Payment cannot proceed.", 
-                            selected_id, signer.address().to_string()
-                        );
-                        return PaymentResult::Failed(PaymentAttemptResult::Skipped {
-                            reason: "Selected wallet and active signer mismatch. Please re-select/unlock.".to_string(),
-                        });
-                    }
-                } else { // Should not happen if active_signer_cache.is_some() was true, but as a safeguard
-                    error!("Selected wallet {} indicated, but active_signer_cache is empty. Payment cannot proceed.", selected_id);
-                    return PaymentResult::Failed(PaymentAttemptResult::Skipped {
-                        reason: "No active signer. Please unlock the selected wallet.".to_string(),
-                    });
-                }
-            } else {
-                error!("Selected wallet {} is not unlocked (no active signer). Payment cannot proceed.", selected_id);
-                return PaymentResult::Failed(PaymentAttemptResult::Skipped {
-                    reason: "Selected wallet is locked. Please unlock for payment.".to_string(),
-                });
-            }
+        // Shim-initiated: use client's associated wallet
+        info!("Payment via shim client {}", client_config.id);
+        Ok(client_config.associated_hot_wallet_address.clone())
         } else {
-            error!("No wallet selected for UI-initiated payment.");
-            return PaymentResult::Failed(PaymentAttemptResult::Skipped {
-                reason: "No wallet selected for payment.".to_string(),
-            });
-        }
+        // UI-initiated: use selected & unlocked wallet
+        determine_ui_payment_wallet(state)
     }
-    
-    info!("Payment required for provider {} (ID: {}): Attempting pre-payment of {} to {} using hot wallet {}", 
-          provider_details.provider_id, provider_details.provider_id, provider_details.price_str, provider_details.wallet_address, associated_hot_wallet_id_str);
-    
-    let payment_result = wallet_payments::execute_payment_if_needed(
-        state,
-        &provider_details.wallet_address,
-        &provider_details.price_str,
-        provider_details.provider_id.clone(),
-        &associated_hot_wallet_id_str // Pass the determined hot wallet ID string
-    );
-    
-    match payment_result {
-        Some(PaymentAttemptResult::Success { tx_hash, .. }) => {
-            info!("Pre-payment successful with tx hash: {}", tx_hash);
-            PaymentResult::Success(tx_hash)
-        },
-        Some(result @ PaymentAttemptResult::Failed { .. }) |
-        Some(result @ PaymentAttemptResult::Skipped { .. }) |
-        Some(result @ PaymentAttemptResult::LimitExceeded { .. }) => {
-            error!("Payment failed: {:?}", result);
-            PaymentResult::Failed(result)
-        },
-        None => {
-            error!("execute_payment_if_needed returned None unexpectedly for non-zero price.");
-            PaymentResult::Failed(PaymentAttemptResult::Skipped { 
-                reason: "Internal payment logic error".to_string() 
-            })
-        }
+}
+
+fn determine_ui_payment_wallet(state: &State) -> Result<String, PaymentAttemptResult> {
+    let selected_id = state.selected_wallet_id.as_ref()
+        .ok_or_else(|| PaymentAttemptResult::Skipped {
+            reason: "No wallet selected for payment".to_string()
+        })?;
+
+    // Verify wallet is unlocked
+    let signer = state.active_signer_cache.as_ref()
+        .ok_or_else(|| PaymentAttemptResult::Skipped {
+            reason: "Selected wallet is locked. Please unlock for payment".to_string()
+        })?;
+
+    // Verify signer matches selected wallet
+    if !signer.address().to_string().eq_ignore_ascii_case(selected_id) {
+        error!("Selected wallet {} doesn't match active signer {}", 
+               selected_id, signer.address());
+        return Err(PaymentAttemptResult::Skipped {
+            reason: "Wallet state mismatch. Please re-select/unlock".to_string()
+        });
     }
+
+    info!("Using selected wallet {} for UI payment", selected_id);
+    Ok(selected_id.clone())
 }
 
 // Helper function to execute provider call (no payment)
@@ -951,52 +985,8 @@ fn execute_provider_call(
     arguments: Vec<(String, String)>,
     timestamp_start_ms: u128,
     call_args_json: String,
-) -> anyhow::Result<()> {
-    call_provider_and_handle_response(
-        our,
-        state,
-        provider_details,
-        provider_name,
-        arguments,
-        timestamp_start_ms,
-        call_args_json,
-        None, // No payment
-    )
-}
-
-// Helper function to execute provider call with payment
-fn execute_provider_call_with_payment(
-    our: &Address,
-    state: &mut State,
-    provider_details: &ProviderDetails,
-    provider_name: String,
-    arguments: Vec<(String, String)>,
-    timestamp_start_ms: u128,
-    call_args_json: String,
-    tx_hash: String,
-) -> anyhow::Result<()> {
-    call_provider_and_handle_response(
-        our,
-        state,
-        provider_details,
-        provider_name,
-        arguments,
-        timestamp_start_ms,
-        call_args_json,
-        Some(tx_hash),
-    )
-}
-
-// Core function to call provider and handle response
-fn call_provider_and_handle_response(
-    our: &Address,
-    state: &mut State,
-    provider_details: &ProviderDetails,
-    provider_name: String,
-    arguments: Vec<(String, String)>,
-    timestamp_start_ms: u128,
-    call_args_json: String,
     payment_tx_hash: Option<String>,
+    client_config_opt: Option<HotWalletAuthorizedClient>,
 ) -> anyhow::Result<()> {
     // Prepare target address
     let target_address = Address::new(
@@ -1042,6 +1032,11 @@ fn call_provider_and_handle_response(
             reason: "Zero Price".to_string() 
         })
     };
+
+    // Determine the correct operator_wallet_id based on the call context
+    let actual_operator_wallet_id = client_config_opt.as_ref()
+        .map(|config| config.associated_hot_wallet_address.clone())
+        .or_else(|| state.selected_wallet_id.clone());
     
     let record = CallRecord {
         timestamp_start_ms,
@@ -1052,7 +1047,7 @@ fn call_provider_and_handle_response(
         response_timestamp_ms,
         payment_result,
         duration_ms: response_timestamp_ms - timestamp_start_ms,
-        operator_wallet_id: state.selected_wallet_id.clone(),
+        operator_wallet_id: actual_operator_wallet_id,
     };
     
     state.call_history.push(record);
@@ -1116,9 +1111,6 @@ fn limit_call_history(state: &mut State) {
     }
 }
 
-
-
-//
 /// Handles POST request to /api/authorize-shim
 /// Verifies user is authenticated, then writes their node name and auth token
 /// to a configuration file for the hpn-shim to read.
@@ -1185,8 +1177,6 @@ pub fn handle_authorize_shim_request(
                 .into_bytes(),
             )?);
     }
-
-    info!("Using Node: {}, Token: [REDACTED] for config", node_name);
 
     // Prepare the configuration data
     let config_data = ShimAuthConfig {
@@ -1359,7 +1349,8 @@ fn record_call_failure(
     lookup_key: String, 
     target_provider_id: String, 
     call_args_json: String, 
-    payment_result: PaymentAttemptResult
+    payment_result: PaymentAttemptResult,
+    operator_wallet_id: Option<String>,
 ) {
     let record = CallRecord {
         timestamp_start_ms,
@@ -1370,40 +1361,90 @@ fn record_call_failure(
         response_timestamp_ms: Utc::now().timestamp_millis() as u128,
         payment_result: Some(payment_result),
         duration_ms: Utc::now().timestamp_millis() as u128 - timestamp_start_ms,
-        operator_wallet_id: state.selected_wallet_id.clone(),
+        operator_wallet_id, // Use passed-in operator_wallet_id
     };
     state.call_history.push(record);
     limit_call_history(state);
     state.save(); 
 }
 
+// --- Payment Handling ---
 
-// Helper function to authenticate a shim client
-fn authenticate_shim_client<'a>(
-    state: &'a State,
-    client_id: &str,
-    raw_token: &str,
-) -> Result<&'a HotWalletAuthorizedClient, AuthError> {
-    // 1. Lookup Client
-    match state.authorized_clients.get(client_id) {
-        Some(client_config) => {
-            // 2. Verify Token
-            let mut hasher = Sha256::new();
-            hasher.update(raw_token.as_bytes());
-            let hashed_received_token = format!("{:x}", hasher.finalize());
+fn handle_payment(
+    state: &mut State, 
+    provider_details: &ProviderDetails, 
+    client_config_opt: Option<&HotWalletAuthorizedClient>
+) -> PaymentResult {
+    let price_f64 = provider_details.price_str.parse::<f64>().unwrap_or(0.0);
+    if price_f64 <= 0.0 {
+        info!("No payment required (Price: {} is zero or invalid).", provider_details.price_str);
+        return PaymentResult::NotRequired;
+    }
 
-            if hashed_received_token != client_config.authentication_token {
-                return Err(AuthError::InvalidToken);
-            }
-
-            // 3. Check Capabilities
-            if client_config.capabilities != ServiceCapabilities::All {
-                return Err(AuthError::InsufficientCapabilities);
-            }
-            
-            // All checks passed
-            Ok(client_config)
+    // Determine which wallet to use for payment
+    let wallet_id = match determine_payment_wallet(state, client_config_opt) {
+        Ok(id) => id,
+        Err(payment_result) => return PaymentResult::Failed(payment_result),
+    };
+    
+    info!("Attempting payment of {} to {} for provider {} using wallet {}", 
+          provider_details.price_str, provider_details.wallet_address, 
+          provider_details.provider_id, wallet_id);
+    
+    let payment_result = wallet_payments::execute_payment_if_needed(
+        state,
+        &provider_details.wallet_address,
+        &provider_details.price_str,
+        provider_details.provider_id.clone(),
+        &wallet_id
+    );
+    
+    match payment_result {
+        Some(PaymentAttemptResult::Success { tx_hash, .. }) => {
+            PaymentResult::Success(tx_hash)
         }
-        None => Err(AuthError::ClientNotFound),
+        Some(result) => {
+            PaymentResult::Failed(result)
+        }
+        None => {
+            PaymentResult::Failed(PaymentAttemptResult::Skipped { 
+                reason: "Internal payment logic error".to_string() 
+            })
+        }
+    }
+}
+
+fn handle_post(
+    our: &Address,
+    state: &mut State,
+    db: &Sqlite,
+    client_config_opt: Option<HotWalletAuthorizedClient>,
+) -> anyhow::Result<()> {
+    let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing for MCP request"))?;
+    
+    // Try to parse as new McpRequest format first
+    match serde_json::from_slice::<McpRequest>(blob.bytes()) {
+        Ok(body) => handle_mcp(our, body, state, db, client_config_opt),
+        Err(_) => {
+            // Fall back to legacy HttpMcpRequest format for backwards compatibility
+            match serde_json::from_slice::<HttpMcpRequest>(blob.bytes()) {
+                Ok(body) => {
+                    warn!("Received deprecated HttpMcpRequest format. Please update to use McpRequest for MCP operations or ApiRequest for other operations.\n\n{:?}", body);
+                    handle_legacy_mcp(our, body, state, db, client_config_opt)
+                }
+                Err(e) if e.is_syntax() || e.is_data() => {
+                    error!("Failed to deserialize MCP request JSON: {}", e);
+                    send_json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": format!("Invalid MCP request body: {}", e) })
+                    )?;
+                    Ok(())
+                }
+                Err(e) => {
+                    error!("Unexpected error reading MCP request blob: {}", e);
+                    Err(anyhow::anyhow!("Error reading MCP request body: {}", e))
+                }
+            }
+        }
     }
 }

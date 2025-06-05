@@ -5,7 +5,7 @@ use sha2::{Sha256, Digest};
 use hyperware_process_lib::logging::{info, error};
 use hyperware_process_lib::Address as HyperAddress;
 use hyperware_process_lib::sqlite::Sqlite;
-use hyperware_process_lib::wallet;
+use hyperware_process_lib::wallet::{self, KeyStorage, EthAmount, execute_via_tba_with_signer, wait_for_transaction, get_eth_balance};
 use hyperware_process_lib::hypermap;
 use hyperware_process_lib::eth;
 use hyperware_process_lib::http::{StatusCode, server::send_response};
@@ -16,7 +16,7 @@ use hex;
 
 use crate::structs::{self, *};
 use crate::db;
-use crate::wallet_manager;
+use crate::wallet::service;
 use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
@@ -134,7 +134,7 @@ pub fn handle_terminal_debug(
             } else {
                 info!("DB wiped. Reinitializing schema...");
                  match db::load_db(our) {
-                    Ok(new_db) => {
+                    Ok(_new_db) => {
                         // TODO: Need to update the db handle used by the main loop.
                         // This requires more complex state management (e.g., Arc<Mutex>) 
                         // or restarting the process. For now, log this limitation.
@@ -191,7 +191,7 @@ pub fn handle_terminal_debug(
         }
         "verify" => {
             info!("Running hot wallet delegation verification (detailed)...");
-            match wallet_manager::verify_selected_hot_wallet_delegation_detailed(state, None) {
+            match service::verify_selected_hot_wallet_delegation_detailed(state, None) {
                 DelegationStatus::Verified => {
                     info!("Verification SUCCESS: Selected hot wallet IS delegated.");
                 }
@@ -231,7 +231,7 @@ pub fn handle_terminal_debug(
                         return Ok(()); 
                     }
                 };
-                let hot_wallet_signer = match wallet_manager::get_active_signer(state) {
+                let hot_wallet_signer = match service::get_active_signer(state) {
                     Ok(signer) => signer,
                     Err(e) => { 
                         error!("Failed to get active hot wallet signer: {}", e);
@@ -247,7 +247,7 @@ pub fn handle_terminal_debug(
                         return Ok(()); 
                     }
                 };
-                let wei_value = wallet::EthAmount::from_eth(amount_eth_f64).as_wei();
+                let wei_value = EthAmount::from_eth(amount_eth_f64).as_wei();
 
                 // Create provider
                 let eth_provider = eth::Provider::new(structs::CHAIN_ID, 300000); // 300s timeout
@@ -256,7 +256,7 @@ pub fn handle_terminal_debug(
                     operator_tba_addr_str, target_address_str, amount_eth_f64, wei_value);
 
                 // Call execute_via_tba_with_signer directly for ETH transfer
-                let execution_result = wallet::execute_via_tba_with_signer(
+                let execution_result = execute_via_tba_with_signer(
                     &operator_tba_addr_str,
                     hot_wallet_signer,
                     target_address_str,
@@ -271,7 +271,7 @@ pub fn handle_terminal_debug(
                     Ok(receipt) => {
                         let tx_hash = receipt.hash;
                         info!("ETH Execute Transaction sent successfully! Tx Hash: {:?}. Waiting for confirmation...", tx_hash);
-                        match wallet::wait_for_transaction(tx_hash, eth_provider.clone(), 1, 60) {
+                        match wait_for_transaction(tx_hash, eth_provider.clone(), 1, 60) {
                             Ok(final_receipt) => {
                                 info!("Received final ETH payment receipt: {:#?}", final_receipt);
                                 if final_receipt.status() {
@@ -330,7 +330,7 @@ pub fn handle_terminal_debug(
 
                     // P6: Sub-Entry TBA Funding (Basic Check: ETH > 0)
                     info!("[6] Checking sub-entry TBA ETH balance...");
-                     match wallet::get_eth_balance(&tba.to_string(), structs::CHAIN_ID, provider.clone()) {
+                     match get_eth_balance(&tba.to_string(), structs::CHAIN_ID, provider.clone()) {
                          Ok(balance) => {
                              if balance.as_wei() > U256::ZERO {
                                  info!("  -> ETH Balance OK: {}", balance.to_display_string());
@@ -355,7 +355,7 @@ pub fn handle_terminal_debug(
 
             // P4/P5/P6: Delegation Notes & Hot Wallet Match
             info!("[4/5/6] Checking delegation notes for '{}' and selected hot wallet...", sub_entry_name);
-            match wallet_manager::verify_selected_hot_wallet_delegation_detailed(state, None) {
+            match service::verify_selected_hot_wallet_delegation_detailed(state, None) {
                  DelegationStatus::Verified => {
                      info!("  -> Delegation check PASSED for selected hot wallet.");
                  }

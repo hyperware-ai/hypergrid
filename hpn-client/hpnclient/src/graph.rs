@@ -16,20 +16,22 @@ use crate::structs::{
     GraphNode,
     GraphEdge,
     GraphNodeData,
-    NodePosition, // Assuming frontend will handle layout initially
+    //NodePosition, // Assuming frontend will handle layout initially
     OperatorWalletFundingInfo,
     HotWalletFundingInfo,
     NoteInfo,
-    WalletSummary, // For getting hot wallet names if managed
+    //WalletSummary, // For getting hot wallet names if managed
     IdentityStatus, DelegationStatus, 
     MintOperatorWalletActionNodeData,
 };
-use crate::wallet_manager::{ // For fetching wallet related info
-    self, // To call functions like get_all_onchain_linked_hot_wallet_addresses
+use crate::wallet::service::{
     get_wallet_summary_for_address,
+    get_all_onchain_linked_hot_wallet_addresses,
+    //verify_single_hot_wallet_delegation_detailed,
+};
+use crate::wallet::payments::{
     check_operator_tba_funding_detailed,
     check_single_hot_wallet_funding_detailed,
-    // verify_single_hot_wallet_delegation_detailed, // We'll need this logic or similar
 };
 use crate::identity; // For operator identity details
 
@@ -139,7 +141,7 @@ pub fn build_hpn_graph_data(
         if let Some(selected_hw_id) = &state.selected_wallet_id {
             if let Some(selected_hw) = state.managed_wallets.get(selected_hw_id) {
                 let hw_address_str = &selected_hw.id.to_string(); // Ensure this is the correct address string
-                match wallet_manager::verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
+                match crate::wallet::service::verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
                     DelegationStatus::Verified => {
                         access_list_note_status_text = "Access List Note: Set".to_string();
                         access_list_note_is_set = true;
@@ -335,7 +337,7 @@ pub fn build_hpn_graph_data(
 
     // Only add Hot Wallet and Client nodes if Operator Wallet exists
     if operator_wallet_node_id.is_some() {
-        match wallet_manager::get_all_onchain_linked_hot_wallet_addresses(fresh_operator_entry_name.as_deref()) {
+        match get_all_onchain_linked_hot_wallet_addresses(fresh_operator_entry_name.as_deref()) {
             Ok(linked_hw_addresses) => {
                 for hw_address_str in linked_hw_addresses {
                     let hot_wallet_node_id = format!("hot-wallet-{}", hw_address_str);

@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import CopyToClipboardText from '../components/CopyToClipboardText';
+import { callApiWithRouting } from '../utils/api-endpoints';
 // Import shared types
 import { WalletSummary, SpendingLimits, WalletListData } from '../logic/types';
 
-// Define getApiBasePath directly here (copied from App.tsx)
-const getApiBasePath = () => {
-    const pathParts = window.location.pathname.split('/').filter(p => p);
-    const processIdPart = pathParts.find(part => part.includes(':'));
-    return processIdPart ? `/${processIdPart}/api` : '/api';
+type ToastMessage = {
+    type: 'success' | 'error';
+    text: string;
 };
 
-const MCP_ENDPOINT = `${getApiBasePath()}/mcp`;
+const getApiBasePath = () => {
+    const pathParts = window.location.pathname.split('/').filter(p => p);
+    const packagePath = pathParts.find(p => p.includes(':'));
+    return packagePath ? `/${packagePath}/api` : '/api';
+};
 
 // Helper function to generate a random API key
 function generateApiKey(length = 32): string {
@@ -46,7 +49,7 @@ function AccountManager() {
     const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(true); 
     const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
-    const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+    const [toastMessage, setToastMessage] = useState<ToastMessage | null>(null);
 
     // Input states 
     const [currentPassword, setCurrentPassword] = useState<string>(''); 
@@ -73,10 +76,7 @@ function AccountManager() {
     // --- API Calls ---
     // Restore fetchWalletData
     const fetchWalletData = useCallback(async () => {
-        setIsLoading(true); // Set loading true for this component
-        setCurrentPassword('');
-        setNewPassword('');
-        setConfirmPassword('');
+        setIsLoading(true);
         setRevealedPrivateKey(null);
         setWalletToRename(null);
         setRenameInput('');
@@ -84,16 +84,7 @@ function AccountManager() {
 
         try {
             const requestBody = { GetWalletSummaryList: {} }; 
-            const response = await fetch(MCP_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody),
-            });
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({ error: `HTTP error! Status: ${response.status}` }));
-                throw new Error(errData.error || `Failed to fetch wallet list: ${response.statusText}`);
-            }
-            const data: WalletListData = await response.json();
+            const data: WalletListData = await callApiWithRouting(requestBody);
             setWallets(data.wallets || []);
             setSelectedWalletId(data.selected_id || null);
 
@@ -166,7 +157,7 @@ function AccountManager() {
                  await handleSelectWallet(walletId);
              }
             const requestBody = { ActivateWallet: { password: requiredPassword } }; 
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             handleSuccess(`Account ${truncateString(walletId, 10)} activated.`);
             setActivationPassword(prev => ({...prev, [walletId]: ''}));
         } catch (err: any) { handleError(err); }
@@ -186,7 +177,7 @@ function AccountManager() {
          setIsActionLoading(true); setToastMessage(null);
          try {
             const requestBody = { DeactivateWallet: {} }; 
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             handleSuccess(`Account ${truncateString(walletId, 10)} deactivated.`);
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
@@ -197,7 +188,7 @@ function AccountManager() {
         setIsActionLoading(true); setToastMessage(null);
         try {
             const requestBody = { SelectWallet: { wallet_id: walletId } };
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             // Selection successful in backend, dispatch event to trigger UI updates
             window.dispatchEvent(new CustomEvent('accountActionSuccess')); 
             // Call the passed-in refresh AFTER dispatching, so App gets latest list
@@ -211,7 +202,7 @@ function AccountManager() {
         setIsActionLoading(true); setToastMessage(null);
          try {
             const requestBody = { DeleteWallet: { wallet_id: walletId } };
-             await callMcpApi(MCP_ENDPOINT, requestBody);
+             await callApiWithRouting(requestBody);
              handleSuccess(`Account ${truncateString(walletId, 10)} deleted.`);
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
@@ -228,7 +219,7 @@ function AccountManager() {
          setIsActionLoading(true); setToastMessage(null);
          try {
             const requestBody = { RenameWallet: { wallet_id: walletToRename, new_name: renameInput } };
-             await callMcpApi(MCP_ENDPOINT, requestBody);
+             await callApiWithRouting(requestBody);
              handleSuccess(`Account ${truncateString(walletToRename, 10)} renamed to ${renameInput}.`);
              setWalletToRename(null); 
         } catch (err: any) { handleError(err); }
@@ -239,7 +230,7 @@ function AccountManager() {
          setIsActionLoading(true); setToastMessage(null);
          try {
             const requestBody = { GenerateWallet: {} };
-             const data = await callMcpApi(MCP_ENDPOINT, requestBody);
+             const data = await callApiWithRouting(requestBody);
              handleSuccess(`New account ${truncateString(data.id, 10)} generated and selected.`);
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
@@ -259,7 +250,7 @@ function AccountManager() {
              if (selectedWallet.is_encrypted && !selectedWallet.is_active && !currentPassword) {
                 throw new Error("Password required to export key from inactive/locked account.");
             }
-            const data = await callMcpApi(MCP_ENDPOINT, requestBody);
+            const data = await callApiWithRouting(requestBody);
             setRevealedPrivateKey(data.private_key);
             showToast('success', 'Private key revealed.', 10000); 
             setCurrentPassword(''); 
@@ -284,7 +275,7 @@ function AccountManager() {
              if (selectedWallet.is_encrypted && !currentPassword) {
                 throw new Error("Current password required to change password.");
             }
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             handleSuccess('Password set successfully. Account is now inactive/locked.');
             setCurrentPassword('');
             setNewPassword('');
@@ -300,7 +291,7 @@ function AccountManager() {
          setIsActionLoading(true); setToastMessage(null);
          try {
             const requestBody = { RemoveSelectedWalletPassword: { current_password: currentPassword } };
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             handleSuccess('Password removed successfully. Account is now active/unlocked.');
             setCurrentPassword(''); 
         } catch (err: any) { handleError(err); }
@@ -318,7 +309,7 @@ function AccountManager() {
         };
          try {
             const requestBody = { SetWalletLimits: { limits: limits } }; 
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             handleSuccess('Spending limits updated successfully.');
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
@@ -336,7 +327,7 @@ function AccountManager() {
                     name: walletNameToImport.trim() === '' ? null : walletNameToImport.trim()
                 }
             };
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApiWithRouting(requestBody);
             handleSuccess(`Account imported successfully. It is now inactive.`);
             setShowImportForm(false); 
             setPrivateKeyToImport(''); setPasswordForImport(''); setWalletNameToImport(''); 
@@ -391,7 +382,7 @@ function AccountManager() {
         setIsGeneratingConfig(true);
         const newApiKey = generateApiKey(32);
         
-        fetch(`${getApiBasePath()}/save-shim-key`, { 
+        fetch(getApiBasePath() + '/save-shim-key', { 
             method: 'POST',
             headers: { 'Content-Type': 'application/json' }, 
             credentials: 'include', 

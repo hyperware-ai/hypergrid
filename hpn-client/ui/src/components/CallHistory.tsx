@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns'; // Using date-fns for timestamp formatting
 // Import shared types
 import { CallRecord, PaymentAttemptResult } from '../logic/types';
+import { API_ACTIONS_ENDPOINT } from '../utils/api-endpoints';
 
 // Add props interface
 interface CallHistoryProps {
@@ -118,7 +119,7 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
         // setAllHistory([]); // Don't clear immediately, wait for fetch
         try {
             const requestBody = { GetCallHistory: {} }; 
-            const response = await fetch(MCP_ENDPOINT, {
+            const response = await fetch(API_ACTIONS_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(requestBody), 
@@ -128,6 +129,7 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
                  throw new Error(errData.error || `Failed to fetch history: ${response.statusText}`);
             }
             const data: CallRecord[] = await response.json();
+            console.log('CallHistory data:', data);
             setAllHistory(data.reverse()); // Store all history, newest first
         } catch (err) {
             setError(err instanceof Error ? err.message : 'An unknown error occurred');
@@ -144,12 +146,31 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
 
     // Effect to filter history whenever allHistory or selectedAccountId changes
     useEffect(() => {
+        console.log(`[CallHistory Filter] Active. Selected Account ID: "${selectedAccountId}"`);
+        console.log(`[CallHistory Filter] Total records in allHistory before filtering: ${allHistory.length}`);
+
+        if (allHistory.length > 0 && selectedAccountId) {
+            // Log a sample of operator_wallet_ids from allHistory for diagnosis
+            const sampleIds = allHistory.slice(0, Math.min(5, allHistory.length)).map(r => r.operator_wallet_id);
+            console.log(`[CallHistory Filter] Sample operator_wallet_ids from allHistory (first 5):`, sampleIds);
+            // Log if the current selectedAccountId is found in these samples
+            const isSelectedIdInSample = sampleIds.includes(selectedAccountId);
+            console.log(`[CallHistory Filter] Is selectedAccountId ("${selectedAccountId}") present in the first 5 samples? ${isSelectedIdInSample}`);
+        }
+
         if (selectedAccountId) {
-            setFilteredHistory(allHistory.filter(record => record.operator_wallet_id === selectedAccountId));
+            const newFilteredHistory = allHistory.filter(record => {
+                const match = record.operator_wallet_id === selectedAccountId;
+                // To avoid excessive logging, this detailed comparison log is commented out by default.
+                // Uncomment if you need to see every comparison:
+                // console.log(`[CallHistory Filter] Comparing: record.operator_wallet_id ("${record.operator_wallet_id}") === selectedAccountId ("${selectedAccountId}") -> ${match}`);
+                return match;
+            });
+            setFilteredHistory(newFilteredHistory);
+            console.log(`[CallHistory Filter] Filtered. Records count for "${selectedAccountId}": ${newFilteredHistory.length}`);
         } else {
-            // If no account selected, show all history or none? Let's show none for now.
-            // setFilteredHistory(allHistory); // Option to show all if none selected
-            setFilteredHistory([]); 
+            setFilteredHistory([]);
+            console.log('[CallHistory Filter] No account selected or allHistory empty. Filtered history set to empty array.');
         }
     }, [allHistory, selectedAccountId]);
 

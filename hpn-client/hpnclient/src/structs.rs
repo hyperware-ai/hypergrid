@@ -261,8 +261,68 @@ impl State {
     }
 }
 // calls from the MCP shim (and now also UI)
+
+// NEW: Actual Model Context Provider (MCP) requests - used by the shim
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "PascalCase")] // Match frontend/old indexer naming
+pub enum McpRequest {
+    // Registry/Provider Actions (from Shim)
+    SearchRegistry(String),
+    CallProvider {
+        #[serde(alias = "providerId")]
+        provider_id: String,
+        #[serde(alias = "providerName")]
+        provider_name: String,
+        arguments: Vec<(String, String)>,
+    },
+}
+
+// NEW: Regular API requests for UI operations - not MCP related
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "PascalCase")] // Match frontend naming
+pub enum ApiRequest {
+    // History Action
+    GetCallHistory {},
+
+    // Wallet Summary/Selection Actions
+    GetWalletSummaryList {}, 
+    SelectWallet { wallet_id: String },
+    RenameWallet { wallet_id: String, new_name: String },
+    DeleteWallet { wallet_id: String },
+
+    // Wallet Creation/Import
+    GenerateWallet {}, 
+    ImportWallet {
+        private_key: String,
+        password: String,
+        name: Option<String>,
+    },
+
+    // Wallet State & Config (operate on SELECTED implicitly)
+    ActivateWallet { password: Option<String> },
+    DeactivateWallet {}, 
+    SetWalletLimits { limits: SpendingLimits }, // Use SpendingLimits struct defined above
+    ExportSelectedPrivateKey { password: Option<String> }, 
+    SetSelectedWalletPassword { new_password: String, old_password: Option<String> }, 
+    RemoveSelectedWalletPassword { current_password: String }, 
+    
+    // Get details for the active/ready account
+    GetActiveAccountDetails {},
+
+    // Operator TBA withdrawals
+    WithdrawEthFromOperatorTba {
+        to_address: String,
+        amount_wei_str: String, // Amount in Wei as a string to avoid precision loss
+    },
+    WithdrawUsdcFromOperatorTba {
+        to_address: String,
+        amount_usdc_units_str: String, // Amount in smallest USDC units (e.g., if 6 decimals, 1 USDC = "1000000")
+    },
+}
+
+// DEPRECATED: This enum is being phased out. Use McpRequest or ApiRequest instead.
+#[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "PascalCase")]
 pub enum HttpMcpRequest {
     // Registry/Provider Actions (from Shim)
     SearchRegistry(String),
