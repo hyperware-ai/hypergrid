@@ -19,6 +19,8 @@ use structs::*;
 use crate::helpers::handle_terminal_debug;
 use crate::wallet::{service as wallet_service};
 
+const ICON: &str = include_str!("./icon");
+
 
 // TODO b4 beta: clean these endpoints up
 fn init_http() -> anyhow::Result<HttpServer> {
@@ -49,7 +51,7 @@ fn init_http() -> anyhow::Result<HttpServer> {
     http_server.bind_http_path("/shim/mcp", http_config_unauthenticated.clone())?;
     
     // UI
-    add_to_homepage("Hypergrid Operator", None, Some("/"), None);
+    add_to_homepage("Hypergrid Operator", Some(ICON), Some("/"), None);
     http_server.serve_ui("ui", vec!["/"], http_config_authenticated)?;
 
     Ok(http_server)
