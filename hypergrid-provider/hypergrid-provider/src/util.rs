@@ -560,6 +560,18 @@ pub async fn validate_transaction_payment(
     Ok(())
 }
 
+pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::Provider {
+    let hypermap_timeout = 60;
+    hyperware_app_common::hyperware_process_lib::eth::Provider::new(hypermap::HYPERMAP_CHAIN_ID, hypermap_timeout)
+}
+
+pub fn default_hypermap() -> hypermap::Hypermap {
+    let hypermap_timeout = 60;
+    let provider = hyperware_app_common::hyperware_process_lib::eth::Provider::new(hypermap::HYPERMAP_CHAIN_ID, hypermap_timeout);
+    let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
+        .expect("HYPERMAP_ADDRESS const should be a valid Ethereum address");
+    hypermap::Hypermap::new(provider, hypermap_contract_address)
+}
 
 //use crate::{EndpointDefinition, HttpMethod, ProviderRequest};
 //use hyperware_app_common::hyperware_process_lib::kiprintln;

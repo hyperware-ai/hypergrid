@@ -1,10 +1,5 @@
 import React from 'react';
-<<<<<<< HEAD:hpn-provider/ui/src/components/curlVisualizer.tsx
-import { HttpMethod, EndpointDefinition } from '../types/hpn_provider'; // Updated imports
-// swag
-=======
 import { HttpMethod, EndpointDefinition } from '../types/hypergrid_provider'; // Updated imports
->>>>>>> develop:hypergrid-provider/ui/src/components/curlVisualizer.tsx
 
 // Reinstating API Patterns
 // REMOVE apiPatterns array

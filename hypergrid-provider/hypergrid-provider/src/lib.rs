@@ -83,32 +83,19 @@ pub struct RegisteredProvider {
     pub endpoint: EndpointDefinition,
 }
 
-<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
-#[derive(Clone, Debug, Serialize, Deserialize)] 
-#[serde(default = "HpnProviderState::new_serde_default")] // Use a custom default for deserialization
-pub struct HpnProviderState {
-=======
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HypergridProviderState {
->>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
     pub registered_providers: Vec<RegisteredProvider>,
     pub spent_tx_hashes: Vec<String>,
-    #[serde(skip)]
+    #[serde(skip, default = "util::default_provider")]
     pub rpc_provider: Provider, 
-    #[serde(skip)]
+    #[serde(skip, default = "util::default_hypermap")]
     pub hypermap: hypermap::Hypermap, 
 }
 
-<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
-impl HpnProviderState {
-    // This function will be used by Serde as the default constructor during deserialization
-    fn new_serde_default() -> Self {
-        Self::new() // Relies on the existing new() method which correctly initializes everything
-    }
 
-=======
+
 impl HypergridProviderState {
->>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
     /// Creates a new instance of the state (always fresh/empty)
     pub fn new() -> Self {
         let hypermap_timeout = 60; // RPC Provider timeout
@@ -130,19 +117,9 @@ impl HypergridProviderState {
     pub fn load() -> Self {
         match get_state() {
             Some(bytes) => {
-<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
-                // Now we deserialize directly into Self. Serde will use new_serde_default 
-                // to get an initial instance, then populate registered_providers and spent_tx_hashes.
-                match rmp_serde::from_slice::<Self>(&bytes) { 
-                    Ok(state) => { 
-                        info!("Successfully loaded HpnProviderState from checkpoint.");
-                        // rpc_provider and hypermap are already initialized by new_serde_default (via new())
-                        // and were not overwritten because of #[serde(skip)]
-=======
                 match serde_json::from_slice::<Self>(&bytes) {
                     Ok(state) => {
                         println!("Successfully loaded HypergridProviderState from checkpoint.");
->>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
                         state
                     }
                     Err(e) => {
@@ -187,15 +164,9 @@ impl Default for HypergridProviderState {
 impl HypergridProviderState {
     #[init]
     async fn initialize(&mut self) {
-<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
-        info!("Initializing provider registry");
-        *self = HpnProviderState::load();
-        add_to_homepage("HPN Provider Dashboard", Some(ICON), Some("/"), None);
-=======
         println!("Initializing provider registry");
         *self = HypergridProviderState::load();
         add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
->>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
     }
 
     #[http]
@@ -393,8 +364,6 @@ impl HypergridProviderState {
         }
     }
 }
-<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
-=======
 
 
 
@@ -720,4 +689,3 @@ impl HypergridProviderState {
 //    }
 //}
 //
->>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
