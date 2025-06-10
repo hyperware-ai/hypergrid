@@ -1,0 +1,4 @@
+world types-hpn-provider-template-dot-os-v0 {
+    import hpn-provider;
+    include lib;
+}

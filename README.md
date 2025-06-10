@@ -1,9 +1,9 @@
 # Hyperware Provider Network Monorepo
 
 Projects:
-- [HPN (Operator)](operator/README.md)
-- [HPN Provider](hpn-provider/README.md) 
-- [HPN Shim](hpn-shim/README.md)
+- [Operator](operator/README.md)
+- [Hypergrid Provider](hypergrid-provider/README.md) 
+- [HPN Shim](hypergrid-shim/README.md)
 
 
 Follow instructions in their respective README's.
