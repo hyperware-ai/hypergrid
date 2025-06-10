@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Hyperware Provider Network Dashboard</title>
+  <style>
+    html, body, #root {
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box; /* Recommended for easier layout */
+    }
+    /* Ensure #root also behaves as a flex container if its direct child needs to fill height */
+    #root {
+        display: flex;
+        flex-direction: column;
+    }
+  </style>
+  <script type="module" crossorigin src="/operator:operator:lazybonesitis.os/bundle.js"></script>
+</head>
+
+<body>
+  <div id="root"></div>
+</body>
+
+</html>

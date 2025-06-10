@@ -1,0 +1,265 @@
+/* operator/ui/src/components/HotWalletNode.module.css */
+
+.nodeContainer {
+    padding: 12px;
+    border: 1px solid #ffff00; /* Yellow border */
+    border-radius: 8px;
+    background-color: #2d2d2d;
+    color: #f0f0f0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+    position: relative; /* ESSENTIAL for absolute positioning of children like the lock icon */
+}
+
+/* Styles for the iOS-like top-right lock icon */
+.lockIconTopRight {
+    position: absolute;
+    top: 8px;  /* Adjust for desired vertical position from top */
+    right: 8px; /* Adjust for desired horizontal position from right */
+    cursor: pointer;
+    font-size: 16px; /* Adjust icon size */
+    padding: 5px;    /* Increase clickable area */
+    line-height: 1;  
+    z-index: 10;     /* Ensure it's on top */
+    color: #f0f0f0; /* Icon color, same as node text */
+    /* Optional: if you want a subtle background or border for the icon's clickable area */
+    /* background-color: rgba(255, 255, 255, 0.05); */
+    /* border-radius: 4px; */
+}
+
+.lockIconTopRight:hover {
+    /* color: #ffff00; */ /* Example hover color */
+    /* background-color: rgba(255, 255, 255, 0.1); */
+}
+
+.header {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #ffff00; /* Yellow to match border */
+    margin-bottom: 4px;
+    display: flex; /* To align "Hot Wallet:" and the name/input */
+    align-items: center;
+}
+
+.infoRow, .fundingItem, .statusItem, .clientsItem, .limitConfigRowAltered {
+    font-size: 0.9em;
+    line-height: 1.4;
+    display: flex; 
+    justify-content: space-between; /* Key for label-left, value-right alignment */
+    align-items: center; /* Vertically align items in the row */
+    padding: 2px 0; /* Consistent vertical padding for rows */
+}
+
+.infoLabel, .limitLabel { /* Grouped limitLabel with infoLabel for consistency */
+    color: #aaa;
+    margin-right: 8px;
+    white-space: nowrap;
+}
+
+.infoValue { /* This will apply to the span wrapping the limit value/input too */
+    color: #e0e0e0;
+    word-break: break-all;
+    text-align: right; /* Ensure content within the value span is right-aligned */
+    flex-grow: 1; /* Allow value to take remaining space if label is short */
+}
+
+/* Specific for the limit input when in edit mode, to blend with infoValue alignment */
+.limitInputFieldInline {
+    background-color: #222;
+    color: white;
+    border: 1px solid #555;
+    border-radius: 3px;
+    padding: 3px 6px;
+    font-size: 1em; /* Match surrounding text if .infoValue has a specific size */
+    width: 100px; /* Adjust as needed, or use flex-basis/max-width */
+    text-align: right;
+    box-sizing: border-box; /* Include padding/border in width */
+}
+
+/* Specific for the clickable limit value display */
+.limitValueDisplayClickable {
+    cursor: pointer;
+    padding: 3px 6px; /* Match input somewhat */
+    border-radius: 3px;
+    /* text-align: right; Inherited from .infoValue */
+}
+.limitValueDisplayClickable:hover {
+    background-color: #484848;
+}
+
+.addressValueClickable {
+    color: #79c0ff; /* Clickable blue */
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.addressValueClickable:hover {
+    text-decoration: underline;
+}
+
+.statusNeedsFunding {
+    color: orange;
+    font-weight: bold;
+    margin-left: 5px; /* If displayed next to balance */
+    font-size: 0.9em;
+}
+
+.statusError {
+    color: #ff8a8a; /* Light red for errors */
+    font-size: 0.8em;
+    margin-top: 2px;
+}
+
+/* Ensure CopyToClipboardText integrates well */
+.infoValue .copy-to-clipboard {
+    display: inline-flex; 
+    align-items: center;
+}
+
+.configSectionInline {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid #444; /* Separator */
+}
+
+.inlineLabel {
+    font-size: 0.9em;
+    color: #aaa;
+    margin-bottom: 4px;
+    display: block;
+}
+
+.spendingLimitFormNodeCompact {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.limitInputFieldNodeCompact {
+    flex-grow: 1;
+    padding: 6px 8px;
+    border-radius: 4px;
+    border: 1px solid #555;
+    background-color: #222;
+    color: #eee;
+    font-size: 0.9em;
+    min-width: 80px;
+    -moz-appearance: textfield; /* Firefox */
+}
+
+.limitInputFieldNodeCompact::-webkit-inner-spin-button,
+.limitInputFieldNodeCompact::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+
+.limitButtonOkNodeCompact {
+    padding: 6px 12px;
+    border-radius: 4px;
+    border: none;
+    cursor: pointer;
+    font-size: 0.9em;
+    background-color: #2ecc71; /* Green */
+    color: white;
+    transition: background-color 0.2s ease;
+}
+
+.limitButtonOkNodeCompact:hover {
+    background-color: #27ae60;
+}
+
+.limitButtonOkNodeCompact:disabled {
+    background-color: #555;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.toastNotification {
+  padding: 8px 10px;
+  margin-top: 8px;
+  border-radius: 4px;
+  font-size: 0.85em;
+  text-align: center;
+}
+
+.toastSuccess {
+  background-color: #28a745;
+  color: white;
+  border: 1px solid #1e7e34;
+}
+
+.toastError {
+  background-color: #dc3545;
+  color: white;
+  border: 1px solid #bd2130;
+}
+
+.warningTextSmall {
+    color: #f39c12; /* Orange */
+    font-size: 0.8em;
+    margin-top: 4px;
+}
+
+/* Hover glow can be kept or removed based on preference */
+.nodeHoverGlow {
+  box-shadow: 0 0 15px 5px rgba(0, 255, 255, 0.7); 
+  transition: box-shadow 0.3s ease-in-out;
+}
+
+.nameDisplayStatic {
+    /* If you had styles for a non-clickable static name, they might be here or part of .header */
+    font-weight: bold; /* Example */
+}
+
+.nameDisplayClickable {
+    cursor: text; /* Or pointer if you prefer that for click-to-edit */
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+    font-weight: bold; /* Match static display */
+}
+
+.nameDisplayClickable:hover {
+    background-color: rgba(255, 255, 255, 0.1); /* Subtle hover for clickability */
+}
+
+.nameInputEditing {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: #f0f0f0;
+    border: 1px solid #ffff00;
+    border-radius: 3px;
+    padding: 2px 4px;
+    margin-left: 5px; 
+    font-size: 1em; 
+    font-weight: bold; 
+    width: auto; 
+    min-width: 100px;
+}
+
+.passwordInputNodeCompact {
+    flex-grow: 1;
+    margin-right: 8px;
+    /* ... other styles from before ... */
+}
+
+.actionButtonNodeCompact {
+    /* ... styles from before ... */
+}
+
+.cancelButtonNodeCompact {
+    background-color: #6c757d; /* Example: Grey for cancel */
+}
+.cancelButtonNodeCompact:hover {
+    background-color: #5a6268;
+}
+
+.warningTextSmallCentered {
+    color: #f39c12; /* Orange */
+    font-size: 0.8em;
+    margin-top: 6px;
+    text-align: center;
+} 
