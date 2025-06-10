@@ -42,6 +42,7 @@ fn init_http() -> anyhow::Result<HttpServer> {
     // Graph endpoints
     http_server.bind_http_path("/api/hypergrid-graph", http_config_authenticated.clone())?;
     http_server.bind_http_path("/api/managed-wallets", http_config_authenticated.clone())?;
+    http_server.bind_http_path("/api/linked-wallets", http_config_authenticated.clone())?;
     
     // MCP endpoints
     http_server.bind_http_path("/api/mcp", http_config_authenticated.clone())?;
