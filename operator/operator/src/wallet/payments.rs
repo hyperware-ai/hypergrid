@@ -364,7 +364,7 @@ fn check_provider_availability(provider_id: &str) -> Result<(), String> {
 
     let target_address = HyperwareAddress::new(
         provider_id,
-        ("hpn-provider", "hpn-provider", "template.os")
+        ("hypergrid-provider", "hypergrid-provider", "grid-beta.hypr")
     );
     let provider_name = format!("{}", provider_id); 
     let arguments = vec![]; 
