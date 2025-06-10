@@ -2,7 +2,7 @@ use anyhow::{anyhow, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 use std::collections::HashMap;
 use sha2::{Sha256, Digest};
-use hyperware_process_lib::logging::{info, error};
+use hyperware_process_lib::logging::{info, error, warn};
 use hyperware_process_lib::Address as HyperAddress;
 use hyperware_process_lib::sqlite::Sqlite;
 use hyperware_process_lib::wallet::{self, KeyStorage, EthAmount, execute_via_tba_with_signer, wait_for_transaction, get_eth_balance};
@@ -389,6 +389,11 @@ pub fn handle_terminal_debug(
             info!("get-tba <node> : Query Hypermap for TBA of a given node.");
             info!("get-owner <node>: Query Hypermap for owner of a given node.");
             info!("query-provider <name>: Query the local DB for a provider by its exact name.");
+            info!("list-providers : List all providers in the database.");
+            info!("search-providers <query>: Search providers by name, provider_name, site, description, or provider_id.");
+            info!("db-stats       : Show database statistics and the current root hash status.");
+            info!("check-provider-id <provider_id>: Check for provider by provider_id.");
+            info!("check-grid-root: Check the grid-beta.hypr entry status.");
             info!("help or ?      : Show this help message.");
             info!("-----------------------------------");
         }
@@ -450,6 +455,293 @@ pub fn handle_terminal_debug(
             } else {
                 error!("Usage: query-provider <provider_name>");
             }
+        }
+        "list-providers" => {
+            info!("--- Listing All Providers in Database ---");
+            info!("Current root_hash: {:?}", state.root_hash);
+            
+            match db::get_all(db) {
+                Ok(providers) => {
+                    if providers.is_empty() {
+                        warn!("No providers found in database!");
+                        info!("This could mean:");
+                        info!("  1. The database was recently reset");
+                        info!("  2. Chain sync hasn't found grid-beta.hypr yet"); 
+                        info!("  3. No providers have been minted under grid-beta.hypr");
+                    } else {
+                        info!("Found {} provider(s) in database:", providers.len());
+                        for (idx, provider) in providers.iter().enumerate() {
+                            info!("\n=== Provider {} ===", idx + 1);
+                            if let Some(name) = provider.get("name") {
+                                info!("Name: {}", name);
+                            }
+                            if let Some(hash) = provider.get("hash") {
+                                info!("Hash: {}", hash);
+                            }
+                            if let Some(provider_id) = provider.get("provider_id") {
+                                info!("Provider ID: {}", provider_id);
+                            }
+                            if let Some(parent_hash) = provider.get("parent_hash") {
+                                info!("Parent Hash: {}", parent_hash);
+                            }
+                            if let Some(price) = provider.get("price") {
+                                info!("Price: {}", price);
+                            }
+                            if let Some(wallet) = provider.get("wallet") {
+                                info!("Wallet: {}", wallet);
+                            }
+                            // Show first 100 chars of description if present
+                            if let Some(desc) = provider.get("description") {
+                                if let Some(desc_str) = desc.as_str() {
+                                    let truncated = if desc_str.len() > 100 {
+                                        format!("{}...", &desc_str[..100])
+                                    } else {
+                                        desc_str.to_string()
+                                    };
+                                    info!("Description: {}", truncated);
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Error listing all providers: {:?}", e);
+                }
+            }
+            info!("--- End Provider List ---");
+        }
+        "search-providers" => {
+            if let Some(search_query) = command_arg {
+                info!("Searching providers for query: '{}'", search_query);
+                match db::search_provider(db, search_query.to_string()) {
+                    Ok(results) => {
+                        if results.is_empty() {
+                            info!("No providers found matching: '{}'", search_query);
+                        } else {
+                            info!("Found {} provider(s) matching '{}':", results.len(), search_query);
+                            for (idx, provider) in results.iter().enumerate() {
+                                info!("\n=== Match {} ===", idx + 1);
+                                match serde_json::to_string_pretty(&provider) {
+                                    Ok(json_str) => info!("{}", json_str),
+                                    Err(e) => error!("Error serializing provider: {:?}", e),
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error searching providers: {:?}", e);
+                    }
+                }
+            } else {
+                error!("Usage: search-providers <search_query>");
+                info!("Searches in: name, provider_name, site, description, provider_id");
+            }
+        }
+        "db-stats" => {
+            info!("--- Database Statistics ---");
+            
+            // Check if root hash is set
+            match &state.root_hash {
+                Some(hash) => info!("Hypergrid root (grid-beta.hypr) hash: {}", hash),
+                None => warn!("Hypergrid root (grid-beta.hypr) NOT SET - this prevents provider indexing!"),
+            }
+            
+            // Count providers
+            let count_query = "SELECT COUNT(*) as count FROM providers".to_string();
+            match db.read(count_query, vec![]) {
+                Ok(rows) => {
+                    if let Some(count) = rows.get(0).and_then(|row| row.get("count")).and_then(|v| v.as_i64()) {
+                        info!("Total providers in DB: {}", count);
+                    }
+                }
+                Err(e) => error!("Error counting providers: {:?}", e),
+            }
+            
+            // Show last checkpoint block
+            info!("Last checkpoint block: {}", state.last_checkpoint_block);
+            
+            // Count providers by parent_hash to see distribution
+            let parent_count_query = r#"
+                SELECT parent_hash, COUNT(*) as count 
+                FROM providers 
+                GROUP BY parent_hash
+                ORDER BY count DESC
+            "#.to_string();
+            
+            match db.read(parent_count_query, vec![]) {
+                Ok(rows) => {
+                    if !rows.is_empty() {
+                        info!("\nProvider distribution by parent:");
+                        for row in rows.iter().take(5) { // Show top 5
+                            if let (Some(parent), Some(count)) = 
+                                (row.get("parent_hash").and_then(|v| v.as_str()), 
+                                 row.get("count").and_then(|v| v.as_i64())) {
+                                let parent_display = if parent == state.root_hash.as_deref().unwrap_or("") {
+                                    format!("{} (grid-beta.hypr)", parent)
+                                } else {
+                                    parent.to_string()
+                                };
+                                info!("  Parent {}: {} providers", parent_display, count);
+                            }
+                        }
+                    }
+                }
+                Err(e) => error!("Error getting parent distribution: {:?}", e),
+            }
+            
+            // Show sample of recent providers
+            let recent_query = "SELECT name, provider_id, created FROM providers ORDER BY id DESC LIMIT 5".to_string();
+            match db.read(recent_query, vec![]) {
+                Ok(rows) => {
+                    if !rows.is_empty() {
+                        info!("\nMost recent providers:");
+                        for row in rows {
+                            if let (Some(name), Some(provider_id)) = 
+                                (row.get("name").and_then(|v| v.as_str()),
+                                 row.get("provider_id").and_then(|v| v.as_str())) {
+                                info!("  - {} (ID: {})", name, provider_id);
+                            }
+                        }
+                    }
+                }
+                Err(e) => error!("Error getting recent providers: {:?}", e),
+            }
+            
+            info!("--- End Database Statistics ---");
+        }
+        "check-provider-id" => {
+            if let Some(provider_id) = command_arg {
+                info!("Checking for provider with provider_id: '{}'", provider_id);
+                
+                // First check by provider_id field
+                let query_by_id = "SELECT * FROM providers WHERE provider_id = ?1".to_string();
+                let params = vec![serde_json::Value::String(provider_id.to_string())];
+                
+                match db.read(query_by_id, params) {
+                    Ok(results) => {
+                        if results.is_empty() {
+                            info!("No provider found with provider_id: '{}'", provider_id);
+                            
+                            // Try to find similar provider_ids
+                            let similar_query = "SELECT provider_id, name FROM providers WHERE provider_id LIKE ?1 OR provider_id LIKE ?2".to_string();
+                            let similar_params = vec![
+                                serde_json::Value::String(format!("%{}%", provider_id)),
+                                serde_json::Value::String(format!("{}%", provider_id)),
+                            ];
+                            
+                            match db.read(similar_query, similar_params) {
+                                Ok(similar_results) => {
+                                    if !similar_results.is_empty() {
+                                        info!("\nSimilar provider_ids found:");
+                                        for result in similar_results {
+                                            if let (Some(id), Some(name)) = 
+                                                (result.get("provider_id").and_then(|v| v.as_str()),
+                                                 result.get("name").and_then(|v| v.as_str())) {
+                                                info!("  - {} (name: {})", id, name);
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(_) => {}
+                            }
+                            
+                            // Also check if this might be a name instead
+                            info!("\nChecking if '{}' might be a provider name instead...", provider_id);
+                            let name_query = "SELECT * FROM providers WHERE name = ?1".to_string();
+                            let name_params = vec![serde_json::Value::String(provider_id.to_string())];
+                            
+                            match db.read(name_query, name_params) {
+                                Ok(name_results) => {
+                                    if !name_results.is_empty() {
+                                        info!("Found provider with NAME '{}' (not provider_id):", provider_id);
+                                        for result in name_results {
+                                            match serde_json::to_string_pretty(&result) {
+                                                Ok(json_str) => info!("{}", json_str),
+                                                Err(e) => error!("Error serializing: {:?}", e),
+                                            }
+                                        }
+                                    }
+                                }
+                                Err(_) => {}
+                            }
+                            
+                        } else {
+                            info!("Found provider with provider_id '{}':", provider_id);
+                            for result in results {
+                                match serde_json::to_string_pretty(&result) {
+                                    Ok(json_str) => info!("{}", json_str),
+                                    Err(e) => error!("Error serializing provider: {:?}", e),
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!("Error querying provider by provider_id '{}': {:?}", provider_id, e);
+                    }
+                }
+            } else {
+                error!("Usage: check-provider-id <provider_id>");
+            }
+        }
+        "check-grid-root" => {
+            info!("--- Checking grid-beta.hypr entry status ---");
+            
+            // Check current state
+            match &state.root_hash {
+                Some(hash) => {
+                    info!("State root_hash is SET to: {}", hash);
+                }
+                None => {
+                    warn!("State root_hash is NOT SET - provider indexing is disabled!");
+                }
+            }
+            
+            // Check on-chain for grid-beta.hypr
+            info!("\nChecking on-chain for grid-beta.hypr...");
+            let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+            match debug_get_tba_for_node("grid-beta.hypr") {
+                Ok(result) => {
+                    info!("On-chain lookup for grid-beta.hypr: {}", result);
+                    
+                    // Calculate the expected hash
+                    let expected_hash = hypermap::namehash("grid-beta.hypr");
+                    info!("Expected hash for grid-beta.hypr: {}", expected_hash);
+                    
+                    // Check if it matches state
+                    if let Some(state_hash) = &state.root_hash {
+                        if *state_hash == expected_hash {
+                            info!("✓ State root_hash matches expected hash");
+                        } else {
+                            error!("✗ State root_hash ({}) does NOT match expected hash ({})", state_hash, expected_hash);
+                        }
+                    }
+                }
+                Err(e) => {
+                    error!("Failed to look up grid-beta.hypr on-chain: {}", e);
+                }
+            }
+            
+            // Show hypr parent hash for reference
+            let hypr_hash = "0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826";
+            info!("\nFor reference:");
+            info!("  hypr hash (parent of grid-beta): {}", hypr_hash);
+            info!("  grid-beta.hypr expected hash: {}", hypermap::namehash("grid-beta.hypr"));
+            
+            // Check if any providers are waiting
+            let pending_query = "SELECT COUNT(*) as count FROM providers WHERE parent_hash != ?1".to_string();
+            let params = vec![serde_json::Value::String(state.root_hash.clone().unwrap_or_default())];
+            match db.read(pending_query, params) {
+                Ok(rows) => {
+                    if let Some(count) = rows.get(0).and_then(|row| row.get("count")).and_then(|v| v.as_i64()) {
+                        if count > 0 {
+                            warn!("Found {} providers with different parent_hash - these may be waiting for correct root", count);
+                        }
+                    }
+                }
+                Err(_) => {}
+            }
+            
+            info!("--- End grid-beta.hypr check ---");
         }
         _ => info!("Unknown command: '{}'. Type 'help' for available commands.", command_verb),
     }
