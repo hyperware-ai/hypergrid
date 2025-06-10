@@ -1,11 +1,11 @@
 {
   "name": "@hyperware-ai/hypergrid-mcp",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Shim for MCP server discovery through the Hypergrid operator tools",
   "main": "index.js",
   "bin": {
-    "hypergrid-mcp": "./dist/index.js"
+    "hypergrid-mcp": "dist/index.js"
   },
   "files": [
     "dist/",

@@ -73,7 +73,7 @@ async function main() {
       version: "0.1.0",
     });
 
-    const mcpApiEndpoint = `${config.url}shim/mcp`; // Construct the full MCP endpoint
+    const mcpApiEndpoint = `${config.url}`;
 
     server.tool("search-registry", { query: z.string() }, async ({ query }) => {
       const body = { SearchRegistry: query };
