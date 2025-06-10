@@ -1,11 +1,11 @@
 {
-  "name": "@hyperware-ai/hpn-mcp",
+  "name": "@hyperware-ai/hypergrid-mcp",
   "version": "1.1.0",
   "type": "module",
   "description": "Shim to expose hyperware mcp servers to ICP clients",
   "main": "index.js",
   "bin": {
-    "@hyperware-ai/hpn-mcp": "./dist/index.js"
+    "@hyperware-ai/hypergrid-mcp": "./dist/index.js"
   },
   "files": [
     "dist/",

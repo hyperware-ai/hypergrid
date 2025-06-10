@@ -1104,7 +1104,7 @@ fn limit_call_history(state: &mut State) {
 
 /// Handles POST request to /api/authorize-shim
 /// Verifies user is authenticated, then writes their node name and auth token
-/// to a configuration file for the hpn-shim to read.
+/// to a configuration file for the hypergrid-shim to read.
 /// 
 pub fn handle_authorize_shim_request(
     our: &Address,
@@ -1192,7 +1192,7 @@ pub fn handle_authorize_shim_request(
     };
 
     // Define VFS path within the package's tmp/ drive
-    let vfs_file_path = format!("/{}/tmp/hpn-shim-config.json", our.package_id());
+    let vfs_file_path = format!("/{}/tmp/grid-shim-config.json", our.package_id());
     info!("Attempting to write shim config to VFS tmp path: {}", vfs_file_path);
 
     // Create/Open the file in VFS tmp and write
@@ -1293,7 +1293,7 @@ pub fn handle_configure_authorized_client(
     };
     
     // Generate Client ID
-    let client_id = format!("hpn-beta-mcp-shim-{}", Uuid::new_v4().to_string());
+    let client_id = format!("hypergrid-beta-mcp-shim-{}", Uuid::new_v4().to_string());
     
     // Hash the received raw token (SHA-256 hex)
     let mut hasher = Sha256::new();

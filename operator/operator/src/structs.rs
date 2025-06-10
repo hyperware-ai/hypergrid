@@ -163,7 +163,7 @@ pub struct State {
     pub cached_active_details: Option<ActiveAccountDetails>,
     pub call_history: Vec<CallRecord>,
 
-    // hpn-shim auth
+    // hypergrid-shim auth
     pub hashed_shim_api_key: Option<String>,
     #[serde(default)]
     pub authorized_clients: HashMap<String, HotWalletAuthorizedClient>,

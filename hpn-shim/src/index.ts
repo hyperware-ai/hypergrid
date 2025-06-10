@@ -7,13 +7,13 @@ import fs from 'fs/promises'; // Import fs promises API
 import path from 'path'; // Import path module
 
 // --- Configuration Loading --- 
-const CONFIG_FILE_NAME = 'hpn-shim-api.json';
+const CONFIG_FILE_NAME = 'grid-shim-api.json';
 
 interface ShimConfig {
-    url: string;         // Base URL for the HPN client API (e.g., http://localhost:8080/operator:nodename.os/api)
+    url: string;         // Base URL for the Hypergrid client API (e.g., http://localhost:8080/operator:nodename.os/api)
     token: string;       // The raw secret token for authentication
     client_id: string;   // The unique client ID for this shim instance
-    node: string;        // The Kinode node name of the HPN client (for reference/logging)
+    node: string;        // The Kinode node name of the Hypergrid client (for reference/logging)
 }
 
 async function loadConfig(): Promise<ShimConfig> {
@@ -51,7 +51,7 @@ async function loadConfig(): Promise<ShimConfig> {
         if (error.code === 'ENOENT') {
             console.error(`Configuration file not found: ${configPath}`);
             console.error(`Please create ${CONFIG_FILE_NAME} in this directory.`);
-            console.error(`You can generate the content using the HPN Client UI.`);
+            console.error(`You can generate the content using the Hypergrid Operator UI.`);
         } else if (error instanceof SyntaxError) {
             console.error(`Failed to parse configuration file (invalid JSON): ${configPath}`);
             console.error(error.message);

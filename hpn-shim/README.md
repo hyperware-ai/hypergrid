@@ -1,21 +1,21 @@
-# @hyperware-ai/hpn-mcp
+# @hyperware-ai/hypergrid-mcp
 
 A Model Context Protocol (MCP) shim that exposes Hyperware MCP servers to MCP clients like Claude Desktop and Cursor.
 
 ## Installation
 
 ```bash
-npm install -g @hyperware-ai/hpn-mcp
+npm install -g @hyperware-ai/hypergrid-mcp
 ```
 
 Or use directly with npx:
 ```bash
-npx @hyperware-ai/hpn-mcp
+npx @hyperware-ai/hypergrid-mcp
 ```
 
 ## Configuration
 
-The shim requires a configuration file (`hpn-shim-api.json`) with the following structure:
+The shim requires a configuration file (`grid-shim-api.json`) with the following structure:
 
 ```json
 {
@@ -31,19 +31,19 @@ You generate this configuration file using the Hypergrid Operator UI.
 ## Usage
 
 ### Basic Usage
-By default, the shim looks for `hpn-shim-api.json` in the current directory:
+By default, the shim looks for `grid-shim-api.json` in the current directory:
 
 ```bash
-npx @hyperware-ai/hpn-mcp
+npx @hyperware-ai/hypergrid-mcp
 ```
 
 ### Specify Config File
 You can specify a custom configuration file location:
 
 ```bash
-npx @hyperware-ai/hpn-mcp --configFile /path/to/your/config.json
+npx @hyperware-ai/hypergrid-mcp --configFile /path/to/your/config.json
 # or
-npx @hyperware-ai/hpn-mcp -c /path/to/your/config.json
+npx @hyperware-ai/hypergrid-mcp -c /path/to/your/config.json
 ```
 
 ### MCP Client Configuration
@@ -56,7 +56,7 @@ Add to your Claude configuration:
   "mcpServers": {
     "hyperware": {
       "command": "npx",
-      "args": ["@hyperware-ai/hpn-mcp", "--configFile", "/path/to/config.json"]
+      "args": ["@hyperware-ai/hypergrid-mcp", "--configFile", "/path/to/config.json"]
     }
   }
 }
@@ -70,7 +70,7 @@ Add to your Cursor MCP configuration:
   "mcpServers": {
     "hyperware": {
       "command": "npx",
-      "args": ["@hyperware-ai/hpn-mcp"],
+      "args": ["@hyperware-ai/hypergrid-mcp"],
       "cwd": "/directory/containing/config"
     }
   }

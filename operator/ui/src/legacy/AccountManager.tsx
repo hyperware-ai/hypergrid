@@ -773,8 +773,8 @@ function AccountManager() {
             <div className="config-form api-config-section" style={{ marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '15px' }}>
                 <h4>Shim API Configuration</h4>
                 <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '10px' }}>
-                    Generate and copy an API key configuration for use with the HPN MCP Shim (npx). 
-                    Save this configuration as `hpn-shim-api.json` in the directory where you run the shim.
+                    Generate and copy an API key configuration for use with the Hypergrid MCP Shim (npx). 
+                    Save this configuration as `grid-shim-api.json` in the directory where you run the shim.
                     Generating a new config will invalidate any previous one.
                 </p>
                 <button 

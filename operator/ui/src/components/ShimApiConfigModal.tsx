@@ -132,7 +132,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                     <h4>Shim API Configuration for Hot Wallet: {hotWalletAddress.substring(0,6)}...{hotWalletAddress.slice(-4)}</h4>
                     <p style={{ fontSize: '0.9em', color: '#000', marginBottom: '15px' }}>
                         Generate and copy an API key configuration for use with the Hypergrid MCP Shim.
-                        Save this configuration as <code>hpn-shim-api.json</code> in the directory where you run the shim.
+                        Save this configuration as <code>grid-shim-api.json</code> in the directory where you run the shim.
                         Then run the shim by adding this to your mcp server config:
                     </p>
                     <div style={{marginBottom: '15px'}}>
@@ -142,7 +142,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                                 mcpServers: {
                                     hyperware: {
                                         command: "npx",
-                                        args: ["@hyperware-ai/hpn-mcp", "--configFile", "/path/to/config.json"]
+                                        args: ["@hyperware-ai/hypergrid-mcp", "--configFile", "/path/to/config.json"]
                                     }
                                 }
                             }, null, 2)}
@@ -161,7 +161,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                     {generationError && <p className="error-message" style={{marginTop: '10px', color: '#ff8a8a'}}>{generationError}</p>}
                     {apiConfigJson && !generationError && (
                         <div style={{marginTop: '15px', background: '#22252a', padding: '10px', borderRadius: '4px'}}>
-                            <p>Save the following as <code>hpn-shim-api.json</code>:</p>
+                            <p>Save the following as <code>grid-shim-api.json</code>:</p>
                             <pre style={{whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '200px', overflowY: 'auto', background: '#1a1c20', padding: '8px', borderRadius: '3px'}}>
                                 {apiConfigJson}
                             </pre>
