@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "hypergrid-provider/hypergrid-provider",
-    "hpn-client/hpnclient",
+    "operator/operator",
 ]
 
 [profile.release]

@@ -1,9 +1,9 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_process_lib::eth::Address as EthAddress;
-use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage, get_state};
+use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage, get_state, logging::{info, error}};
 use serde::{Deserialize, Serialize};
-use serde_json;
+use rmp_serde;
 use std::str::FromStr; // Needed for EthAddress::from_str
 
 pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
@@ -18,6 +18,7 @@ pub struct ProviderRequest {
     pub provider_name: String,
     pub arguments: Vec<(String, String)>,
     pub payment_tx_hash: Option<String>,
+    pub endpoint: EndpointDefinition,
 }
 
 // Type system for API endpoints
@@ -82,15 +83,32 @@ pub struct RegisteredProvider {
     pub endpoint: EndpointDefinition,
 }
 
+<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
+#[derive(Clone, Debug, Serialize, Deserialize)] 
+#[serde(default = "HpnProviderState::new_serde_default")] // Use a custom default for deserialization
+pub struct HpnProviderState {
+=======
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct HypergridProviderState {
+>>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
     pub registered_providers: Vec<RegisteredProvider>,
     pub spent_tx_hashes: Vec<String>,
-    pub rpc_provider: Provider, // For general ETH RPC (e.g., tx receipts on various chains)
-    pub hypermap: hypermap::Hypermap, // For Hypermap specific calls (e.g., on Base chain)
+    #[serde(skip)]
+    pub rpc_provider: Provider, 
+    #[serde(skip)]
+    pub hypermap: hypermap::Hypermap, 
 }
 
+<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
+impl HpnProviderState {
+    // This function will be used by Serde as the default constructor during deserialization
+    fn new_serde_default() -> Self {
+        Self::new() // Relies on the existing new() method which correctly initializes everything
+    }
+
+=======
 impl HypergridProviderState {
+>>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
     /// Creates a new instance of the state (always fresh/empty)
     pub fn new() -> Self {
         let hypermap_timeout = 60; // RPC Provider timeout
@@ -112,19 +130,29 @@ impl HypergridProviderState {
     pub fn load() -> Self {
         match get_state() {
             Some(bytes) => {
+<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
+                // Now we deserialize directly into Self. Serde will use new_serde_default 
+                // to get an initial instance, then populate registered_providers and spent_tx_hashes.
+                match rmp_serde::from_slice::<Self>(&bytes) { 
+                    Ok(state) => { 
+                        info!("Successfully loaded HpnProviderState from checkpoint.");
+                        // rpc_provider and hypermap are already initialized by new_serde_default (via new())
+                        // and were not overwritten because of #[serde(skip)]
+=======
                 match serde_json::from_slice::<Self>(&bytes) {
                     Ok(state) => {
                         println!("Successfully loaded HypergridProviderState from checkpoint.");
+>>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
                         state
                     }
                     Err(e) => {
-                        println!("Failed to deserialize saved state: {}, creating new state", e);
+                        error!("Failed to deserialize HpnProviderState with rmp_serde: {}, creating new state", e);
                         Self::new()
                     }
                 }
             }
             None => {
-                println!("No saved state found. Creating new state.");
+                info!("No saved state found. Creating new state.");
                 Self::new()
             }
         }
@@ -159,9 +187,15 @@ impl Default for HypergridProviderState {
 impl HypergridProviderState {
     #[init]
     async fn initialize(&mut self) {
+<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
+        info!("Initializing provider registry");
+        *self = HpnProviderState::load();
+        add_to_homepage("HPN Provider Dashboard", Some(ICON), Some("/"), None);
+=======
         println!("Initializing provider registry");
         *self = HypergridProviderState::load();
         add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
+>>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs
     }
 
     #[http]
@@ -169,7 +203,7 @@ impl HypergridProviderState {
         &mut self,
         provider: RegisteredProvider,
     ) -> Result<RegisteredProvider, String> {
-        println!("Registering provider: {:?}", provider);
+        info!("Registering provider: {:?}", provider);
         if self
             .registered_providers
             .iter()
@@ -187,10 +221,22 @@ impl HypergridProviderState {
         };
 
         self.registered_providers.push(provider_with_id.clone());
-        println!(
+        info!(
             "Successfully registered provider: {}",
             provider_with_id.provider_name
         );
+
+        // Attempt manual save for diagnostics
+        match rmp_serde::to_vec(self) {
+            Ok(bytes) => {
+                hyperware_process_lib::set_state(&bytes);
+                info!("Manually called set_state with {} bytes.", bytes.len());
+            }
+            Err(e) => {
+                error!("Manual save: Failed to serialize HpnProviderState: {}", e);
+            }
+        }
+
         Ok(provider_with_id)
     }
 
@@ -204,7 +250,7 @@ impl HypergridProviderState {
         let mcp_request = match request {
             ProviderRequest { .. } => request,
         };
-        println!("Received remote call for provider: {}", mcp_request.provider_name);
+        info!("Received remote call for provider: {}", mcp_request.provider_name);
 
         // --- 0. Check if provider exists at all ---
         // First validate the payment before accessing registered_provider
@@ -255,7 +301,7 @@ impl HypergridProviderState {
 
     #[http]
     async fn get_registered_providers(&self) -> Result<Vec<RegisteredProvider>, String> {
-        println!("Fetching registered providers");
+        info!("Fetching registered providers");
         Ok(self.registered_providers.clone())
     }
 
@@ -347,6 +393,8 @@ impl HypergridProviderState {
         }
     }
 }
+<<<<<<< HEAD:hpn-provider/hpn-provider/src/lib.rs
+=======
 
 
 
@@ -672,3 +720,4 @@ impl HypergridProviderState {
 //    }
 //}
 //
+>>>>>>> develop:hypergrid-provider/hypergrid-provider/src/lib.rs

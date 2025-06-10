@@ -1,0 +1,43 @@
+/* operator/ui/src/components/OwnerNode.module.css */
+
+.nodeContainer {
+    padding: 12px;
+    border: 1px solid #00ff00; /* Green border */
+    border-radius: 8px;
+    background-color: #2a2a2a; /* Dark background */
+    color: #f0f0f0;
+    box-sizing: border-box;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    text-align: left;
+}
+
+.header {
+    font-size: 1.1em;
+    font-weight: bold;
+    color: #00ff00; /* Green to match border */
+}
+
+.addressRow {
+    font-size: 0.9em;
+    color: #ccc;
+    word-break: break-all;
+}
+
+.addressClickable {
+    color: #79c0ff; /* Clickable blue */
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.addressClickable:hover {
+    text-decoration: underline;
+}
+
+/* Ensure CopyToClipboardText integrates well */
+.addressRow .copy-to-clipboard {
+    display: inline-flex; 
+    align-items: center;
+} 
