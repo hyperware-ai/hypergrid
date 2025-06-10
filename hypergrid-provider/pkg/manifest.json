@@ -1,0 +1,24 @@
+[
+  {
+    "process_name": "hypergrid-provider",
+    "process_wasm_path": "/hypergrid-provider.wasm",
+    "on_exit": "None",
+    "request_networking": true,
+    "request_capabilities": [
+      "homepage:homepage:sys",
+      "http-client:distro:sys",
+      "http-server:distro:sys",
+      "vfs:distro:sys",
+      "eth:distro:sys"
+    ],
+    "grant_capabilities": [
+      "homepage:homepage:sys",
+      "http-client:distro:sys",
+      "http-server:distro:sys",
+      "vfs:distro:sys",
+      "terminal:terminal:sys",
+      "eth:distro:sys"
+    ],
+    "public": false
+  }
+]

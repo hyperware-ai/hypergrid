@@ -1,0 +1,11 @@
+api
+!test/hypergrid-provider-test/api
+*swp
+**/target
+pkg/*.wasm
+pkg/*.zip
+pkg/ui
+crates/
+caller-utils/
+**/.DS_Store
+Cargo.lock

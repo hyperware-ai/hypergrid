@@ -2,7 +2,7 @@
 
 Projects:
 - [HPN Client (Operator)](hpn-client/README.md)
-- [HPN Provider](hpn-provider/README.md) 
+- [Hypergrid Provider](hypergrid-provider/README.md) 
 - [HPN Shim](hpn-shim/README.md)
 
 

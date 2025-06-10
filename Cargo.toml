@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "hpn-provider/hpn-provider",
+    "hypergrid-provider/hypergrid-provider",
     "hpn-client/hpnclient",
 ]
 
