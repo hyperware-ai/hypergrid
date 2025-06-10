@@ -1,7 +1,7 @@
 # Hyperware Provider Network Monorepo
 
 Projects:
-- [HPN Client (Operator)](hpn-client/README.md)
+- [HPN (Operator)](operator/README.md)
 - [HPN Provider](hpn-provider/README.md) 
 - [HPN Shim](hpn-shim/README.md)
 

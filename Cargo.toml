@@ -2,7 +2,7 @@
 resolver = "2"
 members = [
     "hpn-provider/hpn-provider",
-    "hpn-client/hpnclient",
+    "operator/operator",
 ]
 
 [profile.release]

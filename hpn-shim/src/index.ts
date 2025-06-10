@@ -10,7 +10,7 @@ import path from 'path'; // Import path module
 const CONFIG_FILE_NAME = 'hpn-shim-api.json';
 
 interface ShimConfig {
-    url: string;         // Base URL for the HPN client API (e.g., http://localhost:8081/hpnclient:nodename.os/api)
+    url: string;         // Base URL for the HPN client API (e.g., http://localhost:8080/operator:nodename.os/api)
     token: string;       // The raw secret token for authentication
     client_id: string;   // The unique client ID for this shim instance
     node: string;        // The Kinode node name of the HPN client (for reference/logging)

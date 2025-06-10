@@ -13,6 +13,7 @@ dist-ssr
 *.local
 *api.json
 hpn-shim-api.json
+grid-shim-api.json
 
 # Editor directories and files
 .vscode/*

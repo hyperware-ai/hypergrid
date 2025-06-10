@@ -19,7 +19,7 @@ The shim requires a configuration file (`hpn-shim-api.json`) with the following 
 
 ```json
 {
-  "url": "http://localhost:8080/hpnclient:nodename.os/",
+  "url": "http://localhost:8080/operator:nodename.os/",
   "client_id": "your-unique-client-id",
   "token": "your-auth-token",
   "node": "your-node-name"
