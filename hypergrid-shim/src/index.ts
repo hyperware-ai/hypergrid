@@ -10,7 +10,7 @@ import path from 'path'; // Import path module
 const CONFIG_FILE_NAME = 'grid-shim-api.json';
 
 interface ShimConfig {
-    url: string;         // Base URL for the Hypergrid client API (e.g., http://localhost:8080/operator:nodename.os/api)
+    url: string;         // Base URL for the Hypergrid client API (e.g., http://localhost:8080/operator:nodename.os/shim/mcp)
     token: string;       // The raw secret token for authentication
     client_id: string;   // The unique client ID for this shim instance
     node: string;        // The Kinode node name of the Hypergrid client (for reference/logging)
@@ -44,7 +44,7 @@ async function loadConfig(): Promise<ShimConfig> {
             typeof parsedConfig.node !== 'string') {
             throw new Error('Config file is missing required fields (url, token, client_id, node).');
         }
-        console.error(`Config loaded successfully for node: ${parsedConfig.node}, client_id: ${parsedConfig.client_id}`);
+        console.error(`Config loaded successfully:`, parsedConfig);
         return parsedConfig as ShimConfig;
     } catch (error: any) {
         console.error(`\n--- ERROR LOADING SHIM CONFIGURATION ---`);
