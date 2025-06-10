@@ -1,6 +1,11 @@
 # @hyperware-ai/hypergrid-mcp
 
-A Model Context Protocol (MCP) shim that exposes Hyperware MCP servers to MCP clients like Claude Desktop and Cursor.
+A Model Context Protocol (MCP) shim that exposes tools and services through Hypergrid to MCP clients like Claude Desktop and Cursor.
+
+## Available Tools
+
+- **search-registry**: Search for services and tools on Hypergrid.
+- **call-provider**: Call a specific Hypergrid provider.
 
 ## Installation
 
@@ -19,7 +24,7 @@ The shim requires a configuration file (`grid-shim-api.json`) with the following
 
 ```json
 {
-  "url": "http://localhost:8080/operator:nodename.os/",
+  "url": "http://localhost:8080/operator:operator:lazybonesitis.os/",
   "client_id": "your-unique-client-id",
   "token": "your-auth-token",
   "node": "your-node-name"
@@ -77,10 +82,6 @@ Add to your Cursor MCP configuration:
 }
 ```
 
-## Available Tools
-
-- **search-registry**: Search the Hyperware provider registry
-- **call-provider**: Call a specific Hyperware provider
 
 ## License
 
