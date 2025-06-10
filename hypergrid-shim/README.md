@@ -24,7 +24,7 @@ The shim requires a configuration file (`grid-shim-api.json`) with the following
 
 ```json
 {
-  "url": "http://localhost:8080/operator:operator:lazybonesitis.os/",
+  "url": "http://localhost:8080/operator:operator:grid-beta.hypr/",
   "client_id": "your-unique-client-id",
   "token": "your-auth-token",
   "node": "your-node-name"

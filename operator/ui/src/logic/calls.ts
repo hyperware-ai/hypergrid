@@ -7,7 +7,7 @@ import type {
   Result,
 } from "./types";
 
-export const API_PATH = "/operator:operator:lazybonesitis.os/api";
+export const API_PATH = "/operator:operator:grid-beta.hypr/api";
 
 export async function fetchState(): AsyncRes<ProcessState> {
   try {
