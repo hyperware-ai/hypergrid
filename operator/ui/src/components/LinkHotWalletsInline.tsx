@@ -192,8 +192,8 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
 
     const handleImportWallet = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!privateKeyToImport || !passwordForImport) {
-            setError('Private Key and Password required for import.');
+        if (!privateKeyToImport) {
+            setError('Private Key is required for import.');
             return;
         }
         setIsCreatingWallet(true);
@@ -202,7 +202,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             const requestBody = {
                 ImportWallet: {
                     private_key: privateKeyToImport,
-                    password: passwordForImport,
+                    password: passwordForImport || null,  // Make password optional
                     name: walletNameToImport.trim() === '' ? null : walletNameToImport.trim()
                 }
             };
@@ -247,10 +247,9 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                 />
                 <input
                     type="password"
-                    placeholder="Password"
+                    placeholder="Password (Optional)"
                     value={passwordForImport}
                     onChange={e => setPasswordForImport(e.target.value)}
-                    required
                     className="input-field"
                     style={{ marginBottom: '8px', width: '100%' }}
                 />

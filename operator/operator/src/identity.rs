@@ -34,15 +34,15 @@ pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<
         }
         _ => { // Handles NotFound, IncorrectImplementation, CheckError etc.
             let expected_sub_entry_name = format!("grid-beta-wallet.{}", our.node);
-            let expected_implementation_str = "0x000000000046886061414588bb9F63b6C53D8674"; // Duplicated, consider const
-        error!("---------------------------------------------------------------------");
-        error!("Hypergrid operational sub-entry not found or incorrectly configured!");
-        error!("Status from detailed check: {:?}", identity_status);
-        error!("Expected sub-entry: {}", expected_sub_entry_name);
-        error!("Expected implementation: {}", expected_implementation_str);
-        error!("Please ensure this sub-entry exists and uses the correct implementation.");
-        error!("Payments and other Hypergrid operations requiring TBA interaction will fail.");
-        error!("---------------------------------------------------------------------");
+            let expected_implementation_str = "0x000000000046886061414588bb9F63b6C53D8674";
+            error!("---------------------------------------------------------------------");
+            error!("Hypergrid operational sub-entry not found or incorrectly configured!");
+            error!("Status from detailed check: {:?}", identity_status);
+            error!("Expected sub-entry: {}", expected_sub_entry_name);
+            error!("Expected implementation: {}", expected_implementation_str);
+            error!("Please ensure this sub-entry exists and uses the correct implementation.");
+            error!("Payments and other Hypergrid operations requiring TBA interaction will fail.");
+            error!("---------------------------------------------------------------------");
          
          // Clear state if it doesn't match the expected valid configuration
          if state.operator_entry_name.is_some() || state.operator_tba_address.is_some() {

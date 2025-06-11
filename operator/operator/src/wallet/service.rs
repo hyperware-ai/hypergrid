@@ -27,33 +27,24 @@ use hex;
 // Re-export configuration constants
 use crate::wallet::payments::{BASE_CHAIN_ID, BASE_USDC_ADDRESS};
 
-/// Generates a new random ManagedWallet (unencrypted, active) but does not add it to state.
-/// Returns Ok(ManagedWallet) or Err(error_message as String).
+/// Generates a new random ManagedWallet (unencrypted) but does not add it to state.
 pub fn generate_initial_wallet() -> Result<ManagedWallet, String> {
-    info!("Attempting to generate a new wallet...");
-    match LocalSigner::new_random(8453) {
-        Ok(new_signer) => {
-            let address = new_signer.address().to_string();
-            info!("Generated new signer with address: {}", address);
-
-            let initial_limits = SpendingLimits::default();
-
-            let managed_wallet = ManagedWallet {
-                id: address.clone(),
-                name: None,
-                storage: KeyStorage::Decrypted(new_signer.clone()),
-                is_active: true,
-                spending_limits: initial_limits,
-            };
-
-            info!("Created ManagedWallet struct for ID: {}", address);
-            Ok(managed_wallet)
-        }
+    info!("Generating new random wallet...");
+    let new_signer = match LocalSigner::new_random(BASE_CHAIN_ID) {
+        Ok(s) => s,
         Err(e) => {
-            error!("Failed to generate new random signer: {:?}", e);
-            Err(format!("Failed to generate new random signer: {}", e))
+            error!("Failed to generate LocalSigner: {:?}", e);
+            return Err(format!("Failed to generate signer: {}", e));
         }
-    }
+    };
+    let address = new_signer.address().to_string();
+    info!("Generated wallet with address: {}", address);
+    Ok(ManagedWallet {
+        id: address.clone(),
+        name: None,
+        storage: KeyStorage::Decrypted(new_signer.clone()),
+        spending_limits: SpendingLimits::default(),
+    })
 }
 
 /// Ensures wallet state is initialized correctly on load.
@@ -91,16 +82,13 @@ pub fn initialize_wallet(state: &mut State) {
         if let Some(selected_id) = &state.selected_wallet_id {
             info!("Selected wallet ID: {}", selected_id);
             if let Some(wallet) = state.managed_wallets.get(selected_id) {
-                if wallet.is_active {
+                if matches!(wallet.storage, KeyStorage::Decrypted(_)) {
                     if let KeyStorage::Decrypted(signer) = &wallet.storage {
                         info!("Activating selected wallet (stored decrypted).");
                         state.active_signer_cache = Some(signer.clone());
-                    } else {
-                        info!("Selected wallet is active but requires password for operations.");
-                        state.active_signer_cache = None;
                     }
                 } else {
-                    info!("Selected wallet is not active.");
+                    info!("Selected wallet requires password for operations.");
                     state.active_signer_cache = None;
                 }
             } else {
@@ -138,7 +126,6 @@ pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSumm
                 id: id.clone(),
                 name: wallet.name.clone(),
                 address,
-                is_active: wallet.is_active,
                 is_encrypted,
                 is_selected,
                 is_unlocked,
@@ -165,15 +152,13 @@ pub fn select_wallet(state: &mut State, wallet_id: String) -> Result<(), String>
     info!("Cleared active signer cache.");
 
     if let Some(wallet) = state.managed_wallets.get(&wallet_id) {
-        if wallet.is_active {
+        if matches!(wallet.storage, KeyStorage::Decrypted(_)) {
             if let KeyStorage::Decrypted(signer) = &wallet.storage {
-                info!("Selected wallet is active and unencrypted. Populating signer cache.");
+                info!("Selected wallet is decrypted. Populating signer cache.");
                 state.active_signer_cache = Some(signer.clone());
-            } else {
-                info!("Selected wallet is active but encrypted. Needs activation for operations.");
             }
         } else {
-            info!("Selected wallet is not active.");
+            info!("Selected wallet is encrypted. Needs password to unlock for operations.");
         }
     }
 
@@ -192,6 +177,7 @@ pub fn set_wallet_spending_limits(state: &mut State, wallet_id: String, limits: 
         .ok_or_else(|| format!("Wallet ID {} not found.", wallet_id))?;
 
     wallet.spending_limits = limits.clone();
+    // Don't clear cached_active_details here - spending limits don't affect the cached data
     state.save();
     info!("Spending limits updated for wallet {}: {:?}", wallet_id, limits);
     Ok(())
@@ -206,6 +192,12 @@ pub fn rename_wallet(state: &mut State, wallet_id: String, new_name: String) -> 
         .ok_or_else(|| format!("Wallet ID {} not found for renaming.", wallet_id))?;
 
     wallet.name = Some(new_name.clone());
+    
+    // Clear cached details if this is the selected wallet since the name changed
+    if state.selected_wallet_id.as_deref() == Some(&wallet_id) {
+        state.cached_active_details = None;
+    }
+    
     state.save();
     info!("Wallet {} renamed successfully to '{}'.", wallet_id, new_name);
     Ok(())
@@ -231,11 +223,11 @@ pub fn delete_wallet(state: &mut State, wallet_id: String) -> Result<(), String>
     Ok(())
 }
 
-/// Imports a private key, encrypts it, stores it as a new ManagedWallet.
+/// Imports a private key, optionally encrypts it, stores it as a new ManagedWallet.
 pub fn import_new_wallet(
     state: &mut State,
     pk_hex: String,
-    password: String,
+    password: Option<String>,
     name: Option<String>,
 ) -> Result<String, String> {
     info!("Attempting to import new private key...");
@@ -250,42 +242,63 @@ pub fn import_new_wallet(
                 return Err(format!("Wallet with address {} already exists.", address));
             }
 
-            info!("PK valid, encrypting for address: {}", address);
-            match signer.encrypt(&password) {
-                Ok(encrypted_storage_data) => {
-                    let limits = SpendingLimits::default();
-                    
-                    // Only set name if provided and not empty
-                    let wallet_name = name.filter(|n| !n.trim().is_empty());
-                    
-                    let new_wallet = ManagedWallet {
+            // Only set name if provided and not empty
+            let wallet_name = name.filter(|n| !n.trim().is_empty());
+            let limits = SpendingLimits::default();
+
+            // Create wallet based on whether password was provided
+            let new_wallet = match password {
+                Some(pwd) if !pwd.is_empty() => {
+                    // Password provided - encrypt the wallet
+                    info!("PK valid, encrypting for address: {}", address);
+                    match signer.encrypt(&pwd) {
+                        Ok(encrypted_storage_data) => {
+                            ManagedWallet {
+                                id: address.clone(),
+                                name: wallet_name,
+                                storage: KeyStorage::Encrypted(encrypted_storage_data),
+                                spending_limits: limits,
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to encrypt new wallet {}: {:?}", address, e);
+                            return Err(format!("Failed to encrypt wallet: {}", e));
+                        }
+                    }
+                }
+                _ => {
+                    // No password or empty password - store unencrypted
+                    info!("PK valid, storing unencrypted for address: {}", address);
+                    ManagedWallet {
                         id: address.clone(),
                         name: wallet_name,
-                        storage: KeyStorage::Encrypted(encrypted_storage_data),
-                        is_active: false, // Start inactive
+                        storage: KeyStorage::Decrypted(signer.clone()),
                         spending_limits: limits,
-                    };
-
-                    state.managed_wallets.insert(address.clone(), new_wallet);
-                    info!("New wallet {} added to managed wallets.", address);
-
-                    // Select if nothing else is selected
-                    if state.selected_wallet_id.is_none() {
-                        state.selected_wallet_id = Some(address.clone());
-                        state.active_signer_cache = None;
-                        info!("Wallet {} automatically selected as it's the first one.", address);
                     }
-                    
-                    state.cached_active_details = None;
-                    state.save();
-                    info!("Wallet imported and saved (encrypted). Status: Inactive.");
-                    Ok(address)
                 }
-                Err(e) => {
-                    error!("Failed to encrypt new wallet {}: {:?}", address, e);
-                    Err(format!("Failed to encrypt wallet: {}", e))
+            };
+
+            let is_decrypted = matches!(new_wallet.storage, KeyStorage::Decrypted(_));
+            state.managed_wallets.insert(address.clone(), new_wallet);
+            info!("New wallet {} added to managed wallets.", address);
+
+            // Select if nothing else is selected
+            if state.selected_wallet_id.is_none() {
+                state.selected_wallet_id = Some(address.clone());
+                // If the wallet is decrypted, populate the signer cache
+                if is_decrypted {
+                    state.active_signer_cache = Some(signer);
+                    info!("Wallet {} automatically selected and cache populated.", address);
+                } else {
+                    state.active_signer_cache = None;
+                    info!("Wallet {} automatically selected but requires unlock.", address);
                 }
             }
+            
+            state.cached_active_details = None;
+            state.save();
+            info!("Wallet imported and saved. Status: {}", if is_decrypted { "Unlocked" } else { "Locked (Encrypted)" });
+            Ok(address)
         }
         Err(e) => {
             error!("Failed to import private key: {:?}", e);
@@ -305,7 +318,7 @@ pub fn export_private_key(
         .ok_or_else(|| format!("Wallet ID {} not found.", wallet_id))?;
 
     // Decide if we can use the cache or need decryption
-    let use_cache = wallet.is_active 
+    let use_cache = matches!(wallet.storage, KeyStorage::Decrypted(_))
                     && Some(wallet_id.clone()) == state.selected_wallet_id 
                     && state.active_signer_cache.is_some();
 
@@ -395,12 +408,13 @@ pub fn set_wallet_password(
     // Update the actual wallet in the map
     if let Some(wallet) = state.managed_wallets.get_mut(&wallet_id) {
         wallet.storage = new_storage;
-        wallet.is_active = false; // Deactivate after password change/set
-        info!("Successfully updated storage and deactivated wallet {}.", wallet_id);
+        // Don't deactivate - keep the wallet active if it was already active
+        info!("Successfully updated storage for wallet {}.", wallet_id);
 
-        // If this was the selected wallet, clear the cache
-        if state.selected_wallet_id.as_deref() == Some(&wallet_id) {
-            info!("Clearing active signer cache for {}.", wallet_id);
+        // If this was the selected wallet and it was active, we need to clear the cache
+        // since the storage has changed, but we don't change the active status
+        if state.selected_wallet_id.as_deref() == Some(&wallet_id) && state.active_signer_cache.is_some() {
+            info!("Clearing active signer cache for {} due to password change.", wallet_id);
             state.active_signer_cache = None;
         }
         state.cached_active_details = None;
@@ -444,7 +458,6 @@ pub fn remove_wallet_password(
     // Update the actual wallet in the map
     if let Some(wallet) = state.managed_wallets.get_mut(&wallet_id) {
         wallet.storage = KeyStorage::Decrypted(signer.clone());
-        wallet.is_active = true; // Activate after removing password
         info!("Password removed for wallet {}. Storing unencrypted.", wallet_id);
 
         // If this is the selected wallet, populate the cache
@@ -498,7 +511,6 @@ pub fn get_active_account_details(state: &State) -> AnyResult<Option<ActiveAccou
                     id: wallet.id.clone(),
                     name: wallet.name.clone(),
                     address: address_str.clone(),
-                    is_active: wallet.is_active,
                     is_encrypted: matches!(wallet.storage, KeyStorage::Encrypted(_)),
                     is_selected: true,
                     is_unlocked: true,
@@ -534,42 +546,29 @@ pub fn activate_wallet(
         .get_mut(&wallet_id)
         .ok_or_else(|| format!("Wallet ID {} not found.", wallet_id))?;
 
-    match (&wallet.storage, wallet.is_active) {
-        (KeyStorage::Decrypted(signer), true) => {
-            info!("Wallet {} already active and unlocked.", wallet_id);
+    match &wallet.storage {
+        KeyStorage::Decrypted(signer) => {
+            info!("Wallet {} already unlocked.", wallet_id);
             if Some(wallet_id.clone()) == state.selected_wallet_id && state.active_signer_cache.is_none() {
                 info!("Updating active signer cache for {}.", wallet_id);
                 state.active_signer_cache = Some(signer.clone());
             }
             Ok(())
         }
-        (KeyStorage::Encrypted(enc), true) => {
-            info!("Wallet {} is active but locked. Attempting unlock...", wallet_id);
+        KeyStorage::Encrypted(enc) => {
+            info!("Wallet {} is locked. Attempting unlock...", wallet_id);
             let pwd = password.ok_or_else(|| "Password required to unlock".to_string())?;
             let signer = LocalSigner::decrypt(enc, &pwd).map_err(|_| "Incorrect password or corrupt data".to_string())?;
+            
+            // Update wallet storage to decrypted
+            wallet.storage = KeyStorage::Decrypted(signer.clone());
+            
+            // Update the signer cache if this is the selected wallet
+            if Some(wallet_id.clone()) == state.selected_wallet_id {
+                state.active_signer_cache = Some(signer);
+                info!("Wallet {} unlocked and signer cache updated.", wallet_id);
+            }
             state.cached_active_details = None;
-            if Some(wallet_id.clone()) == state.selected_wallet_id {
-                state.active_signer_cache = Some(signer);
-            }
-            Ok(())
-        }
-        (KeyStorage::Decrypted(signer), false) => {
-            info!("Activating unencrypted wallet {}.", wallet_id);
-            wallet.is_active = true;
-            if Some(wallet_id.clone()) == state.selected_wallet_id {
-                state.active_signer_cache = Some(signer.clone());
-            }
-            state.save();
-            Ok(())
-        }
-        (KeyStorage::Encrypted(enc), false) => {
-            info!("Activating encrypted wallet {}. Requires password...", wallet_id);
-            let pwd = password.ok_or_else(|| "Password required".to_string())?;
-            let signer = LocalSigner::decrypt(enc, &pwd).map_err(|_| "Incorrect password or corrupt data".to_string())?;
-            wallet.is_active = true;
-            if Some(wallet_id.clone()) == state.selected_wallet_id {
-                state.active_signer_cache = Some(signer);
-            }
             state.save();
             Ok(())
         }
@@ -579,25 +578,21 @@ pub fn activate_wallet(
 /// Deactivates a specific wallet.
 pub fn deactivate_wallet(state: &mut State, wallet_id: String) -> Result<(), String> {
     info!("Attempting to deactivate wallet ID: {}", wallet_id);
-    let wallet = state
-        .managed_wallets
-        .get_mut(&wallet_id)
-        .ok_or_else(|| format!("Wallet ID {} not found.", wallet_id))?;
-
-    if !wallet.is_active {
-        info!("Wallet {} is already inactive.", wallet_id);
-        return Ok(());
+    
+    // Verify wallet exists
+    if !state.managed_wallets.contains_key(&wallet_id) {
+        return Err(format!("Wallet ID {} not found.", wallet_id));
     }
 
-    wallet.is_active = false;
-    info!("Deactivated wallet {}.", wallet_id);
-
-    if Some(wallet_id) == state.selected_wallet_id {
+    // Clear signer cache if this is the selected wallet
+    if Some(wallet_id.clone()) == state.selected_wallet_id {
         state.active_signer_cache = None;
+        info!("Cleared signer cache for wallet {}.", wallet_id);
     }
 
     state.cached_active_details = None;
     state.save();
+    info!("Deactivated wallet {}.", wallet_id);
     Ok(())
 }
 
@@ -626,23 +621,22 @@ pub fn check_hot_wallet_status(state: &State) -> Result<WalletSummary, String> {
     match &state.selected_wallet_id {
         Some(selected_id) => match state.managed_wallets.get(selected_id) {
             Some(wallet) => {
-                if wallet.is_active {
+                if matches!(wallet.storage, KeyStorage::Decrypted(_)) {
                     if state.active_signer_cache.is_some() {
                         let summary = WalletSummary {
                             id: wallet.id.clone(),
                             name: wallet.name.clone(),
                             address: wallet.storage.get_address(),
-                            is_active: wallet.is_active,
                             is_encrypted: matches!(wallet.storage, KeyStorage::Encrypted(_)),
                             is_selected: true,
                             is_unlocked: true,
                         };
                         Ok(summary)
                     } else {
-                        Err(format!("Hot wallet '{}' is selected and active, but currently LOCKED.", selected_id))
+                        Err(format!("Hot wallet '{}' is selected and decrypted, but signer cache missing.", selected_id))
                     }
                 } else {
-                    Err(format!("Hot wallet '{}' is selected but INACTIVE.", selected_id))
+                    Err(format!("Hot wallet '{}' is selected but LOCKED (encrypted).", selected_id))
                 }
             }
             None => Err(format!("Internal Error: Selected wallet ID '{}' not found.", selected_id)),
@@ -659,7 +653,8 @@ pub fn get_wallet_summary_for_address(state: &State, hot_wallet_address_str: &st
     if let Some(managed_wallet) = state.managed_wallets.get(hot_wallet_address_str) {
         // Wallet is managed by this Hypergrid operator
         let is_selected = state.selected_wallet_id.as_deref() == Some(hot_wallet_address_str);
-        let is_unlocked = is_selected && managed_wallet.is_active && state.active_signer_cache.is_some();
+        // A wallet is unlocked if its storage is decrypted, regardless of selection status
+        let is_unlocked = matches!(managed_wallet.storage, KeyStorage::Decrypted(_));
         // For a managed wallet, address in summary should be derived from its storage to be canonical.
         let canonical_address = managed_wallet.storage.get_address();
 
@@ -668,7 +663,6 @@ pub fn get_wallet_summary_for_address(state: &State, hot_wallet_address_str: &st
             id: managed_wallet.id.clone(), // Usually the same as hot_wallet_address_str
             name: managed_wallet.name.clone(),
             address: canonical_address, // Use canonical address from storage
-            is_active: managed_wallet.is_active,
             is_encrypted: matches!(managed_wallet.storage, KeyStorage::Encrypted(_)),
             is_selected,
             is_unlocked,
@@ -680,7 +674,6 @@ pub fn get_wallet_summary_for_address(state: &State, hot_wallet_address_str: &st
             id: hot_wallet_address_str.to_string(),
             name: Some("(External Hot Wallet)".to_string()), // Indicate it's external
             address: hot_wallet_address_str.to_string(),
-            is_active: false,    // Cannot be active via this client if not managed
             is_encrypted: false, // Assume not encrypted or unknown, default to false for safety
             is_selected: false,  // Cannot be selected if not managed
             is_unlocked: false,  // Cannot be unlocked by this client if not managed

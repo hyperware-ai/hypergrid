@@ -302,13 +302,13 @@ function AccountManager() {
         e.preventDefault();
          if (!selectedWalletId) { showToast('error', "No account selected"); return; }
          setIsActionLoading(true); setToastMessage(null);
-        const limits: SpendingLimits = {
-            max_per_call: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
-            max_total: null, 
-            currency: limitCurrency.trim() === '' ? 'USDC' : limitCurrency.trim(), 
+        const limitsToSet: SpendingLimits = {
+            maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
+            maxTotal: null, 
+            currency: 'USDC', // Defaulting to USDC here
         };
          try {
-            const requestBody = { SetWalletLimits: { limits: limits } }; 
+            const requestBody = { SetWalletLimits: { limits: limitsToSet } }; 
             await callApiWithRouting(requestBody);
             handleSuccess('Spending limits updated successfully.');
         } catch (err: any) { handleError(err); }

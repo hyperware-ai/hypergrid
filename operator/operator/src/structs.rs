@@ -22,11 +22,11 @@ pub struct ManagedWallet {
     pub id: String, // Typically the wallet address
     pub name: Option<String>, // User-defined alias
     pub storage: KeyStorage, // Encrypted or Decrypted storage (ensure type matches)
-    pub is_active: bool, // Can be used for automated actions (replaces unlocked)
     pub spending_limits: SpendingLimits, // Per-wallet limits
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
+#[serde(rename_all = "camelCase")]
 pub struct SpendingLimits {
     pub max_per_call: Option<String>,
     pub max_total: Option<String>,
@@ -40,7 +40,6 @@ pub struct ActiveAccountDetails {
     pub id: String,
     pub name: Option<String>,
     pub address: String,
-    pub is_active: bool,
     pub is_encrypted: bool,
     pub is_selected: bool, // Should always be true if returned
     pub is_unlocked: bool, // Should always be true if returned
@@ -55,7 +54,6 @@ pub struct WalletSummary {
     pub id: String,
     pub name: Option<String>,
     pub address: String, // Always include address derived from storage
-    pub is_active: bool,
     pub is_encrypted: bool,
     pub is_selected: bool,
     pub is_unlocked: bool, // Added: Reflects if signer is cached in backend
@@ -291,7 +289,7 @@ pub enum ApiRequest {
     GenerateWallet {}, 
     ImportWallet {
         private_key: String,
-        password: String,
+        password: Option<String>,
         name: Option<String>,
     },
 
@@ -344,7 +342,7 @@ pub enum HttpMcpRequest {
     GenerateWallet {}, 
     ImportWallet {
         private_key: String,
-        password: String,
+        password: Option<String>,
         name: Option<String>,
     },
 

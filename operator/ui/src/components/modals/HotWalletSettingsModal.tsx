@@ -65,7 +65,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     useEffect(() => {
         if (walletData) {
             setCurrentLimits(walletData.limits);
-            setLimitPerCall(walletData.limits?.max_per_call || '');
+            setLimitPerCall(walletData.limits?.maxPerCall || '');
             // setLimitCurrency(walletData.limits?.currency || 'USDC'); // Removed
             setCurrentName(walletData.name);
             setEditedName(walletData.name || '');
@@ -172,8 +172,8 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         e.preventDefault();
         if (!walletData) return;
         const limitsToSet: SpendingLimits = {
-            max_per_call: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
-            max_total: null, 
+            maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
+            maxTotal: null, 
             currency: 'USDC', // Currency is now fixed to USDC
         };
         const payload = { SetWalletLimits: { limits: limitsToSet } };

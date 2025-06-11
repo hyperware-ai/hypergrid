@@ -33,9 +33,9 @@ export type ProviderJson = {
 };
 
 export interface SpendingLimits {
-    max_per_call: string | null;
-    max_total: string | null;
-    currency: string;
+    maxPerCall: string | null;
+    maxTotal: string | null;
+    currency: string | null;
 }
 
 // Exported for use in App.tsx and AccountManager.tsx

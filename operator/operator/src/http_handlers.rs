@@ -527,7 +527,7 @@ fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
             "name": summary.name,
             "is_managed": true,
             "is_linked_on_chain": on_chain_wallets.contains(&summary.address),
-            "is_active": summary.is_active,
+            "is_active": !summary.is_encrypted || summary.is_unlocked,
             "is_encrypted": summary.is_encrypted,
             "is_selected": summary.is_selected,
             "is_unlocked": summary.is_unlocked,
@@ -741,7 +741,7 @@ fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
 fn handle_import_wallet(
     state: &mut State, 
     private_key: String, 
-    password: String, 
+    password: Option<String>, 
     name: Option<String>
 ) -> anyhow::Result<()> {
     info!("Importing wallet");
