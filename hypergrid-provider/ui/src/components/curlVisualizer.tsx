@@ -1,5 +1,5 @@
 import React from 'react';
-import { HttpMethod, EndpointDefinition } from '../types/hypergrid_provider'; // Updated imports
+import {HttpMethod} from '../types/hypergrid_provider'; // Updated imports
 
 // Reinstating API Patterns
 // REMOVE apiPatterns array

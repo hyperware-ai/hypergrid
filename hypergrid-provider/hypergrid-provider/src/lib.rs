@@ -186,8 +186,16 @@ impl HypergridProviderState {
             ));
         }
 
+        let unique_id = format!("{}_{}_{}",
+            our().node.to_string(),
+            provider.provider_name,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        );
         let provider_with_id = RegisteredProvider {
-            provider_id: our().node.to_string(),
+            provider_id: unique_id,
             ..provider
         };
 
@@ -211,6 +219,85 @@ impl HypergridProviderState {
         Ok(provider_with_id)
     }
 
+    #[http]
+    async fn update_provider(
+        &mut self,
+        provider_name: String,
+        updated_provider: RegisteredProvider,
+    ) -> Result<RegisteredProvider, String> {
+        info!("Updating provider: {}", provider_name);
+        
+        // Find the provider to update
+        let provider_index = self
+            .registered_providers
+            .iter()
+            .position(|p| p.provider_name == provider_name);
+        
+        match provider_index {
+            Some(index) => {
+                // Check if the provider name is changing
+                let name_changed = provider_name != updated_provider.provider_name;
+                
+                // If name changed, check if new name already exists
+                if name_changed {
+                    if self.registered_providers.iter().any(|p| p.provider_name == updated_provider.provider_name) {
+                        return Err(format!(
+                            "A provider with name '{}' already exists. Please choose a different name.",
+                            updated_provider.provider_name
+                        ));
+                    }
+                }
+                
+                let updated_provider_with_id = if name_changed {
+                    // If name changed, create new provider with new ID (essentially a new registration)
+                    let unique_id = format!("{}_{}_{}",
+                        our().node.to_string(),
+                        updated_provider.provider_name,
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs()
+                    );
+                    RegisteredProvider {
+                        provider_id: unique_id, // Generate truly unique ID
+                        ..updated_provider
+                    }
+                } else {
+                    // If name unchanged, keep the original provider_id
+                    let original_provider_id = self.registered_providers[index].provider_id.clone();
+                    RegisteredProvider {
+                        provider_name: provider_name.clone(), // Keep original name
+                        provider_id: original_provider_id,    // Keep original ID
+                        ..updated_provider
+                    }
+                };
+                
+                // Update the provider
+                self.registered_providers[index] = updated_provider_with_id.clone();
+                
+                info!("Successfully updated provider: {} -> {}", provider_name, updated_provider_with_id.provider_name);
+                
+                // Manual save for diagnostics
+                match rmp_serde::to_vec(self) {
+                    Ok(bytes) => {
+                        hyperware_process_lib::set_state(&bytes);
+                        info!("Manually called set_state with {} bytes after update.", bytes.len());
+                    }
+                    Err(e) => {
+                        error!("Manual save after update: Failed to serialize HypergridProviderState: {}", e);
+                    }
+                }
+                
+                Ok(updated_provider_with_id)
+            }
+            None => {
+                Err(format!(
+                    "Provider with name '{}' not found for update.",
+                    provider_name
+                ))
+            }
+        }
+    }
 
     #[remote]
     async fn call_provider(
@@ -475,6 +562,7 @@ impl HypergridProviderState {
 //        }
 //    }
 //}
+//
 //
 //// --- Hyperware Process ---
 //#[hyperprocess(

@@ -63,6 +63,15 @@ export interface GetRegisteredProvidersRequest {
 // Response type for the get_registered_providers endpoint
 export type GetRegisteredProvidersResponse = RustResponse<RegisteredProvider[]>;
 
+// Request body for the update_provider endpoint
+export interface UpdateProviderRequest {
+  provider_name: string;
+  updated_provider: RegisteredProvider;
+}
+
+// Response type for the update_provider endpoint
+export type UpdateProviderResponse = RustResponse<RegisteredProvider>;
+
 // --- HypergridProviderState (matches Rust struct, using JS naming convention for store) ---
 export interface HypergridProviderState {
   registeredProviders: RegisteredProvider[];

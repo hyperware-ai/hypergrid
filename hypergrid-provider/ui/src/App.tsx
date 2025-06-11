@@ -4,9 +4,8 @@ import "./App.css";
 import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
   HttpMethod,
-  EndpointDefinition,
-  RegisteredProvider,
-  RegisterProviderResponse 
+  RegisterProviderResponse,
+  RegisteredProvider
 } from "./types/hypergrid_provider";
 import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
 import { ApiCallScaffold } from "./components/curlVisualizer";
@@ -162,6 +161,17 @@ function App() {
     }
   }, [setRegisteredProviders]);
 
+  const handleProviderUpdated = useCallback((updatedProvider: RegisteredProvider) => {
+    // Update the provider in the local state
+    const updatedProviders = registeredProviders.map(provider => 
+      provider.provider_name === updatedProvider.provider_name 
+        ? updatedProvider 
+        : provider
+    );
+    setRegisteredProviders(updatedProviders);
+    console.log("Provider updated locally:", updatedProvider);
+  }, [registeredProviders, setRegisteredProviders]);
+
   const handleProviderRegistration = useCallback(async () => {
     // Consolidate form data into an object matching ProviderFormData
     const formData: ProviderFormData = {
@@ -275,7 +285,7 @@ function App() {
             <ul className="provider-list">
               {registeredProviders.map((provider) => (
                 <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '1rem'}}>
-                  <ProviderInfoDisplay provider={provider} />
+                  <ProviderInfoDisplay provider={provider} onProviderUpdated={handleProviderUpdated} />
                   
                   <details style={{ marginTop: '0.5rem'}}>
                     <summary>View Full Configuration Details</summary>
