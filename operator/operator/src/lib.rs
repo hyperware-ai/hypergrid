@@ -16,7 +16,6 @@ use hyperware_process_lib::{await_message, call_init, Address, Message};
 use hyperware_process_lib::sqlite::Sqlite;
 use structs::*;
 
-use crate::helpers::handle_terminal_debug;
 use crate::wallet::{service as wallet_service};
 
 const ICON: &str = include_str!("./icon");
@@ -42,6 +41,7 @@ fn init_http() -> anyhow::Result<HttpServer> {
     // Graph endpoints
     http_server.bind_http_path("/api/hypergrid-graph", http_config_authenticated.clone())?;
     http_server.bind_http_path("/api/managed-wallets", http_config_authenticated.clone())?;
+    http_server.bind_http_path("/api/linked-wallets", http_config_authenticated.clone())?;
     
     // MCP endpoints
     http_server.bind_http_path("/api/mcp", http_config_authenticated.clone())?;
@@ -60,19 +60,15 @@ fn init_http() -> anyhow::Result<HttpServer> {
 call_init!(init);
 fn init(our: Address) {
     init_logging(Level::DEBUG, Level::INFO, None, None, None).unwrap();
-    info!("begin hypergrid operator for node: {}", our.node);
+    info!("begin hypergrid operator for: {}", our.node);
 
     let mut state = State::load();
 
     // Initialize Operator Identity using the new module
     if let Err(e) = identity::initialize_operator_identity(&our, &mut state) {
-        // Log the error, but potentially continue initialization 
-        // as some functions might work without full identity setup.
         error!("Failed during operator identity initialization: {:?}", e);
-        // Ensure state is clean if init failed unexpectedly mid-way
-        state.operator_entry_name = None;
-        state.operator_tba_address = None;
-        // We might not save here, let the error message be the indicator
+        //state.operator_entry_name = None;
+        //state.operator_tba_address = None;
     }
 
     // Initialize Wallet Manager
@@ -132,23 +128,24 @@ fn handle_request(
     source: &Address,
     body: Vec<u8>,
     state: &mut State,
-    db: &Sqlite, // Pass db
-    pending_logs: &mut PendingLogs // Renamed from _pending_logs to pending_logs
+    db: &Sqlite, 
+    pending_logs: &mut PendingLogs 
 ) -> anyhow::Result<()> {
     let process = source.process.to_string();
     let pkg = source.package_id().to_string();
 
-    if pkg.as_str() == "terminal:sys" {
-        handle_terminal_debug(our, &body, state, db)?;
-    } else if process.as_str() == "http-server:distro:sys" {
-        info!("OPERATOR: Received request from http-server");
-        http_handlers::handle_frontend(our, &body, state, db)?;
-    } else if process.as_str() == "eth:distro:sys" {
-        info!("OPERATOR: Received Message::Request from eth:distro:sys, handling as ETH message...");
-        chain::handle_eth_message(state, db, pending_logs, &body)?;
-    } else {
-        info!("Ignoring unexpected direct request from: {}", source);
+    match process.as_str() {
+        "http-server:distro:sys" => http_handlers::handle_frontend(our, &body, state, db)?,
+        "eth:distro:sys" =>         chain::handle_eth_message(state, db, pending_logs, &body)?,
+        _ => {
+            if pkg == "terminal:sys" {
+                helpers::handle_terminal_debug(our, &body, state, db)?;
+            } else {
+                info!("Ignoring unexpected direct request from: {}", source);
+            }
+        }
     }
+
     Ok(())
 }
 
@@ -163,17 +160,11 @@ fn handle_response(
     pending: &mut PendingLogs // Pass pending
 ) -> anyhow::Result<()> {
     let process = source.process.to_string();
+
     match process.as_str() {
-        "timer:distro:sys" => {
-            let is_checkpoint = context == Some(b"checkpoint".to_vec());
-            chain::handle_timer(state, db, pending, is_checkpoint)?;
-        }
-        "eth:distro:sys" => {
-            chain::handle_eth_message(state, db, pending, &body)?;
-        }
-        _ => {
-            info!("Ignoring response from unexpected process: {}", source);
-        },
+        "timer:distro:sys" => chain::handle_timer(state, db, pending, context == Some(b"checkpoint".to_vec()))?,
+        "eth:distro:sys" =>   chain::handle_eth_message(state, db, pending, &body)?,
+        _ => info!("Ignoring response from unexpected process: {}", source),
     };
     Ok(())
 }

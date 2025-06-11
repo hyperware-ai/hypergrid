@@ -9,25 +9,28 @@ const getApiBasePath = () => {
     return processIdPart ? `/${processIdPart}/api` : '/api';
 };
 const API_BASE_URL = getApiBasePath();
-const MANAGED_WALLETS_ENDPOINT = `${API_BASE_URL}/managed-wallets`;
+const LINKED_WALLETS_ENDPOINT = `${API_BASE_URL}/linked-wallets`;
 const MCP_ENDPOINT = `${API_BASE_URL}/mcp`;
 
-interface ManagedWalletSummaryFromApi {
-    id: string;
-    name: string | null;
+interface LinkedWalletFromApi {
     address: string;
+    name: string | null;
+    is_managed: boolean;
+    is_linked_on_chain: boolean;
     is_active: boolean;
-    is_locked: boolean;
+    is_encrypted: boolean;
     is_selected: boolean;
-    balance_eth: string;
-    balance_usdc: string;
+    is_unlocked: boolean;
 }
 
-interface ManagedWalletSummary {
-    id: string;
-    name: string | null;
+interface LinkedWallet {
     address: Address;
+    name: string | null;
+    isManaged: boolean;
+    isLinkedOnChain: boolean;
     isActive: boolean;
+    isSelected: boolean;
+    isUnlocked: boolean;
 }
 
 interface LinkHotWalletsInlineProps {
@@ -43,7 +46,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
     currentLinkedWallets = [],
     onWalletsLinked,
 }) => {
-    const [managedWallets, setManagedWallets] = useState<ManagedWalletSummary[]>([]);
+    const [allWallets, setAllWallets] = useState<LinkedWallet[]>([]);
     const [selectedWallets, setSelectedWallets] = useState<Set<Address>>(new Set());
     const [isLoadingWallets, setIsLoadingWallets] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
@@ -73,22 +76,24 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         },
     });
 
-    // Effect to synchronize selectedWallets with currentLinkedWallets prop
+    // Effect to synchronize selectedWallets with on-chain linked wallets
     useEffect(() => {
-        // Create a new set from currentLinkedWallets to ensure it reflects the prop accurately
-        const newSelectedWallets = new Set(currentLinkedWallets);
-        // Only update state if the content has actually changed to avoid potential loops
-        if (newSelectedWallets.size !== selectedWallets.size || 
-            ![...newSelectedWallets].every(addr => selectedWallets.has(addr))) {
-            setSelectedWallets(newSelectedWallets);
-        }
-    }, [currentLinkedWallets]); // Rerun when currentLinkedWallets changes
+        // Update selected wallets based on which ones are actually linked on-chain
+        const newSelectedWallets = new Set<Address>();
+        allWallets.forEach(wallet => {
+            if (wallet.isLinkedOnChain) {
+                newSelectedWallets.add(wallet.address);
+            }
+        });
+        setSelectedWallets(newSelectedWallets);
+    }, [allWallets]);
 
     // Effect to refresh graph data once the transaction is confirmed
     useEffect(() => {
         if (isConfirmed && transactionHash) {
             console.log("Signers note transaction confirmed. Refreshing wallets/graph. Tx:", transactionHash);
             onWalletsLinked();
+            fetchWallets(); // Refresh the wallet list too
         }
     }, [isConfirmed, transactionHash, onWalletsLinked]);
 
@@ -106,29 +111,34 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         return data;
     };
 
-    // Fetch managed wallets
+    // Fetch linked wallets (both managed and on-chain)
     const fetchWallets = useCallback(async () => {
         setIsLoadingWallets(true);
         setError(null);
         try {
-            const response = await fetch(MANAGED_WALLETS_ENDPOINT);
+            const response = await fetch(LINKED_WALLETS_ENDPOINT);
+            
             if (!response.ok) {
                 const errText = await response.text();
                 throw new Error(`Failed to fetch wallets: ${response.status} ${errText}`);
             }
+            
             const data = await response.json();
             
-            if (data && Array.isArray(data.managed_wallets)) {
-                const transformedWallets: ManagedWalletSummary[] = data.managed_wallets.map((w: ManagedWalletSummaryFromApi) => ({
-                    id: w.id,
-                    name: w.name,
+            if (data && Array.isArray(data.linked_wallets)) {
+                const transformedWallets: LinkedWallet[] = data.linked_wallets.map((w: LinkedWalletFromApi) => ({
                     address: w.address as Address,
-                    isActive: w.is_active && !w.is_locked,
+                    name: w.name,
+                    isManaged: w.is_managed,
+                    isLinkedOnChain: w.is_linked_on_chain,
+                    isActive: w.is_active,
+                    isSelected: w.is_selected,
+                    isUnlocked: w.is_unlocked,
                 }));
-                setManagedWallets(transformedWallets); // Set all managed wallets
+                setAllWallets(transformedWallets);
             }
         } catch (err: any) {
-            console.error("Error fetching managed wallets:", err);
+            console.error("Error fetching linked wallets:", err);
             setError(err.message || 'Failed to load wallets.');
         }
         setIsLoadingWallets(false);
@@ -182,8 +192,8 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
 
     const handleImportWallet = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!privateKeyToImport || !passwordForImport) {
-            setError('Private Key and Password required for import.');
+        if (!privateKeyToImport) {
+            setError('Private Key is required for import.');
             return;
         }
         setIsCreatingWallet(true);
@@ -192,7 +202,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             const requestBody = {
                 ImportWallet: {
                     private_key: privateKeyToImport,
-                    password: passwordForImport,
+                    password: passwordForImport || null,  // Make password optional
                     name: walletNameToImport.trim() === '' ? null : walletNameToImport.trim()
                 }
             };
@@ -209,8 +219,9 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         }
     };
 
-    // Logic for showing creation/import form if NO managed wallets at all
-    const hasAnyManagedWallets = managedWallets.length > 0;
+    // Separate wallets into managed and external
+    const managedWallets = allWallets.filter(w => w.isManaged);
+    const externalWallets = allWallets.filter(w => !w.isManaged && w.isLinkedOnChain);
 
     // Render import form
     if (showImportForm) {
@@ -236,10 +247,9 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                 />
                 <input
                     type="password"
-                    placeholder="Password"
+                    placeholder="Password (Optional)"
                     value={passwordForImport}
                     onChange={e => setPasswordForImport(e.target.value)}
-                    required
                     className="input-field"
                     style={{ marginBottom: '8px', width: '100%' }}
                 />
@@ -277,35 +287,73 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         );
     }
 
-    // Main display for listing wallets for linking
+    // Main display
     return (
         <div style={{ padding: '10px' }}>
-            <div style={{ marginBottom: '10px' }}>
-                <h4 style={{ marginBottom: '8px' }}>Select Wallets to Link/Unlink:</h4>
-                {managedWallets.map(wallet => {
-                    const isChecked = selectedWallets.has(wallet.address);
-                    return (
-                        <div key={wallet.id} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
-                            <input 
-                                type="checkbox" 
-                                id={`wallet-manage-${wallet.id}`} // Unique ID
-                                checked={isChecked}
-                                onChange={() => handleWalletSelectionToggle(wallet.address)}
-                                style={{ marginRight: '6px' }}
-                            />
-                            <label 
-                                htmlFor={`wallet-manage-${wallet.id}`} 
-                                style={{ fontSize: '0.85em', cursor: 'pointer' }}
-                            >
-                                {wallet.name ? wallet.name : 'Wallet'} ({wallet.address.substring(0,6)}...{wallet.address.substring(wallet.address.length - 4)})
-                            </label>
+            {isLoadingWallets ? (
+                <p style={{ fontSize: '0.85em' }}>Loading wallets...</p>
+            ) : (
+                <>
+                    {/* Managed Wallets Section */}
+                    <div style={{ marginBottom: '15px' }}>
+                        <h5 style={{ marginBottom: '8px', color: '#a9c1ff' }}>Your Wallets:</h5>
+                        {managedWallets.length === 0 ? (
+                            <p style={{ fontSize: '0.85em', color: '#888' }}>No managed wallets found. Create one below.</p>
+                        ) : (
+                            managedWallets.map(wallet => {
+                                const isChecked = selectedWallets.has(wallet.address);
+                                return (
+                                    <div key={wallet.address} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            id={`wallet-manage-${wallet.address}`}
+                                            checked={isChecked}
+                                            onChange={() => handleWalletSelectionToggle(wallet.address)}
+                                            style={{ marginRight: '6px' }}
+                                        />
+                                        <label 
+                                            htmlFor={`wallet-manage-${wallet.address}`} 
+                                            style={{ fontSize: '0.85em', cursor: 'pointer' }}
+                                        >
+                                            {wallet.name || 'Wallet'} ({wallet.address.substring(0,6)}...{wallet.address.substring(wallet.address.length - 4)})
+                                        </label>
+                                    </div>
+                                );
+                            })
+                        )}
+                    </div>
+
+                    {/* External Wallets Section */}
+                    {externalWallets.length > 0 && (
+                        <div style={{ marginBottom: '15px' }}>
+                            <h5 style={{ marginBottom: '8px', color: '#ffaa44' }}>Other Linked Wallets:</h5>
+                            {externalWallets.map(wallet => {
+                                const isChecked = selectedWallets.has(wallet.address);
+                                return (
+                                    <div key={wallet.address} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
+                                        <input 
+                                            type="checkbox" 
+                                            id={`wallet-external-${wallet.address}`}
+                                            checked={isChecked}
+                                            onChange={() => handleWalletSelectionToggle(wallet.address)}
+                                            style={{ marginRight: '6px' }}
+                                        />
+                                        <label 
+                                            htmlFor={`wallet-external-${wallet.address}`} 
+                                            style={{ fontSize: '0.85em', cursor: 'pointer', color: '#ccc' }}
+                                        >
+                                            {wallet.address.substring(0,6)}...{wallet.address.substring(wallet.address.length - 4)}
+                                        </label>
+                                    </div>
+                                );
+                            })}
+                            <p style={{ fontSize: '0.7em', color: '#666', marginTop: '4px' }}>
+                                These wallets are linked on-chain but not managed by this operator.
+                            </p>
                         </div>
-                    );
-                })}
-                {!hasAnyManagedWallets && !isLoadingWallets && (
-                     <p style={{ fontSize: '0.85em', color: '#888'}}>No managed wallets found. Create one below.</p>
-                )}
-            </div>
+                    )}
+                </>
+            )}
 
             {(error || signersNoteError) && (
                 <div style={{ color: 'red', fontSize: '0.85em', marginBottom: '8px' }}>
@@ -324,7 +372,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             <div style={{ marginTop: '10px', display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'stretch' }}>
                 <button 
                     onClick={handleUpdateLinkedWallets} 
-                    disabled={isSending || isConfirming}
+                    disabled={isSending || isConfirming || isLoadingWallets}
                     className="button primary-button"
                     style={{ fontSize: '0.9em', padding: '10px 15px', borderRadius: '6px' }}
                 >

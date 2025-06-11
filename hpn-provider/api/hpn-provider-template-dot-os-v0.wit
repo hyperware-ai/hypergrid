@@ -1,4 +1,0 @@
-world hpn-provider-template-dot-os-v0 {
-    import hpn-provider;
-    include process-v1;
-}

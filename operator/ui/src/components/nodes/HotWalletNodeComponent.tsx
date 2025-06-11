@@ -60,7 +60,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     const [isEditingName, setIsEditingName] = useState<boolean>(false);
     const nameInputRef = useRef<HTMLInputElement>(null);
 
-    const [limitPerCall, setLimitPerCall] = useState<string>(initialLimits?.max_per_call || '');
+    const [limitPerCall, setLimitPerCall] = useState<string>(initialLimits?.maxPerCall || '');
     const [currentLimits, setCurrentLimits] = useState<SpendingLimits | null>(initialLimits);
 
     const [isEncrypted, setIsEncrypted] = useState<boolean>(initialIsEncrypted);
@@ -77,18 +77,36 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     useEffect(() => {
-        setCurrentName(initialName);
-        setEditedName(initialName || '');
-        setCurrentLimits(initialLimits);
-        setLimitPerCall(initialLimits?.max_per_call || '');
-        setTempLimitPerCall(currentLimits?.max_per_call || '');
-        setIsEncrypted(initialIsEncrypted);
-        setIsUnlocked(initialIsUnlocked);
+        // Only update name if it actually changed from backend
+        if (currentName !== initialName) {
+            setCurrentName(initialName);
+            setEditedName(initialName || '');
+        }
+        
+        // Only update limits if they actually changed
+        if (JSON.stringify(currentLimits) !== JSON.stringify(initialLimits)) {
+            setCurrentLimits(initialLimits);
+            setLimitPerCall(initialLimits?.maxPerCall || '');
+            setTempLimitPerCall(initialLimits?.maxPerCall || '');
+        }
+        
+        // Only update encryption status if it changed
+        if (isEncrypted !== initialIsEncrypted) {
+            setIsEncrypted(initialIsEncrypted);
+        }
+        
+        // Only update unlock status if it changed
+        // This prevents the wallet from appearing locked after operations
+        if (isUnlocked !== initialIsUnlocked) {
+            setIsUnlocked(initialIsUnlocked);
+        }
+        
+        // Always reset editing states on prop changes
         setIsEditingName(false);
         setPasswordInput('');
         setIsEditingLimit(false);
-        setShowPasswordInputForUnlock(false); // Reset on data change
-    }, [initialName, initialLimits, initialIsEncrypted, initialIsUnlocked, data, currentLimits]);
+        setShowPasswordInputForUnlock(false);
+    }, [initialName, initialLimits, initialIsEncrypted, initialIsUnlocked, currentName, currentLimits, isEncrypted, isUnlocked]);
 
     useEffect(() => {
         if (isEditingName && nameInputRef.current) {
@@ -112,8 +130,9 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     }, []);
 
     const handleUnlockWalletAttempt = async () => {
-        if (!passwordInput) {
-            showToast('error', 'Password is required to unlock.');
+        // For unencrypted wallets that need activation, we don't require a password
+        if (isEncrypted && !passwordInput) {
+            showToast('error', 'Password is required to unlock encrypted wallet.');
             return;
         }
         try {
@@ -153,7 +172,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         if (isUnlockingOrLocking) return;
 
         const newLimitValue = tempLimitPerCall.trim() === '' ? null : tempLimitPerCall.trim();
-        const currentEffectiveLimit = currentLimits?.max_per_call?.trim() === '' ? null : currentLimits?.max_per_call?.trim();
+        const currentEffectiveLimit = currentLimits?.maxPerCall?.trim() === '' ? null : currentLimits?.maxPerCall?.trim();
 
         if (newLimitValue === currentEffectiveLimit) {
             setIsEditingLimit(false); 
@@ -161,8 +180,8 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         }
 
         const limitsToSet: SpendingLimits = {
-            max_per_call: newLimitValue,
-            max_total: null, 
+            maxPerCall: newLimitValue,
+            maxTotal: null, 
             currency: 'USDC',
         };
         
@@ -185,7 +204,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     const handleLimitInputBlur = () => {
         // Save if value changed, otherwise just exit edit mode
         const newLimitValue = tempLimitPerCall.trim() === '' ? null : tempLimitPerCall.trim();
-        const currentEffectiveLimit = currentLimits?.max_per_call?.trim() === '' ? null : currentLimits?.max_per_call?.trim();
+        const currentEffectiveLimit = currentLimits?.maxPerCall?.trim() === '' ? null : currentLimits?.maxPerCall?.trim();
         if (newLimitValue !== currentEffectiveLimit) {
             handleSetLimitsAttempt();
         } else {
@@ -213,7 +232,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
             return;
         }
         if (!isEditingLimit) {
-            setTempLimitPerCall(currentLimits?.max_per_call || '');
+            setTempLimitPerCall(currentLimits?.maxPerCall || '');
         }
         setIsEditingLimit(!isEditingLimit);
     };
@@ -399,8 +418,8 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                                 title={isWalletActuallyLocked ? "Unlock wallet to change limit" : "Click to change limit"}
                             >
                                 {
-                                    (currentLimits && currentLimits.max_per_call && currentLimits.max_per_call.trim() !== '') 
-                                    ? `${currentLimits.max_per_call} ${(currentLimits.currency || 'USDC')}` 
+                                    (currentLimits && currentLimits.maxPerCall && currentLimits.maxPerCall.trim() !== '') 
+                                    ? `${currentLimits.maxPerCall} ${(currentLimits.currency || 'USDC')}` 
                                     : <span style={{ fontSize: '1.2em' }}>∞</span>
                                 }
                             </span>
@@ -412,23 +431,30 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
             {/* Unlock Section - Appears distinctly, not part of the blurred content wrapper */}
             {showPasswordInputForUnlock && isWalletActuallyLocked && (
                 <div className={styles.unlockOverlaySection} onClick={(e) => e.stopPropagation()}> {/* New class for overlay styling */}
-                    <h4>Unlock Wallet: {currentName || truncate(address)}</h4>
-                    <input 
-                        type="password"
-                        placeholder="Enter Password"
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        className={styles.passwordInputCentered} // New/Updated class
-                        disabled={isUnlockingOrLocking} 
-                        autoFocus
-                    />
+                    <h4>{isEncrypted ? 'Unlock' : 'Activate'} Wallet: {currentName || truncate(address)}</h4>
+                    {isEncrypted && (
+                        <input 
+                            type="password"
+                            placeholder="Enter Password"
+                            value={passwordInput}
+                            onChange={(e) => setPasswordInput(e.target.value)}
+                            className={styles.passwordInputCentered} // New/Updated class
+                            disabled={isUnlockingOrLocking} 
+                            autoFocus
+                        />
+                    )}
+                    {!isEncrypted && (
+                        <p style={{ marginBottom: '10px', fontSize: '0.9em', color: '#888' }}>
+                            This wallet needs to be activated for use.
+                        </p>
+                    )}
                     <div className={styles.unlockButtonContainer}> {/* For button layout */}
                         <button
                             onClick={handleUnlockAction}
-                            disabled={isUnlockingOrLocking || !passwordInput}
+                            disabled={isUnlockingOrLocking || (isEncrypted && !passwordInput)}
                             className={styles.actionButtonPrimary} // New/Updated class
                         >
-                            {isUnlockingOrLocking ? 'Unlocking...' : 'Unlock'}
+                            {isUnlockingOrLocking ? (isEncrypted ? 'Unlocking...' : 'Activating...') : (isEncrypted ? 'Unlock' : 'Activate')}
                         </button>
                         <button 
                             type="button" 

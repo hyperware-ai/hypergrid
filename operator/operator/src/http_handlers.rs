@@ -444,6 +444,7 @@ fn handle_get(
         
         // Wallet endpoints
         "/api/managed-wallets" => handle_get_managed_wallets(state),
+        "/api/linked-wallets" => handle_get_linked_wallets(state),
         
         // Unknown endpoint
         _ => {
@@ -494,6 +495,66 @@ fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
     send_json_response(StatusCode::OK, &json!({ 
         "selected_wallet_id": selected_id,
         "managed_wallets": summaries 
+    }))
+}
+
+fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
+    info!("Getting linked wallets");
+    
+    // Get on-chain linked wallets if operator is configured
+    let on_chain_wallets = if let Some(operator_entry_name) = &state.operator_entry_name {
+        match wallet_service::get_all_onchain_linked_hot_wallet_addresses(Some(operator_entry_name)) {
+            Ok(addresses) => addresses,
+            Err(e) => {
+                warn!("Failed to get on-chain linked wallets: {}", e);
+                Vec::new()
+            }
+        }
+    } else {
+        Vec::new()
+    };
+    
+    // Get managed wallet summaries
+    let (selected_id, managed_summaries) = wallet_service::get_wallet_summary_list(state);
+    
+    // Create a unified view
+    let mut linked_wallets = Vec::new();
+    
+    // Add all managed wallets first
+    for summary in &managed_summaries {
+        linked_wallets.push(json!({
+            "address": summary.address,
+            "name": summary.name,
+            "is_managed": true,
+            "is_linked_on_chain": on_chain_wallets.contains(&summary.address),
+            "is_active": !summary.is_encrypted || summary.is_unlocked,
+            "is_encrypted": summary.is_encrypted,
+            "is_selected": summary.is_selected,
+            "is_unlocked": summary.is_unlocked,
+        }));
+    }
+    
+    // Add external wallets (on-chain but not managed)
+    for on_chain_address in &on_chain_wallets {
+        let is_managed = managed_summaries.iter().any(|s| &s.address == on_chain_address);
+        if !is_managed {
+            linked_wallets.push(json!({
+                "address": on_chain_address,
+                "name": null,
+                "is_managed": false,
+                "is_linked_on_chain": true,
+                "is_active": false,
+                "is_encrypted": false,
+                "is_selected": false,
+                "is_unlocked": false,
+            }));
+        }
+    }
+    
+    send_json_response(StatusCode::OK, &json!({ 
+        "selected_wallet_id": selected_id,
+        "linked_wallets": linked_wallets,
+        "operator_configured": state.operator_entry_name.is_some(),
     }))
 }
 
@@ -680,7 +741,7 @@ fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
 fn handle_import_wallet(
     state: &mut State, 
     private_key: String, 
-    password: String, 
+    password: Option<String>, 
     name: Option<String>
 ) -> anyhow::Result<()> {
     info!("Importing wallet");
@@ -982,7 +1043,7 @@ fn execute_provider_call(
     // Prepare target address
     let target_address = Address::new(
         &provider_details.provider_id,
-        ("hpn-provider", "hpn-provider", "template.os")
+        ("hypergrid-provider", "hypergrid-provider", "grid-beta.hypr")
     );
     
     let payment_tx_hash_clone = payment_tx_hash.clone();
