@@ -87,11 +87,13 @@ pub struct RegisteredProvider {
 pub struct HypergridProviderState {
     pub registered_providers: Vec<RegisteredProvider>,
     pub spent_tx_hashes: Vec<String>,
-    #[serde(skip)]
+    #[serde(skip, default = "util::default_provider")]
     pub rpc_provider: Provider, 
-    #[serde(skip)]
+    #[serde(skip, default = "util::default_hypermap")]
     pub hypermap: hypermap::Hypermap, 
 }
+
+
 
 impl HypergridProviderState {
     /// Creates a new instance of the state (always fresh/empty)
