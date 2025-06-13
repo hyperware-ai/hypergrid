@@ -21,6 +21,16 @@ pub struct ProviderRequest {
     pub endpoint: EndpointDefinition,
 }
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DummyArgument {
+    pub argument: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct DummyResponse {
+    pub response: String,
+}
+
 // Type system for API endpoints
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum HttpMethod {
@@ -167,6 +177,12 @@ impl HypergridProviderState {
         println!("Initializing provider registry");
         *self = HypergridProviderState::load();
         add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
+    }
+
+    #[local]
+    #[remote]
+    async fn health_ping(&self, _arg: DummyArgument) -> Result<String, String> {
+        Ok("Ack".to_string())
     }
 
     #[http]
