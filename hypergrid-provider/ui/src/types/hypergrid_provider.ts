@@ -64,7 +64,7 @@ export interface GetRegisteredProvidersRequest {
 export type GetRegisteredProvidersResponse = RustResponse<RegisteredProvider[]>;
 
 // Request body for the update_provider endpoint
-export interface UpdateProviderRequest {
+export interface UpdateProvider {
   provider_name: string;
   updated_provider: RegisteredProvider;
 }

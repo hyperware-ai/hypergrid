@@ -3,6 +3,8 @@ use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_process_lib::eth::Address as EthAddress;
 use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage, get_state, logging::{info, error}};
 use serde::{Deserialize, Serialize};
+use hyperware_process_lib::vfs::{create_drive, create_file, open_file};
+use serde_json;
 use rmp_serde;
 use std::str::FromStr; // Needed for EthAddress::from_str
 
@@ -51,6 +53,7 @@ pub enum TerminalCommand {
     RegisterProvider(RegisteredProvider),
     UnregisterProvider(String),
     TestProvider(TestProviderArgs),
+    ExportProviders,
 }
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct TestProviderArgs {
@@ -100,11 +103,18 @@ pub struct HypergridProviderState {
     pub rpc_provider: Provider, 
     #[serde(skip, default = "util::default_hypermap")]
     pub hypermap: hypermap::Hypermap, 
+    #[serde(skip)]
+    pub vfs_drive_path: Option<String>,
 }
 
 
 
 impl HypergridProviderState {
+    /// Helper to convert any error to String for consistent error handling
+    fn to_err<E: std::fmt::Display>(e: E) -> String {
+        e.to_string()
+    }
+
     /// Creates a new instance of the state (always fresh/empty)
     pub fn new() -> Self {
         let hypermap_timeout = 60; // RPC Provider timeout
@@ -119,20 +129,93 @@ impl HypergridProviderState {
             spent_tx_hashes: Vec::new(),
             rpc_provider: provider.clone(),
             hypermap: hypermap::Hypermap::new(provider.clone(), hypermap_contract_address),
+            vfs_drive_path: None,
         }
+    }
+
+    /// Initialize VFS drive for storing provider data
+    pub fn init_vfs_drive(&mut self) -> Result<(), String> {
+        match create_drive(our().package_id(), "providers", None) {
+            Ok(drive_path) => {
+                info!("Created VFS drive for providers at: {}", drive_path);
+                self.vfs_drive_path = Some(drive_path);
+                
+                // Try to load existing providers from VFS
+                if let Err(e) = self.load_providers_from_vfs() {
+                    info!("No existing providers in VFS or error loading: {}", e);
+                    // Create empty providers file
+                    self.save_providers_to_vfs()?;
+                }
+                
+                Ok(())
+            }
+            Err(e) => {
+                error!("Failed to create VFS drive: {}", e);
+                Err(format!("Failed to create VFS drive: {}", e))
+            }
+        }
+    }
+
+        /// Save all providers to VFS as JSON
+    pub fn save_providers_to_vfs(&self) -> Result<(), String> {
+        let drive_path = self.vfs_drive_path.as_ref().ok_or("VFS drive not initialized")?;
+        let file_path = format!("{}/providers.json", drive_path);
+        // Possible inneficieny here since we are pulling all providers from memory to serialize them
+        let json_data = serde_json::to_string_pretty(&self.registered_providers)
+            .map_err(Self::to_err)?;
+        
+        let file = create_file(&file_path, None)
+            .map_err(Self::to_err)?;
+        
+        file.write(json_data.as_bytes())
+            .map_err(Self::to_err)?;
+        
+        info!("Saved {} providers to VFS", self.registered_providers.len());
+        Ok(())
+    }
+
+    /// Load providers from VFS JSON file
+    pub fn load_providers_from_vfs(&mut self) -> Result<(), String> {
+        let drive_path = self.vfs_drive_path.as_ref().ok_or("VFS drive not initialized")?;
+        let file_path = format!("{}/providers.json", drive_path);
+        
+        let file = open_file(&file_path, false, None)
+            .map_err(Self::to_err)?;
+        
+        let bytes = file.read()
+            .map_err(Self::to_err)?;
+        
+        let json_data = String::from_utf8(bytes)
+            .map_err(Self::to_err)?;
+        
+        let providers = serde_json::from_str::<Vec<RegisteredProvider>>(&json_data)
+            .map_err(Self::to_err)?;
+        
+        self.registered_providers = providers;
+        info!("Loaded {} providers from VFS", self.registered_providers.len());
+        Ok(())
+    }
+
+    /// Export providers as JSON string (for easy export functionality)
+    pub fn export_providers_json(&self) -> Result<String, String> {
+        let json_data = serde_json::to_string_pretty(&self.registered_providers)
+            .map_err(Self::to_err)?;
+        
+        info!("Exported {} providers as JSON", self.registered_providers.len());
+        Ok(json_data)
     }
 
     /// Loads old state from disk, falls back to new() if none exists
     pub fn load() -> Self {
         match get_state() {
             Some(bytes) => {
-                match serde_json::from_slice::<Self>(&bytes) {
+                match rmp_serde::from_slice::<Self>(&bytes) {
                     Ok(state) => {
                         println!("Successfully loaded HypergridProviderState from checkpoint.");
                         state
                     }
                     Err(e) => {
-                        error!("Failed to deserialize HpnProviderState with rmp_serde: {}, creating new state", e);
+                        error!("Failed to deserialize HypergridProviderState with rmp_serde: {}, creating new state", e);
                         Self::new()
                     }
                 }
@@ -175,12 +258,19 @@ impl HypergridProviderState {
     async fn initialize(&mut self) {
         println!("Initializing provider registry");
         *self = HypergridProviderState::load();
+        
+        // Initialize VFS drive for provider storage
+        if let Err(e) = self.init_vfs_drive() {
+            error!("Failed to initialize VFS drive: {}", e);
+        }
+        
         add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
     }
 
     #[local]
     #[remote]
-    async fn health_ping(&self, _arg: DummyArgument) -> Result<String, String> {
+    async fn health_ping(&self, arg: DummyArgument) -> Result<String, String> {
+        info!("Health ping received: {:?}", arg);
         Ok("Ack".to_string())
     }
 
@@ -219,6 +309,11 @@ impl HypergridProviderState {
             "Successfully registered provider: {}",
             provider_with_id.provider_name
         );
+
+        // Save to VFS
+        if let Err(e) = self.save_providers_to_vfs() {
+            error!("Failed to save providers to VFS: {}", e);
+        }
 
         // Attempt manual save for diagnostics
         match rmp_serde::to_vec(self) {
@@ -291,6 +386,11 @@ impl HypergridProviderState {
                 self.registered_providers[index] = updated_provider_with_id.clone();
                 
                 info!("Successfully updated provider: {} -> {}", provider_name, updated_provider_with_id.provider_name);
+                
+                // Save to VFS
+                if let Err(e) = self.save_providers_to_vfs() {
+                    error!("Failed to save updated providers to VFS: {}", e);
+                }
                 
                 // Manual save for diagnostics
                 match rmp_serde::to_vec(self) {
@@ -378,6 +478,12 @@ impl HypergridProviderState {
         Ok(self.registered_providers.clone())
     }
 
+    #[http]
+    async fn export_providers(&self) -> Result<String, String> {
+        info!("Exporting providers as JSON");
+        self.export_providers_json()
+    }
+
 
     #[local]
     async fn terminal_command(&mut self, command: TerminalCommand) -> Result<String, String> {
@@ -407,6 +513,11 @@ impl HypergridProviderState {
                     provider.provider_name
                 );
 
+                // Save to VFS
+                if let Err(e) = self.save_providers_to_vfs() {
+                    error!("Failed to save providers to VFS: {}", e);
+                }
+
                 Ok(format!(
                     "Successfully registered provider: {}",
                     provider.provider_name
@@ -416,6 +527,11 @@ impl HypergridProviderState {
                 kiprintln!("Unregistering provider: {}", provider_name);
                 self.registered_providers
                     .retain(|p| p.provider_name != provider_name);
+
+                // Save to VFS
+                if let Err(e) = self.save_providers_to_vfs() {
+                    error!("Failed to save providers to VFS after unregister: {}", e);
+                }
 
                 kiprintln!("Successfully unregistered provider: {}", provider_name);
                 Ok(format!(
@@ -461,6 +577,19 @@ impl HypergridProviderState {
                 match result {
                     Ok(response) => Ok(response),
                     Err(e) => Err(e),
+                }
+            }
+            TerminalCommand::ExportProviders => {
+                kiprintln!("Exporting providers as JSON");
+                match self.export_providers_json() {
+                    Ok(json_data) => {
+                        kiprintln!("Exported {} providers:\n{}", self.registered_providers.len(), json_data);
+                        Ok(format!("Successfully exported {} providers", self.registered_providers.len()))
+                    }
+                    Err(e) => {
+                        kiprintln!("Failed to export providers: {}", e);
+                        Err(e)
+                    }
                 }
             }
         }

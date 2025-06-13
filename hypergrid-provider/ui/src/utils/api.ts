@@ -3,7 +3,7 @@ import {
   GetRegisteredProvidersResponse,
   RegisterProviderRequest,
   RegisterProviderResponse,
-  UpdateProviderRequest,
+  UpdateProvider,
   UpdateProviderResponse,
 } from '../types/hypergrid_provider';
 
@@ -61,16 +61,15 @@ export const registerProviderApi = async (payload: RegisterProviderRequest): Pro
 };
 
 export const updateProviderApi = async (providerName: string, updatedProvider: RegisteredProvider): Promise<UpdateProviderResponse> => {
+  console.log("Updating provider:", providerName, updatedProvider);
+  
   try {
-    const payload: UpdateProviderRequest = {
-      provider_name: providerName,
-      updated_provider: updatedProvider,
-    };
+    const requestData = { UpdateProvider: [ providerName, updatedProvider ] } as any;
 
     const result = await fetch(`${BASE_URL}/api`, {
       method: "POST",
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(requestData),
     });
 
     if (!result.ok) {

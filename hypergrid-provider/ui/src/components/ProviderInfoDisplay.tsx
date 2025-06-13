@@ -14,8 +14,6 @@ export interface ProviderInfoDisplayProps {
   onProviderUpdated?: (updatedProvider: RegisteredProvider) => void;
 }
 
-const USDC_DECIMALS = 6; // Assuming 6 decimals for USDC
-
 const ProviderInfoDisplay: React.FC<ProviderInfoDisplayProps> = ({ provider, onProviderUpdated }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState<Partial<ProviderFormData>>(() => 
@@ -103,17 +101,15 @@ const ProviderInfoDisplay: React.FC<ProviderInfoDisplayProps> = ({ provider, onP
     marginBottom: '1px',
   };
 
-  const formatPrice = (priceU64: number) => {
-    if (typeof priceU64 !== 'number') return 'N/A';
-    const divisor = Math.pow(10, USDC_DECIMALS);
-    const value = (priceU64 / divisor);
-    if (isNaN(value)) return 'N/A';
+  const formatPrice = (price: number) => {
+    if (typeof price !== 'number') return 'N/A';
+    if (isNaN(price)) return 'N/A';
     
     // For small values, show more decimal places to avoid showing 0.00
-    if (value < 0.01) {
-      return value.toFixed(6); // Show up to 6 decimal places for small values
+    if (price < 0.01) {
+      return price.toFixed(6); // Show up to 6 decimal places for small values
     } else {
-      return value.toFixed(2); // Show 2 decimal places for typical values
+      return price.toFixed(2); // Show 2 decimal places for typical values
     }
   };
 
