@@ -22,7 +22,7 @@ const getApiBasePath = () => {
 
 interface ShimApiConfigModalProps {
     isOpen: boolean;
-    onClose: () => void;
+    onClose: (shouldRefresh?: boolean) => void;
     hotWalletAddress: string; // Changed from optional to required
 }
 
@@ -31,15 +31,18 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     onClose,
     hotWalletAddress // Now mandatory
 }) => {
-    const [apiConfigJson, setApiConfigJson] = useState<string | null>(null);
+    const [apiConfig, setApiConfig] = useState<any | null>(null);
     const [isGeneratingConfig, setIsGeneratingConfig] = useState<boolean>(false);
     const [generationError, setGenerationError] = useState<string | null>(null);
-    const [copied, setCopied] = useState(false);
+    const [copiedCommand, setCopiedCommand] = useState(false);
+    const [copiedMcpConfig, setCopiedMcpConfig] = useState(false);
+    const [showManualInstructions, setShowManualInstructions] = useState(false);
+    const [hasGeneratedCredentials, setHasGeneratedCredentials] = useState(false);
 
-    const copyToClipboard = useCallback((text: string) => {
+    const copyToClipboard = useCallback((text: string, setCopiedState: (value: boolean) => void) => {
         navigator.clipboard.writeText(text).then(() => {
-            setCopied(true);
-            setTimeout(() => setCopied(false), 2000);
+            setCopiedState(true);
+            setTimeout(() => setCopiedState(false), 2000);
         }, (err) => {
             console.error('Failed to copy: ', err);
             setGenerationError('Failed to copy to clipboard.');
@@ -48,27 +51,22 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
 
     const handleGenerateApiConfig = useCallback(() => {
         setGenerationError(null);
-        setCopied(false);
-
-        if (apiConfigJson && !isGeneratingConfig) {
-            copyToClipboard(apiConfigJson);
-            return;
-        }
+        setCopiedCommand(false);
 
         setIsGeneratingConfig(true);
         const newApiKey = generateApiKey(32);
 
         const payload = {
-            client_name: `Shim for ${hotWalletAddress.substring(0,6)}...${hotWalletAddress.slice(-4)}`, // Example default name
+            client_name: `Shim for ${hotWalletAddress.substring(0,6)}...${hotWalletAddress.slice(-4)}`,
             raw_token: newApiKey,
             hot_wallet_address_to_associate: hotWalletAddress
         };
 
-        fetch(`${getApiBasePath()}/configure-authorized-client`, { // Endpoint updated
+        fetch(`${getApiBasePath()}/configure-authorized-client`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'include',
-            body: JSON.stringify(payload) // Payload updated
+            body: JSON.stringify(payload)
         })
         .then(response => {
             if (!response.ok) {
@@ -78,35 +76,51 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                     throw new Error(`Failed to save API key: ${response.statusText}`);
                 });
             }
-            return response.json() as Promise<ConfigureAuthorizedClientResponse>; // Expecting new response structure
+            return response.json() as Promise<ConfigureAuthorizedClientResponse>;
         })
         .then(responseData => {
             const configData = {
                 url: window.location.origin + window.location.pathname + '/shim/mcp',
                 client_id: responseData.client_id,
-                token: responseData.raw_token, // Use the token from backend response
-                node: responseData.node_name, 
+                token: responseData.raw_token,
+                node: responseData.node_name,
             };
             console.log("configData", configData);
-            const jsonStringToCopy = JSON.stringify(configData, null, 2);
-
-            setApiConfigJson(jsonStringToCopy);
-            copyToClipboard(jsonStringToCopy);
+            setApiConfig(configData);
             setGenerationError(null);
+            setHasGeneratedCredentials(true);
         })
         .catch(err => {
             console.error("Error generating API config:", err);
             setGenerationError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            setApiConfigJson(null);
+            setApiConfig(null);
         })
         .finally(() => {
             setIsGeneratingConfig(false);
         });
-    }, [apiConfigJson, copyToClipboard, isGeneratingConfig, hotWalletAddress]); // Added hotWalletAddress to dependencies
+    }, [hotWalletAddress]);
 
     if (!isOpen) {
         return null;
     }
+
+    const handleClose = () => {
+        onClose(hasGeneratedCredentials);
+        setHasGeneratedCredentials(false);
+        setApiConfig(null);
+    };
+
+    const authCommand = apiConfig ? 
+        `Use the authorize tool with url "${apiConfig.url}", token "${apiConfig.token}", client_id "${apiConfig.client_id}", and node "${apiConfig.node}"` : '';
+
+    const mcpServerConfig = {
+        "mcpServers": {
+            "hyperware": {
+                "command": "npx",
+                "args": ["@hyperware-ai/hypergrid-mcp"]
+            }
+        }
+    };
 
     const modalStyle: React.CSSProperties = {
         position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
@@ -115,8 +129,8 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     };
     const contentStyle: React.CSSProperties = {
         backgroundColor: '#2c3038', color: 'white', padding: '25px',
-        borderRadius: '8px', width: '90%', maxWidth: '600px',
-        maxHeight: '80vh', overflowY: 'auto', position: 'relative',
+        borderRadius: '8px', width: '90%', maxWidth: '700px',
+        maxHeight: '85vh', overflowY: 'auto', position: 'relative',
         border: '1px solid #555',
     };
     const closeButtonStyle: React.CSSProperties = {
@@ -125,46 +139,169 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     };
 
     return (
-        <div style={modalStyle} onClick={onClose}>
+        <div style={modalStyle} onClick={handleClose}>
             <div style={contentStyle} onClick={(e) => e.stopPropagation()}>
-                <button style={closeButtonStyle} onClick={onClose}>&times;</button>
-                <div className="config-form api-config-section">
-                    <h4>Shim API Configuration for Hot Wallet: {hotWalletAddress.substring(0,6)}...{hotWalletAddress.slice(-4)}</h4>
-                    <p style={{ fontSize: '0.9em', color: '#000', marginBottom: '15px' }}>
-                        Generate and copy an API key configuration for use with the Hypergrid MCP Shim.
-                        Save this configuration as <code>grid-shim-api.json</code> in the directory where you run the shim.
-                        Then run the shim by adding this to your mcp server config:
+                <button style={closeButtonStyle} onClick={handleClose}>&times;</button>
+                
+                <h3>Hypergrid MCP Configuration</h3>
+                <p style={{ fontSize: '0.9em', color: '#ddd', marginBottom: '20px' }}>
+                    For Hot Wallet: <code>{hotWalletAddress.substring(0,6)}...{hotWalletAddress.slice(-4)}</code>
+                </p>
+
+                {/* Step 1: Add MCP Server */}
+                <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
+                    <h4 style={{ margin: '0 0 10px 0' }}>Step 1: Add the MCP Server to Claude</h4>
+                    <p style={{ fontSize: '0.9em', marginBottom: '10px' }}>
+                        Add this to your Claude Desktop config:
                     </p>
-                    <div style={{marginBottom: '15px'}}>
-                        <h5>Claude Desktop</h5>
-                        <pre style={{background: '#2a2c30', padding: '8px', borderRadius: '3px', overflowX: 'auto'}}>
-                            {JSON.stringify({
-                                mcpServers: {
-                                    hyperware: {
-                                        command: "npx",
-                                        args: ["@hyperware-ai/hypergrid-mcp", "--configFile", "/path/to/config.json"]
-                                    }
-                                }
-                            }, null, 2)}
+                    <div style={{ position: 'relative' }}>
+                        <pre style={{ 
+                            background: '#1a1c20', 
+                            padding: '10px 35px 10px 10px', 
+                            borderRadius: '4px', 
+                            overflowX: 'auto',
+                            fontSize: '0.85em'
+                        }}>
+{JSON.stringify(mcpServerConfig, null, 2)}
                         </pre>
+                        <button
+                            onClick={() => copyToClipboard(JSON.stringify(mcpServerConfig, null, 2), setCopiedMcpConfig)}
+                            style={{
+                                position: 'absolute',
+                                top: '5px',
+                                right: '5px',
+                                padding: '5px 10px',
+                                fontSize: '0.8em',
+                                background: '#3a3d42',
+                                border: 'none',
+                                borderRadius: '3px',
+                                color: 'white',
+                                cursor: 'pointer'
+                            }}
+                        >
+                            {copiedMcpConfig ? '✓' : 'Copy'}
+                        </button>
                     </div>
+                    <p style={{ fontSize: '0.8em', color: '#999', marginTop: '8px' }}>
+                        Then restart Claude Desktop.
+                    </p>
+                </div>
+
+                {/* Step 2: Generate Credentials */}
+                <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
+                    <h4 style={{ margin: '0 0 10px 0' }}>Step 2: Generate Authorization Credentials</h4>
+                    <p style={{ fontSize: '0.85em', color: '#999', marginBottom: '10px' }}>
+                        Each generation creates a new authorized client for this hot wallet. 
+                        This allows multiple MCP servers or environments to use the same wallet.
+                    </p>
                     <button
                         onClick={handleGenerateApiConfig}
                         disabled={isGeneratingConfig}
                         className="button secondary-button"
-                        style={{padding: '10px 15px', fontSize: '1em', marginBottom: '10px' }}
+                        style={{ padding: '10px 15px', fontSize: '1em', marginBottom: '10px' }}
                     >
                         {isGeneratingConfig ? 'Generating...' : 
-                         (copied ? '✅ Copied!' : 
-                          (apiConfigJson ? 'Copy Existing Config' : 'Generate & Copy Config'))}
+                         (apiConfig ? 'Generate New Credentials' : 'Generate Credentials')}
                     </button>
-                    {generationError && <p className="error-message" style={{marginTop: '10px', color: '#ff8a8a'}}>{generationError}</p>}
-                    {apiConfigJson && !generationError && (
-                        <div style={{marginTop: '15px', background: '#22252a', padding: '10px', borderRadius: '4px'}}>
-                            <p>Save the following as <code>grid-shim-api.json</code>:</p>
-                            <pre style={{whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '200px', overflowY: 'auto', background: '#1a1c20', padding: '8px', borderRadius: '3px'}}>
-                                {apiConfigJson}
+                    {generationError && (
+                        <p style={{ marginTop: '10px', color: '#ff8a8a' }}>{generationError}</p>
+                    )}
+                </div>
+
+                {/* Step 3: Authorize in Claude */}
+                {apiConfig && (
+                    <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
+                        <h4 style={{ margin: '0 0 10px 0' }}>Step 3: Authorize in Claude</h4>
+                        <p style={{ fontSize: '0.9em', marginBottom: '10px' }}>
+                            Copy this command and paste it into Claude:
+                        </p>
+                        <div style={{ position: 'relative' }}>
+                            <pre style={{ 
+                                background: '#1a1c20', 
+                                padding: '10px 35px 10px 10px', 
+                                borderRadius: '4px', 
+                                overflowX: 'auto',
+                                fontSize: '0.85em',
+                                wordBreak: 'break-word',
+                                whiteSpace: 'pre-wrap'
+                            }}>
+                                {authCommand}
                             </pre>
+                            <button
+                                onClick={() => copyToClipboard(authCommand, setCopiedCommand)}
+                                style={{
+                                    position: 'absolute',
+                                    top: '5px',
+                                    right: '5px',
+                                    padding: '5px 10px',
+                                    fontSize: '0.8em',
+                                    background: '#3a3d42',
+                                    border: 'none',
+                                    borderRadius: '3px',
+                                    color: 'white',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                {copiedCommand ? '✓' : 'Copy'}
+                            </button>
+                        </div>
+                        <p style={{ fontSize: '0.8em', color: '#999', marginTop: '8px' }}>
+                            This will permanently configure the MCP server with your credentials.
+                        </p>
+                    </div>
+                )}
+
+                {/* That's it! */}
+                {apiConfig && (
+                    <div style={{ 
+                        padding: '15px', 
+                        backgroundColor: '#1e3a1e', 
+                        borderRadius: '6px',
+                        border: '1px solid #2e5a2e'
+                    }}>
+                        <p style={{ margin: '0 0 15px 0', fontSize: '0.9em' }}>
+                            <strong>That's it!</strong> Once you run the authorize command in Claude, 
+                            you can use these tools:
+                        </p>
+                        <div style={{ fontSize: '0.85em', marginLeft: '20px' }}>
+                            <div style={{ marginBottom: '8px' }}>
+                                <code style={{ background: '#2a3d2a', padding: '2px 6px', borderRadius: '3px' }}>search-registry</code>
+                                <span style={{ color: '#bbb', marginLeft: '8px' }}>
+                                    Search for services in the Hypergrid network
+                                </span>
+                            </div>
+                            <div>
+                                <code style={{ background: '#2a3d2a', padding: '2px 6px', borderRadius: '3px' }}>call-provider</code>
+                                <span style={{ color: '#bbb', marginLeft: '8px' }}>
+                                    Call a provider with specific arguments
+                                </span>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Manual Setup Option */}
+                <div style={{ marginTop: '20px', fontSize: '0.8em' }}>
+                    <button
+                        onClick={() => setShowManualInstructions(!showManualInstructions)}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#888',
+                            cursor: 'pointer',
+                            textDecoration: 'underline'
+                        }}
+                    >
+                        {showManualInstructions ? 'Hide' : 'Show'} manual setup option
+                    </button>
+                    
+                    {showManualInstructions && apiConfig && (
+                        <div style={{ marginTop: '10px', padding: '10px', background: '#1a1c20', borderRadius: '4px' }}>
+                            <p>Alternative: Save this as <code>grid-shim-api.json</code>:</p>
+                            <pre style={{ fontSize: '0.8em', overflowX: 'auto' }}>
+                                {JSON.stringify(apiConfig, null, 2)}
+                            </pre>
+                            <p>Then use: <code>npx @hyperware-ai/hypergrid-mcp -c grid-shim-api.json</code></p>
                         </div>
                     )}
                 </div>

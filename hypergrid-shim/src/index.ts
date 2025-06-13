@@ -3,21 +3,26 @@ import yargs from "yargs/yargs";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import fs from 'fs/promises'; // Import fs promises API
-import path from 'path'; // Import path module
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
 
-// --- Configuration Loading --- 
+// --- Configuration Management --- 
 const CONFIG_FILE_NAME = 'grid-shim-api.json';
+const DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.hypergrid', 'configs');
 
 interface ShimConfig {
-    url: string;         // Base URL for the Hypergrid client API (e.g., http://localhost:8080/operator:nodename.os/shim/mcp)
-    token: string;       // The raw secret token for authentication
-    client_id: string;   // The unique client ID for this shim instance
-    node: string;        // The Kinode node name of the Hypergrid client (for reference/logging)
+    url: string;
+    token: string;
+    client_id: string;
+    node: string;
 }
 
-async function loadConfig(): Promise<ShimConfig> {
-    // Parse command line arguments
+// Global config that can be updated at runtime
+let currentConfig: ShimConfig | null = null;
+let configPath: string = '';
+
+async function loadConfig(): Promise<ShimConfig | null> {
     const argv = await yargs(process.argv.slice(2))
         .option('configFile', {
             type: 'string',
@@ -27,130 +32,224 @@ async function loadConfig(): Promise<ShimConfig> {
         .help()
         .argv;
     
-    // Use provided config file path or default to current directory
-    const configPath = argv.configFile 
-        ? path.resolve(argv.configFile)
-        : path.join(process.cwd(), CONFIG_FILE_NAME);
-        
-    console.error(`Attempting to load config from: ${configPath}`);
-    try {
-        const fileContent = await fs.readFile(configPath, 'utf-8');
-        const parsedConfig = JSON.parse(fileContent);
-
-        // Validate required fields
-        if (typeof parsedConfig.url !== 'string' || 
-            typeof parsedConfig.token !== 'string' ||    // Updated field name
-            typeof parsedConfig.client_id !== 'string' || // New field
-            typeof parsedConfig.node !== 'string') {
-            throw new Error('Config file is missing required fields (url, token, client_id, node).');
+    // Try explicit config file first
+    if (argv.configFile) {
+        configPath = path.resolve(argv.configFile);
+        try {
+            const fileContent = await fs.readFile(configPath, 'utf-8');
+            const parsedConfig = JSON.parse(fileContent);
+            console.error(`Config loaded from: ${configPath}`);
+            return parsedConfig as ShimConfig;
+        } catch (error: any) {
+            console.error(`Failed to load config from ${configPath}: ${error.message}`);
         }
-        console.error(`Config loaded successfully:`, parsedConfig);
-        return parsedConfig as ShimConfig;
-    } catch (error: any) {
-        console.error(`\n--- ERROR LOADING SHIM CONFIGURATION ---`);
-        if (error.code === 'ENOENT') {
-            console.error(`Configuration file not found: ${configPath}`);
-            console.error(`Please create ${CONFIG_FILE_NAME} in this directory.`);
-            console.error(`You can generate the content using the Hypergrid Operator UI.`);
-        } else if (error instanceof SyntaxError) {
-            console.error(`Failed to parse configuration file (invalid JSON): ${configPath}`);
-            console.error(error.message);
-        } else {
-            console.error(`Failed to read configuration file: ${configPath}`);
-            console.error(error.message);
-        }
-        console.error(`----------------------------------------\n`);
-        process.exit(1);
     }
+    
+    // Try auto-discovery locations
+    const discoveryPaths = [
+        path.join(process.cwd(), CONFIG_FILE_NAME),
+        path.join(DEFAULT_CONFIG_DIR, CONFIG_FILE_NAME),
+        path.join(os.homedir(), '.hypergrid', CONFIG_FILE_NAME),
+    ];
+    
+    for (const tryPath of discoveryPaths) {
+        try {
+            const fileContent = await fs.readFile(tryPath, 'utf-8');
+            const parsedConfig = JSON.parse(fileContent);
+            configPath = tryPath;
+            console.error(`Config auto-discovered at: ${tryPath}`);
+            return parsedConfig as ShimConfig;
+        } catch (error) {
+            // Continue to next path
+        }
+    }
+    
+    // No config found - this is OK, we'll run in unconfigured mode
+    console.error(`No configuration found. Running in unconfigured mode.`);
+    console.error(`Use the 'authorize' tool to configure this MCP server.`);
+    return null;
+}
+
+async function saveConfig(config: ShimConfig): Promise<string> {
+    // If we already have a config path from loading, update it
+    if (configPath && !configPath.includes('configs')) {
+        // Use existing path if it's a specific file (not in the auto-discovery dir)
+        await fs.writeFile(configPath, JSON.stringify(config, null, 2));
+        return configPath;
+    }
+    
+    // Otherwise, save to default location
+    await fs.mkdir(DEFAULT_CONFIG_DIR, { recursive: true });
+    const savedPath = path.join(DEFAULT_CONFIG_DIR, CONFIG_FILE_NAME);
+    await fs.writeFile(savedPath, JSON.stringify(config, null, 2));
+    configPath = savedPath;
+    return savedPath;
 }
 
 // --- Main Execution --- 
 async function main() {
-    const config = await loadConfig();
+    // Try to load existing config
+    currentConfig = await loadConfig();
 
     const server = new McpServer({
-      name: `HyperwareMCP Shim (Node: ${config.node}, ClientID: ${config.client_id})`,
-      version: "0.1.0",
+        name: currentConfig 
+            ? `HyperwareMCP Shim (Node: ${currentConfig.node}, ClientID: ${currentConfig.client_id})`
+            : `HyperwareMCP Shim (Unconfigured)`,
+        version: "0.1.0",
     });
 
-    const mcpApiEndpoint = `${config.url}`;
+    // Authorization tool - can be called anytime to configure or reconfigure
+    server.tool(
+        "authorize",
+        {
+            url: z.string().describe("The base URL for the Hypergrid API (e.g., http://localhost:8080/operator:operator:grid-beta.hypr/shim/mcp)"),
+            token: z.string().describe("The authentication token"),
+            client_id: z.string().describe("The unique client ID"),
+            node: z.string().describe("The Kinode node name")
+        },
+        async ({ url, token, client_id, node }) => {
+            try {
+                // Validate the new config by making a test request
+                const testHeaders = {
+                    "Content-type": "application/json",
+                    "X-Client-ID": client_id,
+                    "X-Token": token
+                };
+                
+                console.error(`Testing new configuration...`);
+                const testResponse = await fetch(url, {
+                    method: "POST",
+                    headers: testHeaders,
+                    body: JSON.stringify({ SearchRegistry: "test" }),
+                });
+                
+                if (!testResponse.ok && testResponse.status !== 404) {
+                    throw new Error(`Configuration test failed: ${testResponse.status} ${testResponse.statusText}`);
+                }
+                
+                // Save the new config
+                const newConfig: ShimConfig = { url, token, client_id, node };
+                const savedPath = await saveConfig(newConfig);
+                currentConfig = newConfig;
+                
+                console.error(`Configuration saved to: ${savedPath}`);
+                
+                return {
+                    content: [{
+                        type: "text",
+                        text: `✅ Successfully authorized! Configuration saved to ${savedPath}.\n\nThe MCP server is now configured and ready to use with:\n- Node: ${node}\n- Client ID: ${client_id}\n- URL: ${url}\n\nYou can now use the search-registry and call-provider tools.`
+                    }]
+                };
+            } catch (error: any) {
+                console.error(`Authorization failed: ${error.message}`);
+                return {
+                    content: [{
+                        type: "text",
+                        text: `❌ Authorization failed: ${error.message}\n\nPlease check your credentials and try again.`
+                    }]
+                };
+            }
+        }
+    );
 
+    // Search registry tool - requires configuration
     server.tool("search-registry", { query: z.string() }, async ({ query }) => {
-      const body = { SearchRegistry: query };
-      console.error(`search-registry: Forwarding to ${mcpApiEndpoint}`);
-      const headers = {
-        "Content-type": "application/json",
-        "X-Client-ID": config.client_id, 
-        "X-Token": config.token          
-      };
-      console.error(`search-registry: Sending Request:`);
-      console.error(`  - URL: ${mcpApiEndpoint}`);
-      console.error(`  - Method: POST`);
-      console.error(`  - Headers: ${JSON.stringify(headers)}`);
-      console.error(`  - Body: ${JSON.stringify(body)}`);
-      try {
-        const res = await fetch(mcpApiEndpoint, {
-          method: "POST",
-          headers: headers,
-          body: JSON.stringify(body),
-        });
-        const resBody = await res.text();
-        console.error(`search-registry: Response received (status ${res.status})`);
-        return { content: [{ type: "text", text: String(resBody) }] };
-      } catch (e: any) {
-        console.error(`search-registry: Request failed: ${e.message}`);
-        return {
-          content: [{ type: "text", text: String(`{"error": "Request Failed to ${mcpApiEndpoint}"}`) }],
+        if (!currentConfig) {
+            return {
+                content: [{
+                    type: "text",
+                    text: "⚠️ This MCP server is not configured yet. Please use the 'authorize' tool first with your Hypergrid credentials.\n\nExample: Use the authorize tool with url \"...\", token \"...\", client_id \"...\", and node \"...\""
+                }]
+            };
+        }
+        
+        const body = { SearchRegistry: query };
+        console.error(`search-registry: Forwarding to ${currentConfig.url}`);
+        const headers = {
+            "Content-type": "application/json",
+            "X-Client-ID": currentConfig.client_id,
+            "X-Token": currentConfig.token
         };
-      }
+        
+        try {
+            const res = await fetch(currentConfig.url, {
+                method: "POST",
+                headers: headers,
+                body: JSON.stringify(body),
+            });
+            const resBody = await res.text();
+            console.error(`search-registry: Response received (status ${res.status})`);
+            return { content: [{ type: "text", text: String(resBody) }] };
+        } catch (e: any) {
+            console.error(`search-registry: Request failed: ${e.message}`);
+            return {
+                content: [{ type: "text", text: String(`{"error": "Request Failed: ${e.message}"}`) }],
+            };
+        }
     });
     
+    // Call provider tool - requires configuration
     server.tool(
-      "call-provider",
-      {
-        providerId: z.string(),
-        providerName: z.string(),
-        callArgs: z.array(z.tuple([z.string(), z.string()])),
-      },
-      async ({ providerId, providerName, callArgs }) => {
-        const body = {
-          CallProvider: { providerId, providerName, arguments: callArgs },
-        };
-        console.error(`call-provider: Forwarding to ${mcpApiEndpoint}`);
-        const headers = {
-          "Content-type": "application/json",
-          "X-Client-ID": config.client_id, // New header
-          "X-Token": config.token          // New header, renamed from X-API-Key
-        };
-        console.error(`call-provider: Sending Request:`);
-        console.error(`  - URL: ${mcpApiEndpoint}`);
-        console.error(`  - Method: POST`);
-        console.error(`  - Headers: ${JSON.stringify(headers)}`);
-        console.error(`  - Body: ${JSON.stringify(body)}`);
-        try {
-          const res = await fetch(mcpApiEndpoint, {
-            method: "POST",
-            headers: headers,
-            body: JSON.stringify(body),
-          });
-          const resBody = await res.text();
-          console.error(`call-provider: Response received (status ${res.status})`);
-          return { content: [{ type: "text", text: String(resBody) }] };
-        } catch (e: any) {
-          console.error(`call-provider: Request failed: ${e.message}`);
-          return {
-            content: [
-              { type: "text", text: String(`{"error": "Request Failed to ${mcpApiEndpoint}"}`) },
-            ],
-          };
-        }
-      },
+        "call-provider",
+        {
+            providerId: z.string(),
+            providerName: z.string(),
+            callArgs: z.array(z.tuple([z.string(), z.string()])),
+        },
+        async ({ providerId, providerName, callArgs }) => {
+            if (!currentConfig) {
+                return {
+                    content: [{
+                        type: "text",
+                        text: "⚠️ This MCP server is not configured yet. Please use the 'authorize' tool first with your Hypergrid credentials.\n\nExample: Use the authorize tool with url \"...\", token \"...\", client_id \"...\", and node \"...\""
+                    }]
+                };
+            }
+            
+            const body = {
+                CallProvider: { providerId, providerName, arguments: callArgs },
+            };
+            console.error(`call-provider: Forwarding to ${currentConfig.url}`);
+            const headers = {
+                "Content-type": "application/json",
+                "X-Client-ID": currentConfig.client_id,
+                "X-Token": currentConfig.token
+            };
+            
+            try {
+                const res = await fetch(currentConfig.url, {
+                    method: "POST",
+                    headers: headers,
+                    body: JSON.stringify(body),
+                });
+                const resBody = await res.text();
+                console.error(`call-provider: Response received (status ${res.status})`);
+                return { content: [{ type: "text", text: String(resBody) }] };
+            } catch (e: any) {
+                console.error(`call-provider: Request failed: ${e.message}`);
+                return {
+                    content: [
+                        { type: "text", text: String(`{"error": "Request Failed: ${e.message}"}`) },
+                    ],
+                };
+            }
+        },
     );
 
     console.error(`Connecting transport...`);
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error(`Shim connected and listening for MCP commands.`);
+    
+    if (!currentConfig) {
+        console.error(`\n⚠️  MCP server started in UNCONFIGURED mode.`);
+        console.error(`To configure, ask your LLM: "Use the authorize tool with these credentials..."`);
+        console.error(`The operator UI will provide the exact command to use.\n`);
+    } else {
+        console.error(`\n✅ MCP server started with existing configuration.`);
+        console.error(`Node: ${currentConfig.node}`);
+        console.error(`Client ID: ${currentConfig.client_id}\n`);
+    }
 }
 
 main().catch(error => {

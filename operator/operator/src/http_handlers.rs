@@ -135,7 +135,7 @@ fn handle_authorize_shim_route(
     state: &mut State,
     db: &Sqlite,
 ) -> anyhow::Result<()> {
-                    info!("Routing to handle_authorize_shim_request");
+    info!("Routing to handle_authorize_shim_request");
     match handle_authorize_shim_request(our, req, state, db) {
         Ok(response) => {
             let mut headers = HashMap::new();
@@ -316,6 +316,9 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 // Withdrawal from ui
                 ApiRequest::WithdrawEthFromOperatorTba { to_address, amount_wei_str } => handle_withdraw_eth(state, to_address, amount_wei_str),
                 ApiRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => handle_withdraw_usdc(state, to_address, amount_usdc_units_str),
+                
+                // Authorized client management
+                ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
             }
         }
         Err(e) if e.is_syntax() || e.is_data() => {
@@ -476,8 +479,6 @@ fn handle_get_all_providers(db: &Sqlite) -> anyhow::Result<()> {
     send_json_response(StatusCode::OK, &json!(data))
 }
 
-
-
 fn handle_search_providers(db: &Sqlite, params: &HashMap<String, String>) -> anyhow::Result<()> {
             let query = params
                 .get("q")
@@ -559,7 +560,7 @@ fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
 }
 
 // ===========================================================================================
-// PROVIDER CALL HANDLING - Complex payment & provider interaction flow
+// PROVIDER CALL HANDLING - payment & provider interaction flow
 // ===========================================================================================
 
 /// Main entry point for provider calls - orchestrates payment and execution
@@ -905,13 +906,13 @@ fn handle_withdraw_eth(state: &mut State, to_address: String, amount_wei_str: St
 fn handle_withdraw_usdc(state: &mut State, to_address: String, amount_usdc_units_str: String) -> anyhow::Result<()> {
     info!("Withdrawing USDC to: {}, amount: {} units", to_address, amount_usdc_units_str);
     match wallet_payments::handle_operator_tba_withdrawal(
-                state, 
+        state,
         wallet_payments::AssetType::Usdc,
-                to_address, 
-                amount_usdc_units_str
-            ) {
+        to_address,
+        amount_usdc_units_str
+    ) {
         Ok(_) => send_json_response(StatusCode::OK, &json!({ 
-            "success": true, 
+            "success": true,
             "message": "USDC withdrawal initiated." 
         })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
@@ -1298,7 +1299,7 @@ pub fn handle_authorize_shim_request(
 /// Handles POST request to /api/configure-authorized-client
 /// Verifies user is authenticated via cookie, receives client configuration details,
 /// generates a unique client ID, hashes the raw token, and stores the new
-/// HotWalletAuthorizedClient in state.
+/// HotWalletAuthorizedClient in state. If client_id is provided in request, updates that client.
 pub fn handle_configure_authorized_client(
     our: &Address,
     req: &IncomingHttpRequest, 
@@ -1353,29 +1354,48 @@ pub fn handle_configure_authorized_client(
         }
     };
     
-    // Generate Client ID
-    let client_id = format!("hypergrid-beta-mcp-shim-{}", Uuid::new_v4().to_string());
-    
     // Hash the received raw token (SHA-256 hex)
     let mut hasher = Sha256::new();
     hasher.update(request_data.raw_token.as_bytes());
     let hashed_token_hex = format!("{:x}", hasher.finalize());
     
-    info!("Configure Client: Received raw token (hashed): {} for client ID: {}", hashed_token_hex, client_id);
-
-    // Create HotWalletAuthorizedClient instance
-    let new_client = HotWalletAuthorizedClient {
-        id: client_id.clone(),
-        name: request_data.client_name.unwrap_or_else(|| format!("Shim Client {}", client_id.chars().take(8).collect::<String>())),
-        associated_hot_wallet_address: request_data.hot_wallet_address_to_associate,
-        authentication_token: hashed_token_hex,
-        capabilities: ServiceCapabilities::All, // Default to All capabilities for now
+    // Check if we're updating an existing client or creating a new one
+    let (client_id, is_update) = if let Some(existing_id) = request_data.client_id {
+        // Update existing client
+        if let Some(existing_client) = state.authorized_clients.get_mut(&existing_id) {
+            info!("Configure Client: Updating existing client {}", existing_id);
+            existing_client.authentication_token = hashed_token_hex.clone();
+            if let Some(new_name) = request_data.client_name {
+                existing_client.name = new_name;
+            }
+            // Note: We don't update the hot wallet address for existing clients
+            (existing_id, true)
+        } else {
+            error!("Configure Client: Client ID {} not found for update", existing_id);
+            return Ok(HttpResponse::builder()
+                .status(StatusCode::NOT_FOUND)
+                .header("Content-Type", "application/json")
+                .body(r#"{"error": "Client not found"}"#.to_string().into_bytes())?);
+        }
+    } else {
+        // Create new client
+        let new_client_id = format!("hypergrid-beta-mcp-shim-{}", Uuid::new_v4().to_string());
+        info!("Configure Client: Creating new client {}", new_client_id);
+        
+        let new_client = HotWalletAuthorizedClient {
+            id: new_client_id.clone(),
+            name: request_data.client_name.unwrap_or_else(|| format!("Shim Client {}", new_client_id.chars().take(8).collect::<String>())),
+            associated_hot_wallet_address: request_data.hot_wallet_address_to_associate,
+            authentication_token: hashed_token_hex,
+            capabilities: ServiceCapabilities::All,
+        };
+        
+        state.authorized_clients.insert(new_client_id.clone(), new_client);
+        (new_client_id, false)
     };
-
-    // Store the new client in state
-    state.authorized_clients.insert(client_id.clone(), new_client);
+    
     state.save(); // Persist the state change
-    info!("Configure Client: Saved new authorized client to state. Client ID: {}", client_id);
+    info!("Configure Client: {} client with ID: {}", if is_update { "Updated" } else { "Created" }, client_id);
 
     // Prepare response
     let api_base_path = format!("/{}/api", our.package_id().to_string()); // Use package_id for base path
@@ -1491,5 +1511,19 @@ fn handle_post(
                 }
             }
         }
+    }
+}
+
+fn handle_delete_authorized_client(state: &mut State, client_id: String) -> anyhow::Result<()> {
+    info!("Deleting authorized client: {}", client_id);
+    
+    if state.authorized_clients.remove(&client_id).is_some() {
+        state.save();
+        send_json_response(StatusCode::OK, &json!({ "success": true }))
+    } else {
+        send_json_response(
+            StatusCode::NOT_FOUND,
+            &json!({ "error": "Client not found" })
+        )
     }
 }

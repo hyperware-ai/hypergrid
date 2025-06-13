@@ -69,16 +69,20 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
         }
     };
 
-    const handleInspectConfig = () => {
-        // This would typically trigger opening the ShimApiConfigModal.
-        // For now, it's a placeholder. The actual modal opening is handled by onNodeClick in the main visualizer.
-        // This button within the node itself could be for a different action or removed if redundant.
-        console.log(`Inspect Config for Client ID: ${clientId}, Hot Wallet: ${associatedHotWalletAddress}`);
-        alert(`Displaying config for Client ID: ${clientId}\n(Implementation for modal display needed if this button is to open it directly)`);
+    const handleNameClick = (e: React.MouseEvent) => {
+        e.stopPropagation(); // Prevent node click when editing name
+        setIsEditingName(true);
     };
 
     return (
-        <div className={styles.nodeContainer} style={{ maxWidth: NODE_WIDTH }}>
+        <div 
+            className={styles.nodeContainer} 
+            style={{ 
+                maxWidth: NODE_WIDTH,
+                cursor: 'pointer'
+            }}
+            title="Click to view configuration"
+        >
             <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
             
             <div className={styles.header}>
@@ -92,11 +96,12 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
                         onBlur={handleNameInputBlur}
                         onKeyDown={handleNameInputKeyDown}
                         className={styles.nameInputEditing}
+                        onClick={(e) => e.stopPropagation()}
                     />
                 ) : (
                     <span 
                         title={currentClientName} 
-                        onClick={() => setIsEditingName(true)} 
+                        onClick={handleNameClick} 
                         className={styles.nameDisplay}
                         style={{cursor: 'text'}}
                     >
@@ -107,7 +112,7 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
 
             <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Client ID:</span>
-                <span className={styles.infoValue}>
+                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
                     <CopyToClipboardText textToCopy={clientId} className={styles.infoValueClickable}>
                         {truncate(clientId, 8, 8)}
                     </CopyToClipboardText>
@@ -116,24 +121,13 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
 
             <div className={styles.infoRow}>
                 <span className={styles.infoLabel}>Hot Wallet:</span>
-                <span className={styles.infoValue}>
+                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
                      <CopyToClipboardText textToCopy={associatedHotWalletAddress} className={styles.infoValueClickable}>
                         {truncate(associatedHotWalletAddress)}
                     </CopyToClipboardText>
                 </span>
             </div>
-
-            {/* 
-            <div className={styles.actionsContainer}>
-                <button onClick={handleInspectConfig} className={styles.actionButton}>
-                    Inspect Config
-                </button>
-            </div> 
-            */}
-            {/* The "Create API Client" or equivalent is an action node connected TO a Hot Wallet, 
-                not typically an action on an existing AuthorizedClientNode itself unless it's for re-keying. 
-                The current design handles new client creation via AddAuthorizedClientActionNode.
-            */}
+            
             <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
         </div>
     );

@@ -43,6 +43,7 @@ import {
 
 import ShimApiConfigModal from './ShimApiConfigModal';
 import CallHistoryModal from './modals/CallHistoryModal';
+import AuthorizedClientConfigModal from './AuthorizedClientConfigModal';
 
 import OriginalOperatorWalletNodeComponent from './nodes/OperatorWalletNodeComponent';
 import OriginalAuthorizedClientNodeComponent from './nodes/AuthorizedClientNodeComponent';
@@ -182,6 +183,14 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
 
     const [isShimApiConfigModalOpen, setIsShimApiConfigModalOpen] = useState<boolean>(false);
     const [hotWalletAddressForShimModal, setHotWalletAddressForShimModal] = useState<Address | null>(null);
+    
+    // New state for authorized client modal
+    const [isAuthorizedClientModalOpen, setIsAuthorizedClientModalOpen] = useState<boolean>(false);
+    const [selectedAuthorizedClient, setSelectedAuthorizedClient] = useState<{
+        clientId: string;
+        clientName: string;
+        hotWalletAddress: string;
+    } | null>(null);
 
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
     const [selectedWalletForHistory, setSelectedWalletForHistory] = useState<Address | null>(null);
@@ -635,6 +644,16 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     setNoteDisplayError("Configuration error: Action node for authorizing client is missing target_hot_wallet_address.");
                 }
             }
+        } else if (node.type === 'authorizedClientNode' && node.data) {
+            // Handle clicks on authorized client nodes
+            const clientData = node.data as IAuthorizedClientNodeData;
+            console.log("Authorized Client Node clicked. Data:", clientData);
+            setSelectedAuthorizedClient({
+                clientId: clientData.clientId,
+                clientName: clientData.clientName,
+                hotWalletAddress: clientData.associatedHotWalletAddress
+            });
+            setIsAuthorizedClientModalOpen(true);
         }
     }, [nodes, connectedAddress, mintOperatorWalletHook, setHotWalletAddressForShimModal, setMintDisplayError, setNoteDisplayError, setIsShimApiConfigModalOpen, DEFAULT_OPERATOR_TBA_IMPLEMENTATION, fetchGraphData]);
 
@@ -768,7 +787,13 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             {isShimApiConfigModalOpen && hotWalletAddressForShimModal && (
                 <ShimApiConfigModal 
                     isOpen={isShimApiConfigModalOpen}
-                    onClose={() => { setIsShimApiConfigModalOpen(false); setHotWalletAddressForShimModal(null); fetchGraphData();}}
+                    onClose={(shouldRefresh) => { 
+                        setIsShimApiConfigModalOpen(false); 
+                        setHotWalletAddressForShimModal(null); 
+                        if (shouldRefresh) {
+                            fetchGraphData();
+                        }
+                    }}
                     hotWalletAddress={hotWalletAddressForShimModal}
                 />
             )}
@@ -777,6 +802,21 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     isOpen={isHistoryModalOpen} 
                     onClose={handleCloseHistoryModal} 
                     walletAddress={selectedWalletForHistory} 
+                />
+            )}
+            {isAuthorizedClientModalOpen && selectedAuthorizedClient && (
+                <AuthorizedClientConfigModal
+                    isOpen={isAuthorizedClientModalOpen}
+                    onClose={(shouldRefresh) => { 
+                        setIsAuthorizedClientModalOpen(false); 
+                        setSelectedAuthorizedClient(null); 
+                        if (shouldRefresh) {
+                            fetchGraphData();
+                        }
+                    }}
+                    clientId={selectedAuthorizedClient.clientId}
+                    clientName={selectedAuthorizedClient.clientName}
+                    hotWalletAddress={selectedAuthorizedClient.hotWalletAddress}
                 />
             )}
         </ReactFlowProvider>
