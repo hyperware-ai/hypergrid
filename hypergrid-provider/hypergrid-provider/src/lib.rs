@@ -18,7 +18,6 @@ pub struct ProviderRequest {
     pub provider_name: String,
     pub arguments: Vec<(String, String)>,
     pub payment_tx_hash: Option<String>,
-    pub endpoint: EndpointDefinition,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
