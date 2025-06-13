@@ -131,7 +131,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     };
 
     const authCommand = newToken ? 
-        `Use the authorize tool with url "${window.location.origin + window.location.pathname + 'shim/mcp'}", token "${newToken}", client_id "${clientId}", and node "${window.location.hostname}"` : '';
+        `Use the authorize tool with url "${window.location.origin + window.location.pathname + '/shim/mcp'}", token "${newToken}", client_id "${clientId}", and node "${window.location.hostname}"` : '';
 
     const modalStyle: React.CSSProperties = {
         position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
