@@ -366,20 +366,29 @@ fn check_provider_availability(provider_id: &str) -> Result<(), String> {
         provider_id,
         ("hypergrid-provider", "hypergrid-provider", "grid-beta.hypr")
     );
-    let provider_name = format!("{}", provider_id); 
-    let arguments = vec![]; 
-    let payment_tx_hash = None; 
+    //let provider_name = format!("{}", provider_id); 
+    //let arguments = vec![]; 
+    //let payment_tx_hash = None; 
 
     info!("Preparing availability check request for provider process at {}", target_address);
-    let provider_request_data = ProviderRequest {
-        provider_name,
-        arguments,
-        payment_tx_hash,
-    };
+    //let provider_request_data = ProviderRequest {
+    //    provider_name,
+    //    arguments,
+    //    payment_tx_hash,
+    //};
+
+    //let wrapped_request = serde_json::json!({
+    //    "CallProvider": provider_request_data 
+    //});
+
+    let DummyArgument = serde_json::json!({
+        "argument": "swag"
+    });
 
     let wrapped_request = serde_json::json!({
-        "CallProvider": provider_request_data 
+        "HealthPing": DummyArgument
     });
+
     let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
         Ok(bytes) => bytes,
         Err(e) => {
@@ -388,6 +397,8 @@ fn check_provider_availability(provider_id: &str) -> Result<(), String> {
             return Err(err_msg);
         }
     };
+
+    info!("Sending request body bytes to provider: {:?}", request_body_bytes);
 
     match send_request_to_provider(target_address.clone(), request_body_bytes) {
         Ok(Ok(response)) => {

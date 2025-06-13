@@ -313,6 +313,9 @@ pub enum ApiRequest {
         to_address: String,
         amount_usdc_units_str: String, // Amount in smallest USDC units (e.g., if 6 decimals, 1 USDC = "1000000")
     },
+    
+    // Authorized client management
+    DeleteAuthorizedClient { client_id: String },
 }
 
 // DEPRECATED: This enum is being phased out. Use McpRequest or ApiRequest instead.
@@ -402,6 +405,7 @@ pub struct SaveShimKeyRequest {
 // New Request struct for configuring an authorized client
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigureAuthorizedClientRequest {
+    pub client_id: Option<String>, // If provided, update this client instead of creating new
     pub client_name: Option<String>,
     pub raw_token: String,
     pub hot_wallet_address_to_associate: String,
