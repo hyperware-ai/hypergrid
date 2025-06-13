@@ -9,6 +9,7 @@ import {
 } from "./types/hypergrid_provider";
 import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
 import { ApiCallScaffold } from "./components/curlVisualizer";
+import { ValidationPanel } from "./components/ValidationPanel";
 import SelectionModal from "./components/SelectionModal";
 import ProviderConfigForm from "./components/ProviderAPIConfigForm";
 import ProviderMetadataForm from "./components/ProviderMetadataForm";
@@ -46,6 +47,10 @@ function App() {
   // New Form State
   const [showForm, setShowForm] = useState(false);
   const [apiCallFormatSelected, setApiCallFormatSelected] = useState(false);
+
+  // Validation state
+  const [showValidation, setShowValidation] = useState(false);
+  const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
 
   // Step 1: Auth & Request Structure
   const [topLevelRequestType, setTopLevelRequestType] = useState<TopLevelRequestType>("getWithPath");
@@ -102,6 +107,10 @@ function App() {
     setBodyKeys([]);
     setRegisteredProviderWallet("");
     setPrice("");
+    
+    // Reset validation state
+    setShowValidation(false);
+    setProviderToValidate(null);
   };
   
   const handleCopyFormData = useCallback(async () => {
@@ -147,6 +156,8 @@ function App() {
 
   const handleCloseAddNewModal = () => {
     setShowForm(false);
+    setShowValidation(false);
+    setProviderToValidate(null);
   };
 
   const loadAndSetProviders = useCallback(async () => {
@@ -200,35 +211,40 @@ function App() {
       return;
     }
 
-    // Build the payload using the utility function
-    const apiPayload = buildProviderPayload(formData);
+    // Build the provider payload using the utility function
+    const payload = buildProviderPayload(formData);
+    const providerToValidate = payload.RegisterProvider;
 
-    // The rest of the logic remains the same, using the constructed apiPayload
-    try {
-      const registeredProviderData: RegisterProviderResponse = await registerProviderApi(apiPayload);
-      
-      console.log("Provider registered successfully:", registeredProviderData);
-      
-      resetFormFields();
-      handleCloseAddNewModal();
-      loadAndSetProviders();
-
-      // Process the response using the utility function
-      const feedback = processRegistrationResponse(registeredProviderData);
-      alert(feedback.message); // Display the message
-
-    } catch (error) {
-      console.error("Failed to register provider in App:", error);
-      alert(`Error registering provider: ${(error as Error).message}`);
-    }
+    // Move to validation step instead of directly registering
+    setProviderToValidate(providerToValidate);
+    setShowValidation(true);
   }, [
     providerName, providerDescription, instructions, topLevelRequestType,
     endpointBaseUrl, pathParamKeys, queryParamKeys, headerKeys, bodyKeys,
     endpointApiParamKey, authChoice, apiKeyQueryParamName, apiKeyHeaderName,
     registeredProviderWallet,
-    price,
-    loadAndSetProviders
+    price
   ]);
+
+  const handleValidationSuccess = useCallback((registeredProvider: RegisteredProvider) => {
+    console.log("Provider validated and registered successfully:", registeredProvider);
+    
+    resetFormFields();
+    handleCloseAddNewModal();
+    loadAndSetProviders();
+    
+    alert(`Provider "${registeredProvider.provider_name}" successfully validated and registered!`);
+  }, [loadAndSetProviders]);
+
+  const handleValidationError = useCallback((error: string) => {
+    console.error("Validation failed:", error);
+    alert(`Validation failed: ${error}`);
+  }, []);
+
+  const handleValidationCancel = useCallback(() => {
+    setShowValidation(false);
+    setProviderToValidate(null);
+  }, []);
 
   useEffect(() => {
     loadAndSetProviders();
@@ -314,68 +330,77 @@ function App() {
         <SelectionModal 
           isOpen={showForm} 
           onClose={handleCloseAddNewModal} 
-          title="Configure New API Provider"
+          title={showValidation ? "Validate Provider Configuration" : "Configure New API Provider"}
           maxWidth="1200px"
         >
-          <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
-            <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-              <ProviderMetadataForm
-                nodeId={window.our?.node || "N/A"}
-                providerName={providerName}
-                setProviderName={setProviderName}
-                providerDescription={providerDescription}
-                setProviderDescription={setProviderDescription}
-                instructions={instructions}
-                setInstructions={setInstructions}
-                registeredProviderWallet={registeredProviderWallet}
-                setRegisteredProviderWallet={setRegisteredProviderWallet}
-                price={price}
-                setPrice={setPrice}
-                onCopyMetadata={handleCopyFormData}
-              />
-              <ApiCallScaffold
-                providerName={providerName}
-                endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
-                endpointBaseUrl={endpointBaseUrl}
-                pathParamKeys={pathParamKeys}
-                queryParamKeys={queryParamKeys}
-                headerKeys={headerKeys}
-                bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
-                apiKey={endpointApiParamKey}
-                apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
-                apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
-              />
-            </div>
+          {showValidation && providerToValidate ? (
+            <ValidationPanel
+              provider={providerToValidate}
+              onValidationSuccess={handleValidationSuccess}
+              onValidationError={handleValidationError}
+              onCancel={handleValidationCancel}
+            />
+          ) : (
+            <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
+              <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                <ProviderMetadataForm
+                  nodeId={window.our?.node || "N/A"}
+                  providerName={providerName}
+                  setProviderName={setProviderName}
+                  providerDescription={providerDescription}
+                  setProviderDescription={setProviderDescription}
+                  instructions={instructions}
+                  setInstructions={setInstructions}
+                  registeredProviderWallet={registeredProviderWallet}
+                  setRegisteredProviderWallet={setRegisteredProviderWallet}
+                  price={price}
+                  setPrice={setPrice}
+                  onCopyMetadata={handleCopyFormData}
+                />
+                <ApiCallScaffold
+                  providerName={providerName}
+                  endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
+                  endpointBaseUrl={endpointBaseUrl}
+                  pathParamKeys={pathParamKeys}
+                  queryParamKeys={queryParamKeys}
+                  headerKeys={headerKeys}
+                  bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
+                  apiKey={endpointApiParamKey}
+                  apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
+                  apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
+                />
+              </div>
 
-            <div className="modal-right-column" style={{ flex: 1, overflowY: 'auto' }}>
-              <ProviderConfigForm
-                providerName={providerName}
-                topLevelRequestType={topLevelRequestType}
-                setTopLevelRequestType={setTopLevelRequestType}
-                authChoice={authChoice}
-                setAuthChoice={setAuthChoice}
-                apiKeyQueryParamName={apiKeyQueryParamName}
-                setApiKeyQueryParamName={setApiKeyQueryParamName}
-                apiKeyHeaderName={apiKeyHeaderName}
-                setApiKeyHeaderName={setApiKeyHeaderName}
-                endpointApiParamKey={endpointApiParamKey}
-                setEndpointApiKey={setEndpointApiKey}
-                endpointBaseUrl={endpointBaseUrl}
-                setEndpointBaseUrl={setEndpointBaseUrl}
-                pathParamKeys={pathParamKeys}
-                setPathParamKeys={setPathParamKeys}
-                queryParamKeys={queryParamKeys}
-                setQueryParamKeys={setQueryParamKeys}
-                headerKeys={headerKeys}
-                setHeaderKeys={setHeaderKeys}
-                bodyKeys={bodyKeys}
-                setBodyKeys={setBodyKeys}
-                apiCallFormatSelected={apiCallFormatSelected}
-                setApiCallFormatSelected={setApiCallFormatSelected}
-                onRegisterProvider={handleProviderRegistration}
-              />
+              <div className="modal-right-column" style={{ flex: 1, overflowY: 'auto' }}>
+                <ProviderConfigForm
+                  providerName={providerName}
+                  topLevelRequestType={topLevelRequestType}
+                  setTopLevelRequestType={setTopLevelRequestType}
+                  authChoice={authChoice}
+                  setAuthChoice={setAuthChoice}
+                  apiKeyQueryParamName={apiKeyQueryParamName}
+                  setApiKeyQueryParamName={setApiKeyQueryParamName}
+                  apiKeyHeaderName={apiKeyHeaderName}
+                  setApiKeyHeaderName={setApiKeyHeaderName}
+                  endpointApiParamKey={endpointApiParamKey}
+                  setEndpointApiKey={setEndpointApiKey}
+                  endpointBaseUrl={endpointBaseUrl}
+                  setEndpointBaseUrl={setEndpointBaseUrl}
+                  pathParamKeys={pathParamKeys}
+                  setPathParamKeys={setPathParamKeys}
+                  queryParamKeys={queryParamKeys}
+                  setQueryParamKeys={setQueryParamKeys}
+                  headerKeys={headerKeys}
+                  setHeaderKeys={setHeaderKeys}
+                  bodyKeys={bodyKeys}
+                  setBodyKeys={setBodyKeys}
+                  apiCallFormatSelected={apiCallFormatSelected}
+                  setApiCallFormatSelected={setApiCallFormatSelected}
+                  onRegisterProvider={handleProviderRegistration}
+                />
+              </div>
             </div>
-          </div>
+          )}
         </SelectionModal>
       </main>
     </div>

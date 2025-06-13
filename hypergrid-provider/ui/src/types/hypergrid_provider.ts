@@ -52,6 +52,14 @@ export interface RegisterProviderRequest {
   RegisterProvider: RegisteredProvider; // Key matches the Rust function name
 }
 
+// New request structure for validation and registration
+export interface ValidateAndRegisterRequest {
+  ValidateAndRegisterProvider: {
+    provider: RegisteredProvider;
+    validation_arguments: [string, string][];
+  };
+}
+
 // Response type for the register_provider endpoint
 export type RegisterProviderResponse = RustResponse<RegisteredProvider>;
 

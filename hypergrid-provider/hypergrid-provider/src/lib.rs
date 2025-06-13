@@ -32,6 +32,13 @@ pub struct DummyResponse {
     pub response: String,
 }
 
+// New structure for validation request
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ValidateAndRegisterRequest {
+    pub provider: RegisteredProvider,
+    pub validation_arguments: Vec<(String, String)>,
+}
+
 // Type system for API endpoints
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum HttpMethod {
@@ -329,6 +336,89 @@ impl HypergridProviderState {
         Ok(provider_with_id)
     }
 
+    #[http]
+    async fn validate_and_register_provider(
+        &mut self,
+        request: ValidateAndRegisterRequest,
+    ) -> Result<RegisteredProvider, String> {
+        info!("Validating and registering provider: {:?}", request.provider.provider_name);
+        
+        // Check if provider name already exists
+        if self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == request.provider.provider_name)
+        {
+            return Err(format!(
+                "Provider with name '{}' already registered.",
+                request.provider.provider_name
+            ));
+        }
+
+        // Step 1: Validate the endpoint by making a test call
+        let validation_result = call_provider(
+            request.provider.provider_name.clone(),
+            request.provider.endpoint.clone(),
+            &request.validation_arguments,
+            "validation-test".to_string(),
+        )
+        .await;
+
+        match validation_result {
+            Ok(response) => {
+                // Parse the response to check if it was successful (status 200)
+                match serde_json::from_str::<serde_json::Value>(&response) {
+                    Ok(parsed) => {
+                        if let Some(status) = parsed.get("status").and_then(|s| s.as_u64()) {
+                            if status == 200 {
+                                info!("Validation successful for provider: {}", request.provider.provider_name);
+                                
+                                // Step 2: Register the provider since validation passed
+                                let unique_id = format!("{}_{}_{}",
+                                    our().node.to_string(),
+                                    request.provider.provider_name,
+                                    std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .unwrap_or_default()
+                                        .as_secs()
+                                );
+                                let provider_with_id = RegisteredProvider {
+                                    provider_id: unique_id,
+                                    ..request.provider
+                                };
+
+                                self.registered_providers.push(provider_with_id.clone());
+                                info!("Successfully registered provider after validation: {}", provider_with_id.provider_name);
+
+                                // Save state
+                                match rmp_serde::to_vec(self) {
+                                    Ok(bytes) => {
+                                        hyperware_process_lib::set_state(&bytes);
+                                        info!("Manually called set_state with {} bytes after validation.", bytes.len());
+                                    }
+                                    Err(e) => {
+                                        error!("Manual save after validation: Failed to serialize HypergridProviderState: {}", e);
+                                    }
+                                }
+
+                                Ok(provider_with_id)
+                            } else {
+                                Err(format!("Validation failed: API returned status {}. Please check your endpoint configuration and try again.", status))
+                            }
+                        } else {
+                            Err("Validation failed: Could not parse status from API response.".to_string())
+                        }
+                    }
+                    Err(_) => {
+                        Err("Validation failed: Invalid response format from API.".to_string())
+                    }
+                }
+            }
+            Err(e) => {
+                Err(format!("Validation failed: {}. Please check your endpoint configuration and try again.", e))
+            }
+        }
+    }
     #[http]
     async fn update_provider(
         &mut self,
