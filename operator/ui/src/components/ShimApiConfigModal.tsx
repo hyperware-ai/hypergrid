@@ -80,7 +80,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
         })
         .then(responseData => {
             const configData = {
-                url: window.location.origin + window.location.pathname + '/shim/mcp',
+                url: window.location.origin + window.location.pathname + 'shim/mcp',
                 client_id: responseData.client_id,
                 token: responseData.raw_token,
                 node: responseData.node_name,
