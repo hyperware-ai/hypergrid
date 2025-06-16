@@ -5,7 +5,6 @@ import {
   RegisterProviderResponse,
   UpdateProvider,
   UpdateProviderResponse,
-  ValidateAndRegisterRequest,
 } from '../types/hypergrid_provider';
 
 const BASE_URL = import.meta.env.BASE_URL; // Assuming BASE_URL is accessible here or passed in
@@ -35,8 +34,15 @@ export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[
   }
 };
 
-export const registerProviderApi = async (payload: RegisterProviderRequest): Promise<RegisterProviderResponse> => {
+export const registerProviderApi = async (
+  provider: RegisteredProvider, 
+  validationArguments: [string, string][] = []
+): Promise<RegisterProviderResponse> => {
   try {
+    const payload: RegisterProviderRequest = {
+      RegisterProvider: [provider, validationArguments],
+    };
+
     const result = await fetch(`${BASE_URL}/api`, {
       method: "POST",
       headers: { 'Content-Type': 'application/json' },
@@ -58,32 +64,6 @@ export const registerProviderApi = async (payload: RegisterProviderRequest): Pro
         throw error;
     }
     throw new Error("Unknown error during provider registration.");
-  }
-};
-
-export const validateAndRegisterProviderApi = async (payload: ValidateAndRegisterRequest): Promise<RegisterProviderResponse> => {
-  try {
-    const result = await fetch(`${BASE_URL}/api`, {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-
-    if (!result.ok) {
-      const errorText = await result.text();
-      console.error(`HTTP request failed: ${result.status} ${result.statusText}. Response:`, errorText);
-      throw new Error(`Failed to validate and register provider: ${result.statusText} - ${errorText}`);
-    }
-
-    const responseData = await result.json() as RegisterProviderResponse;
-
-    return responseData;
-  } catch (error) {
-    console.error("Failed to validate and register provider:", error);
-    if (error instanceof Error) {
-        throw error;
-    }
-    throw new Error("Unknown error during provider validation and registration.");
   }
 };
 

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { RegisteredProvider, ValidateAndRegisterRequest } from '../types/hypergrid_provider';
+import { RegisteredProvider } from '../types/hypergrid_provider';
 import { HttpMethod, RequestStructureType } from '../types/hypergrid_provider';
-import { validateAndRegisterProviderApi } from '../utils/api';
+import { registerProviderApi } from '../utils/api';
 import { processRegistrationResponse } from '../utils/providerFormUtils';
 import type { ApiResponseFeedback } from '../utils/providerFormUtils';
 
@@ -169,14 +169,7 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
       // Convert validationArgs to the format expected by the API
       const validationArguments: [string, string][] = Object.entries(validationArgs);
       
-      const payload: ValidateAndRegisterRequest = {
-        ValidateAndRegisterProvider: {
-          provider,
-          validation_arguments: validationArguments,
-        },
-      };
-
-      const response = await validateAndRegisterProviderApi(payload);
+      const response = await registerProviderApi(provider, validationArguments);
       const feedback = processRegistrationResponse(response);
       
       if (feedback.status === 'success' && response.Ok) {

@@ -39,7 +39,8 @@ pub async fn send_async_http_request(
         )
         .blob_bytes(body);
 
-    let result_from_http_client = send::<std::result::Result<HttpClientResponse, HttpClientError>>(req).await;
+    let result_from_http_client =
+        send::<std::result::Result<HttpClientResponse, HttpClientError>>(req).await;
 
     match result_from_http_client {
         Ok(Ok(HttpClientResponse::Http(resp_data))) => {
@@ -59,17 +60,13 @@ pub async fn send_async_http_request(
                 .body(get_blob().unwrap_or_default().bytes)
                 .unwrap())
         }
-        Ok(Ok(HttpClientResponse::WebSocketAck)) => {
-            Err(HttpClientError::ExecuteRequestFailed(
-                "http-client gave unexpected response".to_string(),
-            ))
-        }
+        Ok(Ok(HttpClientResponse::WebSocketAck)) => Err(HttpClientError::ExecuteRequestFailed(
+            "http-client gave unexpected response".to_string(),
+        )),
         Ok(Err(http_client_err)) => Err(http_client_err),
-        Err(app_send_err) => {
-            Err(HttpClientError::ExecuteRequestFailed(format!(
-                "http-client gave invalid response: {app_send_err:?}"
-            )))
-        }
+        Err(app_send_err) => Err(HttpClientError::ExecuteRequestFailed(format!(
+            "http-client gave invalid response: {app_send_err:?}"
+        ))),
     }
 }
 
@@ -156,7 +153,6 @@ pub async fn call_provider(
     }
 
     http_headers.insert("X-Insecure-HPN-Client-Node-Id".to_string(), source);
-
 
     kiprintln!(
         "Prepared headers (before body processing): {:?}",
@@ -314,16 +310,23 @@ pub async fn call_provider(
     .await
     {
         Ok(response) => {
-            let status = response.status();
+            let status = response.status().as_u16();
             let response_body_bytes = response.body().to_vec();
             let body_result = String::from_utf8(response_body_bytes)
                 .map_err(|e| format!("Failed to parse response body as UTF-8: {}", e))?;
-            Ok(format!(
-                "{{\"status\":{},\"body\":{}}}",
-                status,
-                serde_json::to_string(&body_result)
-                    .unwrap_or_else(|_| format!("\"{}\"", body_result))
-            ))
+            
+            // Try to parse the body as JSON to avoid double-encoding
+            let body_json = match serde_json::from_str::<serde_json::Value>(&body_result) {
+                Ok(json_value) => json_value,
+                Err(_) => serde_json::Value::String(body_result), // If not JSON, wrap as string
+            };
+            
+            let response_wrapper = serde_json::json!({
+                "status": status,
+                "body": body_json
+            });
+            
+            Ok(response_wrapper.to_string())
         }
         Err(e) => {
             eprintln!(
@@ -339,7 +342,7 @@ pub async fn call_provider(
 pub async fn validate_transaction_payment(
     mcp_request: &ProviderRequest,
     state: &mut super::HypergridProviderState, // Now mutable
-    source_node_id: String,              // Pass source node string directly
+    source_node_id: String,                    // Pass source node string directly
 ) -> Result<(), String> {
     // --- 0. Check if provider exists at all ---
     if !state
@@ -456,7 +459,11 @@ pub async fn validate_transaction_payment(
         let tx_sender: &[u8] = log.topics()[1].as_slice();
         // Topics representing addresses are 32 bytes, address is last 20 bytes.
         if tx_sender.len() != 32 {
-            kiprintln!("Sender topic (topic 1) has unexpected length: {}, expected 32. Tx: {}", tx_sender.len(), tx_hash_str_ref);
+            kiprintln!(
+                "Sender topic (topic 1) has unexpected length: {}, expected 32. Tx: {}",
+                tx_sender.len(),
+                tx_hash_str_ref
+            );
             continue;
         }
         let tx_sender_address = EthAddress::from_slice(&tx_sender[12..]);
@@ -464,7 +471,11 @@ pub async fn validate_transaction_payment(
         // Extract recipient from topic 2
         let tx_recipient: &[u8] = log.topics()[2].as_slice();
         if tx_recipient.len() != 32 {
-            kiprintln!("Recipient topic (topic 2) has unexpected length: {}, expected 32. Tx: {}", tx_recipient.len(), tx_hash_str_ref);
+            kiprintln!(
+                "Recipient topic (topic 2) has unexpected length: {}, expected 32. Tx: {}",
+                tx_recipient.len(),
+                tx_hash_str_ref
+            );
             continue;
         }
         let tx_recipient_address = EthAddress::from_slice(&tx_recipient[12..]);
@@ -477,7 +488,7 @@ pub async fn validate_transaction_payment(
                 expected_provider_wallet,
                 tx_recipient_address
             );
-            continue; 
+            continue;
         }
 
         // Validate amount from log data
@@ -500,7 +511,7 @@ pub async fn validate_transaction_payment(
                 );
                 // Sender address and recipient confirmed, amount is sufficient.
                 // Now store the sender for Hypermap check and mark payment as potentially valid.
-                    claimed_sender_address_from_log = Some(tx_sender_address);
+                claimed_sender_address_from_log = Some(tx_sender_address);
                 payment_validated = true; // Provisional validation, Hypermap check still pending
                 break; // Found a valid transfer, no need to check other logs
             } else {
@@ -528,7 +539,7 @@ pub async fn validate_transaction_payment(
             expected_provider_wallet, service_price_u256, expected_token_contract_address, tx_hash_str_ref
         ));
     }
-    
+
     let final_claimed_sender_address = claimed_sender_address_from_log.unwrap(); // Safe due to check above
 
     // --- 6. Verify Request Sender against Transaction Sender (from log) via Hypermap TBA ---
@@ -551,26 +562,49 @@ pub async fn validate_transaction_payment(
         final_claimed_sender_address,
         source_node_id
     );
-    
+
     // --- 7. Mark Transaction as Spent ---
     // This must be the last step after all validations pass.
     state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
-    kiprintln!("Successfully validated payment and marked tx {} as spent.", tx_hash_str_ref);
+    kiprintln!(
+        "Successfully validated payment and marked tx {} as spent.",
+        tx_hash_str_ref
+    );
 
     Ok(())
 }
 
 pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::Provider {
     let hypermap_timeout = 60;
-    hyperware_app_common::hyperware_process_lib::eth::Provider::new(hypermap::HYPERMAP_CHAIN_ID, hypermap_timeout)
+    hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+        hypermap::HYPERMAP_CHAIN_ID,
+        hypermap_timeout,
+    )
 }
 
 pub fn default_hypermap() -> hypermap::Hypermap {
     let hypermap_timeout = 60;
-    let provider = hyperware_app_common::hyperware_process_lib::eth::Provider::new(hypermap::HYPERMAP_CHAIN_ID, hypermap_timeout);
+    let provider = hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+        hypermap::HYPERMAP_CHAIN_ID,
+        hypermap_timeout,
+    );
     let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
         .expect("HYPERMAP_ADDRESS const should be a valid Ethereum address");
     hypermap::Hypermap::new(provider, hypermap_contract_address)
+}
+
+pub fn validate_response_status(response: &str) -> Result<(), String> {
+    let parsed = serde_json::from_str::<serde_json::Value>(response)
+        .map_err(|e| format!("Failed to parse response: {}", e))?;
+    if let Some(status) = parsed.get("status").and_then(|s| s.as_u64()) {
+        if status == 200 {
+            Ok(())
+        } else {
+            Err(format!("Invalid status code in response: {}", status))
+        }
+    } else {
+        Err(format!("No status code found in response"))
+    }
 }
 
 //use crate::{EndpointDefinition, HttpMethod, ProviderRequest};
@@ -1052,7 +1086,7 @@ pub fn default_hypermap() -> hypermap::Hypermap {
 //                expected_provider_wallet,
 //                tx_recipient_address
 //            );
-//            continue; 
+//            continue;
 //        }
 //
 //        // Validate amount from log data
@@ -1103,7 +1137,7 @@ pub fn default_hypermap() -> hypermap::Hypermap {
 //            expected_provider_wallet, service_price_u256, expected_token_contract_address, tx_hash_str_ref
 //        ));
 //    }
-//    
+//
 //    let final_claimed_sender_address = claimed_sender_address_from_log.unwrap(); // Safe due to check above
 //
 //    // --- 6. Verify Request Sender against Transaction Sender (from log) via Hypermap TBA ---
@@ -1116,7 +1150,7 @@ pub fn default_hypermap() -> hypermap::Hypermap {
 //    let expected_namehash_for_requester = hypermap::namehash(&full_name_for_tba_lookup);
 //
 //    if namehash_from_claimed_sender_tba != expected_namehash_for_requester {
-//        return Err(format!("Namehash mismatch for TBA: sender identified from log as {} (namehash: {}), but request came from {} (expected namehash: {}). Sender identity could not be verified.", 
+//        return Err(format!("Namehash mismatch for TBA: sender identified from log as {} (namehash: {}), but request came from {} (expected namehash: {}). Sender identity could not be verified.",
 //                          final_claimed_sender_address, namehash_from_claimed_sender_tba,
 //                          source_node_id, expected_namehash_for_requester));
 //    }
@@ -1126,7 +1160,7 @@ pub fn default_hypermap() -> hypermap::Hypermap {
 //        final_claimed_sender_address,
 //        source_node_id
 //    );
-//    
+//
 //    // --- 7. Mark Transaction as Spent ---
 //    // This must be the last step after all validations pass.
 //    state.spent_tx_hashes.push(tx_hash_str_ref.to_string());

@@ -1,18 +1,24 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_process_lib::eth::Address as EthAddress;
-use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage, get_state, logging::{info, error}};
-use serde::{Deserialize, Serialize};
 use hyperware_process_lib::vfs::{create_drive, create_file, open_file};
-use serde_json;
+use hyperware_process_lib::{
+    eth::Provider,
+    get_state,
+    homepage::add_to_homepage,
+    hypermap,
+    logging::{error, info},
+    our,
+};
 use rmp_serde;
+use serde::{Deserialize, Serialize};
+use serde_json;
 use std::str::FromStr; // Needed for EthAddress::from_str
 
 pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
 
 mod util; // Declare the util module
 use util::*; // Use its public items
-
 
 const ICON: &str = include_str!("./icon");
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -107,14 +113,12 @@ pub struct HypergridProviderState {
     pub registered_providers: Vec<RegisteredProvider>,
     pub spent_tx_hashes: Vec<String>,
     #[serde(skip, default = "util::default_provider")]
-    pub rpc_provider: Provider, 
+    pub rpc_provider: Provider,
     #[serde(skip, default = "util::default_hypermap")]
-    pub hypermap: hypermap::Hypermap, 
+    pub hypermap: hypermap::Hypermap,
     #[serde(skip)]
     pub vfs_drive_path: Option<String>,
 }
-
-
 
 impl HypergridProviderState {
     /// Helper to convert any error to String for consistent error handling
@@ -146,14 +150,14 @@ impl HypergridProviderState {
             Ok(drive_path) => {
                 info!("Created VFS drive for providers at: {}", drive_path);
                 self.vfs_drive_path = Some(drive_path);
-                
+
                 // Try to load existing providers from VFS
                 if let Err(e) = self.load_providers_from_vfs() {
                     info!("No existing providers in VFS or error loading: {}", e);
                     // Create empty providers file
                     self.save_providers_to_vfs()?;
                 }
-                
+
                 Ok(())
             }
             Err(e) => {
@@ -163,70 +167,75 @@ impl HypergridProviderState {
         }
     }
 
-        /// Save all providers to VFS as JSON
+    /// Save all providers to VFS as JSON
     pub fn save_providers_to_vfs(&self) -> Result<(), String> {
-        let drive_path = self.vfs_drive_path.as_ref().ok_or("VFS drive not initialized")?;
+        let drive_path = self
+            .vfs_drive_path
+            .as_ref()
+            .ok_or("VFS drive not initialized")?;
         let file_path = format!("{}/providers.json", drive_path);
         // Possible inneficieny here since we are pulling all providers from memory to serialize them
-        let json_data = serde_json::to_string_pretty(&self.registered_providers)
-            .map_err(Self::to_err)?;
-        
-        let file = create_file(&file_path, None)
-            .map_err(Self::to_err)?;
-        
-        file.write(json_data.as_bytes())
-            .map_err(Self::to_err)?;
-        
+        let json_data =
+            serde_json::to_string_pretty(&self.registered_providers).map_err(Self::to_err)?;
+
+        let file = create_file(&file_path, None).map_err(Self::to_err)?;
+
+        file.write(json_data.as_bytes()).map_err(Self::to_err)?;
+
         info!("Saved {} providers to VFS", self.registered_providers.len());
         Ok(())
     }
 
     /// Load providers from VFS JSON file
     pub fn load_providers_from_vfs(&mut self) -> Result<(), String> {
-        let drive_path = self.vfs_drive_path.as_ref().ok_or("VFS drive not initialized")?;
+        let drive_path = self
+            .vfs_drive_path
+            .as_ref()
+            .ok_or("VFS drive not initialized")?;
         let file_path = format!("{}/providers.json", drive_path);
-        
-        let file = open_file(&file_path, false, None)
-            .map_err(Self::to_err)?;
-        
-        let bytes = file.read()
-            .map_err(Self::to_err)?;
-        
-        let json_data = String::from_utf8(bytes)
-            .map_err(Self::to_err)?;
-        
-        let providers = serde_json::from_str::<Vec<RegisteredProvider>>(&json_data)
-            .map_err(Self::to_err)?;
-        
+
+        let file = open_file(&file_path, false, None).map_err(Self::to_err)?;
+
+        let bytes = file.read().map_err(Self::to_err)?;
+
+        let json_data = String::from_utf8(bytes).map_err(Self::to_err)?;
+
+        let providers =
+            serde_json::from_str::<Vec<RegisteredProvider>>(&json_data).map_err(Self::to_err)?;
+
         self.registered_providers = providers;
-        info!("Loaded {} providers from VFS", self.registered_providers.len());
+        info!(
+            "Loaded {} providers from VFS",
+            self.registered_providers.len()
+        );
         Ok(())
     }
 
     /// Export providers as JSON string (for easy export functionality)
     pub fn export_providers_json(&self) -> Result<String, String> {
-        let json_data = serde_json::to_string_pretty(&self.registered_providers)
-            .map_err(Self::to_err)?;
-        
-        info!("Exported {} providers as JSON", self.registered_providers.len());
+        let json_data =
+            serde_json::to_string_pretty(&self.registered_providers).map_err(Self::to_err)?;
+
+        info!(
+            "Exported {} providers as JSON",
+            self.registered_providers.len()
+        );
         Ok(json_data)
     }
 
     /// Loads old state from disk, falls back to new() if none exists
     pub fn load() -> Self {
         match get_state() {
-            Some(bytes) => {
-                match rmp_serde::from_slice::<Self>(&bytes) {
-                    Ok(state) => {
-                        println!("Successfully loaded HypergridProviderState from checkpoint.");
-                        state
-                    }
-                    Err(e) => {
-                        error!("Failed to deserialize HypergridProviderState with rmp_serde: {}, creating new state", e);
-                        Self::new()
-                    }
+            Some(bytes) => match rmp_serde::from_slice::<Self>(&bytes) {
+                Ok(state) => {
+                    println!("Successfully loaded HypergridProviderState from checkpoint.");
+                    state
                 }
-            }
+                Err(e) => {
+                    error!("Failed to deserialize HypergridProviderState with rmp_serde: {}, creating new state", e);
+                    Self::new()
+                }
+            },
             None => {
                 info!("No saved state found. Creating new state.");
                 Self::new()
@@ -265,12 +274,12 @@ impl HypergridProviderState {
     async fn initialize(&mut self) {
         println!("Initializing provider registry");
         *self = HypergridProviderState::load();
-        
+
         // Initialize VFS drive for provider storage
         if let Err(e) = self.init_vfs_drive() {
             error!("Failed to initialize VFS drive: {}", e);
         }
-        
+
         add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
     }
 
@@ -285,6 +294,7 @@ impl HypergridProviderState {
     async fn register_provider(
         &mut self,
         provider: RegisteredProvider,
+        arguments: Vec<(String, String)>,
     ) -> Result<RegisteredProvider, String> {
         info!("Registering provider: {:?}", provider);
         if self
@@ -297,8 +307,21 @@ impl HypergridProviderState {
                 provider.provider_name
             ));
         }
+        // Step 1: Validate the endpoint by making a test call
+        let validation_result = call_provider(
+            provider.provider_name.clone(),
+            provider.endpoint.clone(),
+            &arguments,
+            our().node.to_string(),
+        )
+        .await?;
+        
+        info!("Validation result: {}", validation_result);
+        validate_response_status(&validation_result)
+            .map_err(|e| format!("Validation failed, failed to register provider: {}", e))?;
 
-        let unique_id = format!("{}_{}_{}",
+        let unique_id = format!(
+            "{}_{}_{}", // TODO: This is not a good way to generate a unique ID, we should use a better one
             our().node.to_string(),
             provider.provider_name,
             std::time::SystemTime::now()
@@ -306,6 +329,7 @@ impl HypergridProviderState {
                 .unwrap_or_default()
                 .as_secs()
         );
+        
         let provider_with_id = RegisteredProvider {
             provider_id: unique_id,
             ..provider
@@ -313,7 +337,7 @@ impl HypergridProviderState {
 
         self.registered_providers.push(provider_with_id.clone());
         info!(
-            "Successfully registered provider: {}",
+            "Successfully registered provider after validating the endpoint: {}",
             provider_with_id.provider_name
         );
 
@@ -336,89 +360,7 @@ impl HypergridProviderState {
         Ok(provider_with_id)
     }
 
-    #[http]
-    async fn validate_and_register_provider(
-        &mut self,
-        request: ValidateAndRegisterRequest,
-    ) -> Result<RegisteredProvider, String> {
-        info!("Validating and registering provider: {:?}", request.provider.provider_name);
-        
-        // Check if provider name already exists
-        if self
-            .registered_providers
-            .iter()
-            .any(|p| p.provider_name == request.provider.provider_name)
-        {
-            return Err(format!(
-                "Provider with name '{}' already registered.",
-                request.provider.provider_name
-            ));
-        }
 
-        // Step 1: Validate the endpoint by making a test call
-        let validation_result = call_provider(
-            request.provider.provider_name.clone(),
-            request.provider.endpoint.clone(),
-            &request.validation_arguments,
-            "validation-test".to_string(),
-        )
-        .await;
-
-        match validation_result {
-            Ok(response) => {
-                // Parse the response to check if it was successful (status 200)
-                match serde_json::from_str::<serde_json::Value>(&response) {
-                    Ok(parsed) => {
-                        if let Some(status) = parsed.get("status").and_then(|s| s.as_u64()) {
-                            if status == 200 {
-                                info!("Validation successful for provider: {}", request.provider.provider_name);
-                                
-                                // Step 2: Register the provider since validation passed
-                                let unique_id = format!("{}_{}_{}",
-                                    our().node.to_string(),
-                                    request.provider.provider_name,
-                                    std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .unwrap_or_default()
-                                        .as_secs()
-                                );
-                                let provider_with_id = RegisteredProvider {
-                                    provider_id: unique_id,
-                                    ..request.provider
-                                };
-
-                                self.registered_providers.push(provider_with_id.clone());
-                                info!("Successfully registered provider after validation: {}", provider_with_id.provider_name);
-
-                                // Save state
-                                match rmp_serde::to_vec(self) {
-                                    Ok(bytes) => {
-                                        hyperware_process_lib::set_state(&bytes);
-                                        info!("Manually called set_state with {} bytes after validation.", bytes.len());
-                                    }
-                                    Err(e) => {
-                                        error!("Manual save after validation: Failed to serialize HypergridProviderState: {}", e);
-                                    }
-                                }
-
-                                Ok(provider_with_id)
-                            } else {
-                                Err(format!("Validation failed: API returned status {}. Please check your endpoint configuration and try again.", status))
-                            }
-                        } else {
-                            Err("Validation failed: Could not parse status from API response.".to_string())
-                        }
-                    }
-                    Err(_) => {
-                        Err("Validation failed: Invalid response format from API.".to_string())
-                    }
-                }
-            }
-            Err(e) => {
-                Err(format!("Validation failed: {}. Please check your endpoint configuration and try again.", e))
-            }
-        }
-    }
     #[http]
     async fn update_provider(
         &mut self,
@@ -426,31 +368,36 @@ impl HypergridProviderState {
         updated_provider: RegisteredProvider,
     ) -> Result<RegisteredProvider, String> {
         info!("Updating provider: {}", provider_name);
-        
+
         // Find the provider to update
         let provider_index = self
             .registered_providers
             .iter()
             .position(|p| p.provider_name == provider_name);
-        
+
         match provider_index {
             Some(index) => {
                 // Check if the provider name is changing
                 let name_changed = provider_name != updated_provider.provider_name;
-                
+
                 // If name changed, check if new name already exists
                 if name_changed {
-                    if self.registered_providers.iter().any(|p| p.provider_name == updated_provider.provider_name) {
+                    if self
+                        .registered_providers
+                        .iter()
+                        .any(|p| p.provider_name == updated_provider.provider_name)
+                    {
                         return Err(format!(
                             "A provider with name '{}' already exists. Please choose a different name.",
                             updated_provider.provider_name
                         ));
                     }
                 }
-                
+
                 let updated_provider_with_id = if name_changed {
                     // If name changed, create new provider with new ID (essentially a new registration)
-                    let unique_id = format!("{}_{}_{}",
+                    let unique_id = format!(
+                        "{}_{}_{}",
                         our().node.to_string(),
                         updated_provider.provider_name,
                         std::time::SystemTime::now()
@@ -471,53 +418,60 @@ impl HypergridProviderState {
                         ..updated_provider
                     }
                 };
-                
+
                 // Update the provider
                 self.registered_providers[index] = updated_provider_with_id.clone();
-                
-                info!("Successfully updated provider: {} -> {}", provider_name, updated_provider_with_id.provider_name);
-                
+
+                info!(
+                    "Successfully updated provider: {} -> {}",
+                    provider_name, updated_provider_with_id.provider_name
+                );
+
                 // Save to VFS
                 if let Err(e) = self.save_providers_to_vfs() {
                     error!("Failed to save updated providers to VFS: {}", e);
                 }
-                
+
                 // Manual save for diagnostics
                 match rmp_serde::to_vec(self) {
                     Ok(bytes) => {
                         hyperware_process_lib::set_state(&bytes);
-                        info!("Manually called set_state with {} bytes after update.", bytes.len());
+                        info!(
+                            "Manually called set_state with {} bytes after update.",
+                            bytes.len()
+                        );
                     }
                     Err(e) => {
                         error!("Manual save after update: Failed to serialize HypergridProviderState: {}", e);
                     }
                 }
-                
+
                 Ok(updated_provider_with_id)
             }
-            None => {
-                Err(format!(
-                    "Provider with name '{}' not found for update.",
-                    provider_name
-                ))
-            }
+            None => Err(format!(
+                "Provider with name '{}' not found for update.",
+                provider_name
+            )),
         }
     }
 
     #[remote]
-    async fn call_provider(
-        &mut self,
-        request: ProviderRequest,
-    ) -> Result<String, String> {
-
+    async fn call_provider(&mut self, request: ProviderRequest) -> Result<String, String> {
         let mcp_request = match request {
             ProviderRequest { .. } => request,
         };
-        info!("Received remote call for provider: {}", mcp_request.provider_name);
+        info!(
+            "Received remote call for provider: {}",
+            mcp_request.provider_name
+        );
 
         // --- 0. Check if provider exists at all ---
         // First validate the payment before accessing registered_provider
-        if !self.registered_providers.iter().any(|p| p.provider_name == mcp_request.provider_name) {
+        if !self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == mcp_request.provider_name)
+        {
             return Err(format!(
                 "Provider '{}' not found - please make sure to enter a valid, registered provider name",
                 mcp_request.provider_name
@@ -573,7 +527,6 @@ impl HypergridProviderState {
         info!("Exporting providers as JSON");
         self.export_providers_json()
     }
-
 
     #[local]
     async fn terminal_command(&mut self, command: TerminalCommand) -> Result<String, String> {
@@ -653,12 +606,12 @@ impl HypergridProviderState {
                 kiprintln!("Registered provider: {:?}", registered_provider);
 
                 let source_str = "default-node".to_string();
-                
+
                 let result = call_provider(
                     registered_provider.provider_name.clone(),
                     registered_provider.endpoint.clone(),
                     &test_provider_args.args,
-                    source_str
+                    source_str,
                 )
                 .await;
 
@@ -673,8 +626,15 @@ impl HypergridProviderState {
                 kiprintln!("Exporting providers as JSON");
                 match self.export_providers_json() {
                     Ok(json_data) => {
-                        kiprintln!("Exported {} providers:\n{}", self.registered_providers.len(), json_data);
-                        Ok(format!("Successfully exported {} providers", self.registered_providers.len()))
+                        kiprintln!(
+                            "Exported {} providers:\n{}",
+                            self.registered_providers.len(),
+                            json_data
+                        );
+                        Ok(format!(
+                            "Successfully exported {} providers",
+                            self.registered_providers.len()
+                        ))
                     }
                     Err(e) => {
                         kiprintln!("Failed to export providers: {}", e);
@@ -685,8 +645,6 @@ impl HypergridProviderState {
         }
     }
 }
-
-
 
 //use hyperprocess_macro::hyperprocess;
 //use hyperware_app_common::hyperware_process_lib::kiprintln;
@@ -866,7 +824,7 @@ impl HypergridProviderState {
 //            req => req,
 //            _ => return Err("Invalid provider request structure, got: {:?}. Please make sure to use the correct request structure for the provider call.".to_string()),
 //        };
-//        
+//
 //        println!("Received remote call for provider: {}", mcp_request.provider_name);
 //
 //        // --- 0. Check if provider exists at all ---
@@ -991,7 +949,7 @@ impl HypergridProviderState {
 //                kiprintln!("Registered provider: {:?}", registered_provider);
 //
 //                let source_str = "default-node".to_string();
-//                
+//
 //                let result = call_provider(
 //                    registered_provider.provider_name.clone(),
 //                    registered_provider.endpoint.clone(),
