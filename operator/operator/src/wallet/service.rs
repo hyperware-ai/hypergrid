@@ -37,12 +37,12 @@ pub fn generate_initial_wallet() -> Result<ManagedWallet, String> {
             return Err(format!("Failed to generate signer: {}", e));
         }
     };
-    let address = new_signer.address().to_string();
+            let address = new_signer.address().to_string();
     info!("Generated wallet with address: {}", address);
     Ok(ManagedWallet {
-        id: address.clone(),
-        name: None,
-        storage: KeyStorage::Decrypted(new_signer.clone()),
+                id: address.clone(),
+                name: None,
+                storage: KeyStorage::Decrypted(new_signer.clone()),
         spending_limits: SpendingLimits::default(),
     })
 }
@@ -241,9 +241,9 @@ pub fn import_new_wallet(
                 error!("Wallet with address {} already exists.", address);
                 return Err(format!("Wallet with address {} already exists.", address));
             }
-
-            // Only set name if provided and not empty
-            let wallet_name = name.filter(|n| !n.trim().is_empty());
+                    
+                    // Only set name if provided and not empty
+                    let wallet_name = name.filter(|n| !n.trim().is_empty());
             let limits = SpendingLimits::default();
 
             // Create wallet based on whether password was provided
@@ -254,10 +254,10 @@ pub fn import_new_wallet(
                     match signer.encrypt(&pwd) {
                         Ok(encrypted_storage_data) => {
                             ManagedWallet {
-                                id: address.clone(),
-                                name: wallet_name,
-                                storage: KeyStorage::Encrypted(encrypted_storage_data),
-                                spending_limits: limits,
+                        id: address.clone(),
+                        name: wallet_name,
+                        storage: KeyStorage::Encrypted(encrypted_storage_data),
+                        spending_limits: limits,
                             }
                         }
                         Err(e) => {
@@ -279,26 +279,26 @@ pub fn import_new_wallet(
             };
 
             let is_decrypted = matches!(new_wallet.storage, KeyStorage::Decrypted(_));
-            state.managed_wallets.insert(address.clone(), new_wallet);
-            info!("New wallet {} added to managed wallets.", address);
+                    state.managed_wallets.insert(address.clone(), new_wallet);
+                    info!("New wallet {} added to managed wallets.", address);
 
-            // Select if nothing else is selected
-            if state.selected_wallet_id.is_none() {
-                state.selected_wallet_id = Some(address.clone());
+                    // Select if nothing else is selected
+                    if state.selected_wallet_id.is_none() {
+                        state.selected_wallet_id = Some(address.clone());
                 // If the wallet is decrypted, populate the signer cache
                 if is_decrypted {
                     state.active_signer_cache = Some(signer);
                     info!("Wallet {} automatically selected and cache populated.", address);
                 } else {
-                    state.active_signer_cache = None;
+                        state.active_signer_cache = None;
                     info!("Wallet {} automatically selected but requires unlock.", address);
                 }
-            }
-            
-            state.cached_active_details = None;
-            state.save();
+                    }
+                    
+                    state.cached_active_details = None;
+                    state.save();
             info!("Wallet imported and saved. Status: {}", if is_decrypted { "Unlocked" } else { "Locked (Encrypted)" });
-            Ok(address)
+                    Ok(address)
         }
         Err(e) => {
             error!("Failed to import private key: {:?}", e);

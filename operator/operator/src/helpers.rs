@@ -172,7 +172,6 @@ pub fn handle_terminal_debug(
             }
 
             info!("Resetting chain-specific state variables...");
-            state.root_hash = None;
             state.names.clear();
             state.names.insert(String::new(), hypermap::HYPERMAP_ROOT_HASH.to_string());
             state.last_checkpoint_block = structs::HYPERMAP_FIRST_BLOCK;
