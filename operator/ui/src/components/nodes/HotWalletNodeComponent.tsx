@@ -79,26 +79,26 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     useEffect(() => {
         // Only update name if it actually changed from backend
         if (currentName !== initialName) {
-            setCurrentName(initialName);
-            setEditedName(initialName || '');
+        setCurrentName(initialName);
+        setEditedName(initialName || '');
         }
         
         // Only update limits if they actually changed
         if (JSON.stringify(currentLimits) !== JSON.stringify(initialLimits)) {
-            setCurrentLimits(initialLimits);
+        setCurrentLimits(initialLimits);
             setLimitPerCall(initialLimits?.maxPerCall || '');
             setTempLimitPerCall(initialLimits?.maxPerCall || '');
         }
         
         // Only update encryption status if it changed
         if (isEncrypted !== initialIsEncrypted) {
-            setIsEncrypted(initialIsEncrypted);
+        setIsEncrypted(initialIsEncrypted);
         }
         
         // Only update unlock status if it changed
         // This prevents the wallet from appearing locked after operations
         if (isUnlocked !== initialIsUnlocked) {
-            setIsUnlocked(initialIsUnlocked);
+        setIsUnlocked(initialIsUnlocked);
         }
         
         // Always reset editing states on prop changes
@@ -433,15 +433,15 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 <div className={styles.unlockOverlaySection} onClick={(e) => e.stopPropagation()}> {/* New class for overlay styling */}
                     <h4>{isEncrypted ? 'Unlock' : 'Activate'} Wallet: {currentName || truncate(address)}</h4>
                     {isEncrypted && (
-                        <input 
-                            type="password"
-                            placeholder="Enter Password"
-                            value={passwordInput}
-                            onChange={(e) => setPasswordInput(e.target.value)}
-                            className={styles.passwordInputCentered} // New/Updated class
-                            disabled={isUnlockingOrLocking} 
-                            autoFocus
-                        />
+                    <input 
+                        type="password"
+                        placeholder="Enter Password"
+                        value={passwordInput}
+                        onChange={(e) => setPasswordInput(e.target.value)}
+                        className={styles.passwordInputCentered} // New/Updated class
+                        disabled={isUnlockingOrLocking} 
+                        autoFocus
+                    />
                     )}
                     {!isEncrypted && (
                         <p style={{ marginBottom: '10px', fontSize: '0.9em', color: '#888' }}>
