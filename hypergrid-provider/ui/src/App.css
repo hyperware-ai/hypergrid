@@ -1164,3 +1164,46 @@ select {
   color: #90cdf4;
   border-color: #3182ce;
 }
+
+/* Floating Cards View */
+.floating-cards-section {
+  position: relative;
+  overflow: visible !important; /* Allow cards to be dragged beyond boundaries */
+}
+
+.floating-cards-container {
+  min-height: 100%;
+  min-width: 100%;
+}
+
+/* Prevent text selection during drag */
+.floating-cards-section * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection for content that should be selectable */
+.floating-cards-section .no-drag {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  cursor: default !important; /* Override grab cursor for interactive elements */
+}
+
+.floating-cards-section .no-drag:hover {
+  cursor: default !important;
+}
+
+/* Card hover effects */
+.floating-cards-section .card:hover {
+  transform: scale(1.02);
+  transition: transform 0.2s ease;
+}
+
+/* Blur background when dragging */
+.floating-cards-section.dragging {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
+}

@@ -14,12 +14,17 @@ import SelectionModal from "./components/SelectionModal";
 import ProviderConfigForm from "./components/ProviderAPIConfigForm";
 import ProviderMetadataForm from "./components/ProviderMetadataForm";
 import ProviderInfoDisplay from './components/ProviderInfoDisplay';
+import FloatingProviderCard from './components/FloatingProviderCard';
 import { 
   validateProviderConfig, 
   buildProviderPayload, 
   ProviderFormData,
-  processRegistrationResponse
+  processRegistrationResponse,
+  populateFormFromProvider,
+  buildUpdateProviderPayload,
+  processUpdateResponse
 } from "./utils/providerFormUtils";
+import { updateProviderApi } from "./utils/api";
 
 // Import logos
 import logoGlow from './assets/logo_glow.png';
@@ -51,6 +56,10 @@ function App() {
   // Validation state
   const [showValidation, setShowValidation] = useState(false);
   const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
+  
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<RegisteredProvider | null>(null);
 
   // Step 1: Auth & Request Structure
   const [topLevelRequestType, setTopLevelRequestType] = useState<TopLevelRequestType>("getWithPath");
@@ -79,14 +88,29 @@ function App() {
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
 
+  // View mode state
+  const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
+    const storedViewMode = localStorage.getItem('viewMode');
+    return (storedViewMode as 'list' | 'cards') || 'list'; // Default to list view
+  });
+
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.setAttribute('data-theme', theme); // Or apply to app-container
   }, [theme]);
 
+  // Effect to update localStorage when view mode changes
+  useEffect(() => {
+    localStorage.setItem('viewMode', viewMode);
+  }, [viewMode]);
+
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
+  };
+
+  const toggleViewMode = () => {
+    setViewMode(prevMode => (prevMode === 'list' ? 'cards' : 'list'));
   };
 
   const resetFormFields = () => {
@@ -111,6 +135,32 @@ function App() {
     // Reset validation state
     setShowValidation(false);
     setProviderToValidate(null);
+    
+    // Reset edit mode state
+    setIsEditMode(false);
+    setEditingProvider(null);
+  };
+
+  const populateFormWithProvider = (provider: RegisteredProvider) => {
+    const formData = populateFormFromProvider(provider);
+    
+    setTopLevelRequestType(formData.topLevelRequestType || "getWithPath");
+    setAuthChoice(formData.authChoice || "query");
+    setApiKeyQueryParamName(formData.apiKeyQueryParamName || "");
+    setApiKeyHeaderName(formData.apiKeyHeaderName || "");
+    setEndpointApiKey(formData.endpointApiParamKey || "");
+    setApiCallFormatSelected(true);
+
+    setProviderName(formData.providerName || "");
+    setProviderDescription(formData.providerDescription || "");
+    setInstructions(formData.instructions || "");
+    setEndpointBaseUrl(formData.endpointBaseUrl || "");
+    setPathParamKeys(formData.pathParamKeys || []);
+    setQueryParamKeys(formData.queryParamKeys || []);
+    setHeaderKeys(formData.headerKeys || []);
+    setBodyKeys(formData.bodyKeys || []);
+    setRegisteredProviderWallet(formData.registeredProviderWallet || "");
+    setPrice(formData.price || "");
   };
   
   const handleCopyFormData = useCallback(async () => {
@@ -183,12 +233,41 @@ function App() {
     console.log("Provider updated locally:", updatedProvider);
   }, [registeredProviders, setRegisteredProviders]);
 
+  const handleCopyProviderMetadata = useCallback(async (provider: RegisteredProvider) => {
+    const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid-beta.hypr";
+    const metadataFields = {
+      "~provider-name": provider.provider_name,
+      "~provider-id": provider.provider_id,
+      "~wallet": provider.registered_provider_wallet,
+      "~price": provider.price,
+      "~description": provider.description,
+      "~instructions": provider.instructions,
+    };
+    const structuredDataToCopy = {
+      [hnsName]: metadataFields,
+    };
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(structuredDataToCopy, null, 2));
+      alert(`Metadata for '${provider.provider_name}' copied!`);
+    } catch (err) {
+      console.error('Failed to copy metadata: ', err);
+      alert('Failed to copy metadata.');
+    }
+  }, []);
+
+  const handleEditProvider = useCallback((provider: RegisteredProvider) => {
+    setEditingProvider(provider);
+    setIsEditMode(true);
+    populateFormWithProvider(provider);
+    setShowForm(true);
+  }, []);
+
   const handleProviderRegistration = useCallback(async () => {
     // Consolidate form data into an object matching ProviderFormData
     const formData: ProviderFormData = {
       providerName,
       providerDescription,
-      providerId: "", // Keep providerId empty for now
+      providerId: isEditMode ? editingProvider?.provider_id || "" : "", // Use existing ID when editing
       instructions, // Add instructions field
       registeredProviderWallet,
       price,
@@ -211,19 +290,39 @@ function App() {
       return;
     }
 
-    // Build the provider payload using the utility function
-    const payload = buildProviderPayload(formData);
-    const providerToValidate = payload.RegisterProvider;
+    if (isEditMode && editingProvider) {
+      // Handle update for existing provider
+      try {
+        const updatedProvider = buildUpdateProviderPayload(formData);
+        const response = await updateProviderApi(editingProvider.provider_name, updatedProvider);
+        const feedback = processUpdateResponse(response);
+        
+        if (response.Ok) {
+          handleProviderUpdated(response.Ok);
+          resetFormFields();
+          handleCloseAddNewModal();
+          alert(`Provider "${response.Ok.provider_name}" successfully updated!`);
+        } else {
+          alert(feedback.message);
+        }
+      } catch (err) {
+        console.error('Failed to update provider: ', err);
+        alert('Failed to update provider.');
+      }
+    } else {
+      // Handle registration for new provider
+      const payload = buildProviderPayload(formData);
+      const providerToValidate = payload.RegisterProvider;
 
-    // Move to validation step instead of directly registering
-    setProviderToValidate(providerToValidate);
-    setShowValidation(true);
+      // Move to validation step instead of directly registering
+      setProviderToValidate(providerToValidate);
+      setShowValidation(true);
+    }
   }, [
     providerName, providerDescription, instructions, topLevelRequestType,
     endpointBaseUrl, pathParamKeys, queryParamKeys, headerKeys, bodyKeys,
     endpointApiParamKey, authChoice, apiKeyQueryParamName, apiKeyHeaderName,
-    registeredProviderWallet,
-    price
+    registeredProviderWallet, price, isEditMode, editingProvider, handleProviderUpdated
   ]);
 
   const handleValidationSuccess = useCallback((registeredProvider: RegisteredProvider) => {
@@ -284,53 +383,107 @@ function App() {
                 : <div className="node-not-connected-banner"><p><strong>Node not connected.</strong></p></div>
               }
             </div>
+            <button onClick={toggleViewMode} className="theme-toggle-button" style={{ marginRight: '10px' }}>
+                View: {viewMode === 'list' ? '🃏 Cards' : '📋 List'}
+            </button>
             <button onClick={toggleTheme} className="theme-toggle-button">
                 Theme: {theme === 'light' ? 'Dark' : 'Light'}
             </button>
         </div>
       </header>
       <main className="main-content">
-        <section className="card providers-display-section">
-          <div className="providers-header">
-            <h2>Hypergrid Provider Registry</h2>
-            <button onClick={handleOpenAddNewModal} className="toggle-form-button">
-              Add New Provider Configuration
-            </button>
-          </div>
-          {registeredProviders.length > 0 ? (
-            <ul className="provider-list">
-              {registeredProviders.map((provider) => (
-                <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '1rem'}}>
-                  <ProviderInfoDisplay provider={provider} onProviderUpdated={handleProviderUpdated} />
-                  
-                  <details style={{ marginTop: '0.5rem'}}>
-                    <summary>View Full Configuration Details</summary>
-                    <ul>
-                      <li><strong>Endpoint Method:</strong> {provider.endpoint.method}</li>
-                      <li><strong>Endpoint Op Name (from Provider Name):</strong> {provider.endpoint.name}</li>
-                      <li><strong>Base URL Template:</strong> {provider.endpoint.base_url_template}</li>
-                      {provider.endpoint.path_param_keys && provider.endpoint.path_param_keys.length > 0 && <li><strong>Path Param Keys:</strong> {provider.endpoint.path_param_keys.join(', ')}</li>}
-                      {provider.endpoint.query_param_keys && provider.endpoint.query_param_keys.length > 0 && <li><strong>Query Param Keys:</strong> {provider.endpoint.query_param_keys.join(', ')}</li>}
-                      {provider.endpoint.header_keys && provider.endpoint.header_keys.length > 0 && <li><strong>Header Keys:</strong> {provider.endpoint.header_keys.join(', ')}</li>}
-                      {provider.endpoint.body_param_keys && provider.endpoint.body_param_keys.length > 0 && <li><strong>Body Param Keys:</strong> {provider.endpoint.body_param_keys.join(', ')}</li>}
-                      <li><strong>API Key Set:</strong> {provider.endpoint.api_key ? 'Yes (hidden)' : 'No'}</li>
-                      {provider.endpoint.api_key_query_param_name && <li><strong>API Key in Query Param:</strong> {provider.endpoint.api_key_query_param_name}</li>}
-                      {provider.endpoint.api_key_header_name && <li><strong>API Key in Header:</strong> {provider.endpoint.api_key_header_name}</li>}
-                    </ul>
-                  </details>
-                </li>
-              ))}
-            </ul>
-          ) : (
-            <p>No API providers registered. Click "Add New Provider Configuration" to start.</p>
-          )}
-          <button onClick={loadAndSetProviders} style={{ marginTop: '1em' }}>Refresh List</button>
-        </section>
+        {viewMode === 'list' ? (
+          <section className="card providers-display-section">
+            <div className="providers-header">
+              <h2>Hypergrid Provider Registry</h2>
+              <button onClick={handleOpenAddNewModal} className="toggle-form-button">
+                Add New Provider Configuration
+              </button>
+            </div>
+            {registeredProviders.length > 0 ? (
+              <ul className="provider-list">
+                {registeredProviders.map((provider) => (
+                  <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '1rem'}}>
+                    <ProviderInfoDisplay provider={provider} onProviderUpdated={handleProviderUpdated} onEdit={handleEditProvider} />
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No API providers registered. Click "Add New Provider Configuration" to start.</p>
+            )}
+            <button onClick={loadAndSetProviders} style={{ marginTop: '1em' }}>Refresh List</button>
+          </section>
+        ) : (
+          <section className="floating-cards-section" style={{ 
+            position: 'relative', 
+            height: 'calc(100vh - 120px)', 
+            overflow: 'hidden',
+            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%)',
+            borderRadius: '12px',
+            border: '1px solid var(--card-border)'
+          }}>
+            <div className="floating-cards-header" style={{
+              position: 'absolute',
+              top: '20px',
+              left: '20px',
+              right: '20px',
+              zIndex: 100,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.1)',
+              backdropFilter: 'blur(10px)',
+              borderRadius: '12px',
+              padding: '12px 20px',
+              border: '1px solid var(--card-border)',
+            }}>
+              <h2 style={{ margin: 0, color: 'var(--heading-color)' }}>Hypergrid Provider Registry</h2>
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <button onClick={handleOpenAddNewModal} className="toggle-form-button">
+                  Add New Provider
+                </button>
+                <button onClick={loadAndSetProviders} className="toggle-form-button">
+                  Refresh
+                </button>
+              </div>
+            </div>
+            
+            {registeredProviders.length > 0 ? (
+              <div className="floating-cards-container" style={{ position: 'relative', width: '100%', height: '100%', paddingTop: '100px' }}>
+                {registeredProviders.map((provider, index) => (
+                  <FloatingProviderCard
+                    key={provider.provider_id || provider.provider_name}
+                    provider={provider}
+                    onEdit={handleEditProvider}
+                    onCopyMetadata={handleCopyProviderMetadata}
+                    initialPosition={{
+                      x: 50 + (index % 3) * 420, // Arrange in a grid-like pattern with more spacing
+                      y: 120 + Math.floor(index / 3) * 520
+                    }}
+                  />
+                ))}
+              </div>
+            ) : (
+              <div style={{
+                position: 'absolute',
+                top: '50%',
+                left: '50%',
+                transform: 'translate(-50%, -50%)',
+                textAlign: 'center',
+                color: 'var(--text-color)',
+                fontSize: '1.2em',
+              }}>
+                <p>No API providers registered.</p>
+                <p>Click "Add New Provider" to create your first floating card! 🃏</p>
+              </div>
+            )}
+          </section>
+        )}
 
         <SelectionModal 
           isOpen={showForm} 
           onClose={handleCloseAddNewModal} 
-          title={showValidation ? "Validate Provider Configuration" : "Configure New API Provider"}
+          title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
           maxWidth="1200px"
         >
           {showValidation && providerToValidate ? (
@@ -397,6 +550,7 @@ function App() {
                   apiCallFormatSelected={apiCallFormatSelected}
                   setApiCallFormatSelected={setApiCallFormatSelected}
                   onRegisterProvider={handleProviderRegistration}
+                  submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
                 />
               </div>
             </div>

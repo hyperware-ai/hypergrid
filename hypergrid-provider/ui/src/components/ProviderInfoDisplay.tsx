@@ -1,104 +1,127 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { RegisteredProvider } from '../types/hypergrid_provider';
-import { 
-  populateFormFromProvider, 
-  buildUpdateProviderPayload, 
-  validateProviderConfig,
-  processUpdateResponse,
-  ProviderFormData 
-} from '../utils/providerFormUtils';
-import { updateProviderApi } from '../utils/api';
 
 export interface ProviderInfoDisplayProps {
   provider: RegisteredProvider;
   onProviderUpdated?: (updatedProvider: RegisteredProvider) => void;
+  onEdit?: (provider: RegisteredProvider) => void;
 }
 
-const ProviderInfoDisplay: React.FC<ProviderInfoDisplayProps> = ({ provider, onProviderUpdated }) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [formData, setFormData] = useState<Partial<ProviderFormData>>(() => 
-    populateFormFromProvider(provider)
-  );
+const ProviderInfoDisplay: React.FC<ProviderInfoDisplayProps> = ({ provider, onProviderUpdated, onEdit }) => {
 
-  const sharedBaseStyle: React.CSSProperties = {
-    fontFamily: 'monospace',
-    fontSize: '0.9em',
-    color: 'var(--text-color)', // Use theme text color
-  };
-
-  // Styles adapted from ProviderMetadataForm.tsx
   const containerStyle: React.CSSProperties = {
-    ...sharedBaseStyle,
-    padding: '10px 15px', // Slightly less padding than the form
+    padding: '20px',
     border: '1px solid var(--card-border)', 
     background: 'var(--card-bg)',
-    // marginBottom: '10px', // Margin will be handled by the list item in App.tsx
     position: 'relative',
-    borderRadius: '6px',
+    borderRadius: '12px',
+    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
   };
 
-  const hnsNameStyle: React.CSSProperties = { 
-    ...sharedBaseStyle, 
-    color: 'var(--heading-color)', // Use theme heading color
-    marginBottom: '8px', 
-    fontSize: '1.05em', 
-    fontWeight: 'bold', 
-    textAlign: 'left' 
+  const headerStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: '24px',
+    paddingBottom: '16px',
+    borderBottom: '2px solid var(--card-border)',
+  };
+
+  const providerNameStyle: React.CSSProperties = { 
+    fontSize: '1.4em', 
+    fontWeight: '600',
+    color: 'var(--heading-color)',
+    margin: 0,
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  };
+
+  const statusBadgeStyle: React.CSSProperties = {
+    backgroundColor: '#10B981',
+    color: 'white',
+    padding: '4px 12px',
+    borderRadius: '12px',
+    fontSize: '0.75em',
+    fontWeight: '500',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
   };
 
   const copyButtonStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '8px',
-    right: '8px',
-    padding: '3px 6px',
-    fontSize: '0.7em',
+    padding: '8px 12px',
+    fontSize: '0.85em',
     backgroundColor: 'var(--button-secondary-bg)', 
     color: 'var(--button-secondary-text)', 
     border: '1px solid var(--input-border)',
-    borderRadius: '4px',
+    borderRadius: '6px',
     cursor: 'pointer',
-    zIndex: 1,
-  };
-
-  const treeLineStyle: React.CSSProperties = {
     display: 'flex',
-    alignItems: 'baseline',
-    minHeight: '1.5em', 
-    marginBottom: '1px',   
-    paddingLeft: '10px', // Adjusted indent for display component   
+    alignItems: 'center',
+    gap: '6px',
+    transition: 'all 0.2s ease',
   };
 
-  const treeCharSpanStyle: React.CSSProperties = { 
-    color: 'var(--text-color)', // Use theme text color, maybe slightly muted
-    opacity: 0.7,
-    minWidth: '25px',      
-    marginRight: '5px',    
-    whiteSpace: 'pre',      
-    textAlign: 'left',
-    flexShrink: 0,
+  const gridStyle: React.CSSProperties = {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
+    gap: '20px',
+    marginBottom: '20px',
+  };
+
+  const sectionStyle: React.CSSProperties = {
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    border: '1px solid var(--card-border)',
+    borderRadius: '8px',
+    padding: '16px',
+  };
+
+  const sectionTitleStyle: React.CSSProperties = {
+    fontSize: '1.1em',
+    fontWeight: '600',
+    color: 'var(--heading-color)',
+    marginBottom: '12px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  };
+
+  const fieldRowStyle: React.CSSProperties = {
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: '8px',
+    minHeight: '24px',
   };
 
   const fieldLabelStyle: React.CSSProperties = {
-    color: 'var(--text-color)', // Use theme text color
-    opacity: 0.8,
-    marginRight: '5px',
-    minWidth: '120px', // Adjusted for potentially shorter labels or consistency     
-    whiteSpace: 'pre',
-    flexShrink: 0,
+    color: 'var(--text-color)',
+    opacity: 0.7,
+    fontSize: '0.9em',
     fontWeight: '500',
+    minWidth: '100px',
+    textTransform: 'capitalize',
   };
   
-  const displayValueStyle: React.CSSProperties = { 
-    ...sharedBaseStyle,
-    color: 'var(--text-color)', // Use theme text color
-    flexGrow: 1,
-    wordBreak: 'break-all', // Prevent overflow for long values like wallet addresses
+  const fieldValueStyle: React.CSSProperties = {
+    color: 'var(--text-color)',
+    fontSize: '0.9em',
+    flex: 1,
+    textAlign: 'right',
+    wordBreak: 'break-all',
+    fontFamily: 'monospace',
   };
-  
-  const trunkConnectorStyle: React.CSSProperties = {
-    ...treeLineStyle,
-    minHeight: '0.7em', 
-    marginBottom: '1px',
+
+  const longTextStyle: React.CSSProperties = {
+    ...fieldValueStyle,
+    textAlign: 'left',
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    padding: '8px',
+    borderRadius: '4px',
+    marginTop: '4px',
+    border: '1px solid var(--card-border)',
+    fontSize: '0.85em',
+    lineHeight: '1.4',
   };
 
   const formatPrice = (price: number) => {
@@ -136,190 +159,136 @@ const ProviderInfoDisplay: React.FC<ProviderInfoDisplayProps> = ({ provider, onP
   };
 
   const handleEdit = () => {
-    setIsEditing(true);
-  };
-
-  const handleSave = async () => {
-    // Ensure we have complete form data
-    const completeFormData = { ...populateFormFromProvider(provider), ...formData } as ProviderFormData;
-    
-    const validationResult = validateProviderConfig(completeFormData);
-    if (!validationResult.isValid) {
-      alert(validationResult.error);
-      return;
-    }
-    
-    try {
-      const updatedProvider = buildUpdateProviderPayload(completeFormData);
-      const response = await updateProviderApi(provider.provider_name, updatedProvider);
-      const feedback = processUpdateResponse(response);
-      
-      if (response.Ok) {
-        onProviderUpdated?.(response.Ok);
-        setIsEditing(false);
-        alert(feedback.message);
-      } else {
-        alert(feedback.message);
-      }
-    } catch (err) {
-      console.error('Failed to update provider: ', err);
-      alert('Failed to update provider.');
-    }
-  };
-
-  const handleCancel = () => {
-    setIsEditing(false);
+    onEdit?.(provider);
   };
 
   return (
     <div style={containerStyle}>
-      <button onClick={handleCopyProviderMetadata} style={copyButtonStyle} title="Copy Metadata">📋 Copy</button>
-      
-      <div style={hnsNameStyle}>{(provider.provider_name.trim() || "[ProviderName]") + ".grid-beta.hypr"}</div>
-
-      <div style={trunkConnectorStyle}><span style={treeCharSpanStyle}>│</span></div>
-
-      <div style={treeLineStyle}>
-        <span style={treeCharSpanStyle}>├─</span>
-        <span style={fieldLabelStyle}>~provider-id:</span>
-        <span style={displayValueStyle}>{provider.provider_id ? provider.provider_id.substring(0,10) + '...' : 'N/A'}</span>
-      </div>
-      
-      <div style={trunkConnectorStyle}><span style={treeCharSpanStyle}>│</span></div>
-
-      <div style={treeLineStyle}>
-        <span style={treeCharSpanStyle}>├─</span>
-        <span style={fieldLabelStyle}>~wallet:</span>
-        <span style={displayValueStyle}>{provider.registered_provider_wallet}</span>
+      {/* Header with provider name and actions */}
+      <div style={headerStyle}>
+        <div>
+          <h3 style={providerNameStyle}>
+            🔌 {provider.provider_name}.grid-beta.hypr
+            <span style={statusBadgeStyle}>Active</span>
+          </h3>
+        </div>
+        <button onClick={handleCopyProviderMetadata} style={copyButtonStyle} title="Copy Metadata">
+          📋 Copy Metadata
+        </button>
       </div>
 
-      <div style={trunkConnectorStyle}><span style={treeCharSpanStyle}>│</span></div>
-      
-      <div style={treeLineStyle}>
-        <span style={treeCharSpanStyle}>├─</span>
-        <span style={fieldLabelStyle}>~price:</span>
-        <span style={displayValueStyle}>{formatPrice(provider.price)} USDC</span>
-      </div>
+      {/* Main content grid */}
+      <div style={gridStyle}>
+        {/* Basic Information */}
+        <div style={sectionStyle}>
+          <div style={sectionTitleStyle}>
+            ℹ️ Basic Information
+          </div>
+          <div style={fieldRowStyle}>
+            <span style={fieldLabelStyle}>Provider ID:</span>
+            <span style={fieldValueStyle}>{provider.provider_id ? provider.provider_id.substring(0,12) + '...' : 'N/A'}</span>
+          </div>
+          <div style={fieldRowStyle}>
+            <span style={fieldLabelStyle}>Wallet:</span>
+            <span style={fieldValueStyle}>{provider.registered_provider_wallet}</span>
+          </div>
+          <div style={fieldRowStyle}>
+            <span style={fieldLabelStyle}>Price:</span>
+            <span style={fieldValueStyle}>{formatPrice(provider.price)} USDC</span>
+          </div>
+        </div>
 
-      <div style={trunkConnectorStyle}><span style={treeCharSpanStyle}>│</span></div>
-
-      <div style={{...treeLineStyle, alignItems: 'flex-start'}}>
-        <span style={treeCharSpanStyle}>├─</span>
-        <span style={{...fieldLabelStyle, paddingTop: '1px'}}>~description:</span>
-        <span style={displayValueStyle}>{provider.description || "No description."}</span>
-      </div>
-
-      <div style={trunkConnectorStyle}><span style={treeCharSpanStyle}>│</span></div>
-
-      <div style={{...treeLineStyle, alignItems: 'flex-start'}}>
-        <span style={treeCharSpanStyle}>└─</span>
-        <span style={{...fieldLabelStyle, paddingTop: '1px'}}>~instructions:</span>
-        <span style={displayValueStyle}>{provider.instructions || "No instructions."}</span>
-      </div>
-
-      {isEditing && (
-        <div style={{ marginTop: '10px', padding: '10px', border: '1px solid var(--card-border)', borderRadius: '6px', backgroundColor: 'var(--card-bg)' }}>
-          <h4 style={{ margin: '0 0 10px 0', color: 'var(--heading-color)' }}>Edit Provider</h4>
+        {/* API Configuration */}
+        <div style={sectionStyle}>
+          <div style={sectionTitleStyle}>
+            🔧 API Configuration
+          </div>
+          <div style={fieldRowStyle}>
+            <span style={fieldLabelStyle}>Method:</span>
+            <span style={fieldValueStyle}>{provider.endpoint.method}</span>
+          </div>
+          <div style={fieldRowStyle}>
+            <span style={fieldLabelStyle}>Structure:</span>
+            <span style={fieldValueStyle}>{provider.endpoint.request_structure.replace(/([A-Z])/g, ' $1').trim()}</span>
+          </div>
+          <div style={fieldRowStyle}>
+            <span style={fieldLabelStyle}>Base URL:</span>
+          </div>
+          <div style={longTextStyle}>{provider.endpoint.base_url_template}</div>
           
-          <div style={{ marginBottom: '10px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-color)', fontSize: '0.9em' }}>
-              Wallet Address:
-            </label>
-            <input
-              type="text"
-              value={formData.registeredProviderWallet || ''}
-              onChange={(e) => setFormData({ ...formData, registeredProviderWallet: e.target.value })}
-              style={{ 
-                width: '100%', 
-                padding: '5px', 
-                fontSize: '0.9em',
-                backgroundColor: 'var(--input-bg)',
-                color: 'var(--text-color)',
-                border: '1px solid var(--input-border)',
-                borderRadius: '4px'
-              }}
-            />
-          </div>
+          {provider.endpoint.api_key && (
+            <div style={fieldRowStyle}>
+              <span style={fieldLabelStyle}>API Key:</span>
+              <span style={fieldValueStyle}>••••••••{provider.endpoint.api_key.slice(-4)}</span>
+            </div>
+          )}
+        </div>
 
-          <div style={{ marginBottom: '10px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-color)', fontSize: '0.9em' }}>
-              Price (USDC):
-            </label>
-            <input
-              type="text"
-              value={formData.price || ''}
-              onChange={(e) => setFormData({ ...formData, price: e.target.value })}
-              placeholder="e.g., 0.01"
-              style={{ 
-                width: '100%', 
-                padding: '5px', 
-                fontSize: '0.9em',
-                backgroundColor: 'var(--input-bg)',
-                color: 'var(--text-color)',
-                border: '1px solid var(--input-border)',
-                borderRadius: '4px'
-              }}
-            />
+        {/* Parameters */}
+        {(provider.endpoint.path_param_keys?.length || 
+          provider.endpoint.query_param_keys?.length || 
+          provider.endpoint.header_keys?.length || 
+          provider.endpoint.body_param_keys?.length) && (
+          <div style={sectionStyle}>
+            <div style={sectionTitleStyle}>
+              📝 Parameters
+            </div>
+            {provider.endpoint.path_param_keys?.length > 0 && (
+              <div style={fieldRowStyle}>
+                <span style={fieldLabelStyle}>Path Params:</span>
+                <span style={fieldValueStyle}>{provider.endpoint.path_param_keys.join(', ')}</span>
+              </div>
+            )}
+            {provider.endpoint.query_param_keys?.length > 0 && (
+              <div style={fieldRowStyle}>
+                <span style={fieldLabelStyle}>Query Params:</span>
+                <span style={fieldValueStyle}>{provider.endpoint.query_param_keys.join(', ')}</span>  
+              </div>
+            )}
+            {provider.endpoint.header_keys?.length > 0 && (
+              <div style={fieldRowStyle}>
+                <span style={fieldLabelStyle}>Headers:</span>
+                <span style={fieldValueStyle}>{provider.endpoint.header_keys.join(', ')}</span>
+              </div>
+            )}
+            {provider.endpoint.body_param_keys?.length > 0 && (
+              <div style={fieldRowStyle}>
+                <span style={fieldLabelStyle}>Body Params:</span>
+                <span style={fieldValueStyle}>{provider.endpoint.body_param_keys.join(', ')}</span>
+              </div>
+            )}
           </div>
+        )}
+      </div>
 
-          <div style={{ marginBottom: '10px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-color)', fontSize: '0.9em' }}>
-              Description:
-            </label>
-            <textarea
-              value={formData.providerDescription || ''}
-              onChange={(e) => setFormData({ ...formData, providerDescription: e.target.value })}
-              rows={3}
-              style={{ 
-                width: '100%', 
-                padding: '5px', 
-                fontSize: '0.9em',
-                backgroundColor: 'var(--input-bg)',
-                color: 'var(--text-color)',
-                border: '1px solid var(--input-border)',
-                borderRadius: '4px',
-                resize: 'vertical'
-              }}
-            />
+      {/* Description and Instructions */}
+      {(provider.description || provider.instructions) && (
+        <div style={sectionStyle}>
+          <div style={sectionTitleStyle}>
+            📄 Documentation
           </div>
-
-          <div style={{ marginBottom: '10px' }}>
-            <label style={{ display: 'block', marginBottom: '5px', color: 'var(--text-color)', fontSize: '0.9em' }}>
-              Instructions:
-            </label>
-            <textarea
-              value={formData.instructions || ''}
-              onChange={(e) => setFormData({ ...formData, instructions: e.target.value })}
-              rows={3}
-              style={{ 
-                width: '100%', 
-                padding: '5px', 
-                fontSize: '0.9em',
-                backgroundColor: 'var(--input-bg)',
-                color: 'var(--text-color)',
-                border: '1px solid var(--input-border)',
-                borderRadius: '4px',
-                resize: 'vertical'
-              }}
-            />
-          </div>
-
-          <div style={{ marginTop: '15px' }}>
-            <button onClick={handleSave} style={{ marginRight: '10px', padding: '5px 10px', backgroundColor: 'var(--button-primary-bg)', color: 'var(--button-primary-text)', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
-              Save Changes
-            </button>
-            <button onClick={handleCancel} style={{ padding: '5px 10px', backgroundColor: 'var(--button-secondary-bg)', color: 'var(--button-secondary-text)', border: '1px solid var(--input-border)', borderRadius: '4px', cursor: 'pointer' }}>
-              Cancel
-            </button>
-          </div>
+          {provider.description && (
+            <>
+              <div style={fieldRowStyle}>
+                <span style={fieldLabelStyle}>Description:</span>
+              </div>
+              <div style={longTextStyle}>{provider.description}</div>
+            </>
+          )}
+          {provider.instructions && (
+            <>
+              <div style={fieldRowStyle}>
+                <span style={fieldLabelStyle}>Instructions:</span>
+              </div>
+              <div style={longTextStyle}>{provider.instructions}</div>
+            </>
+          )}
         </div>
       )}
 
-      {!isEditing && (
-        <button onClick={handleEdit} style={{ marginTop: '10px', padding: '5px 10px', backgroundColor: 'var(--button-secondary-bg)', color: 'var(--button-secondary-text)', border: '1px solid var(--input-border)', borderRadius: '4px', cursor: 'pointer' }}>
-          ✏️ Edit Provider
-        </button>
-      )}
+      <button onClick={handleEdit} style={{ marginTop: '10px', padding: '8px 16px', backgroundColor: 'var(--button-primary-bg)', color: 'var(--button-primary-text)', border: 'none', borderRadius: '4px', cursor: 'pointer' }}>
+        ✏️ Edit Provider
+      </button>
     </div>
   );
 };
