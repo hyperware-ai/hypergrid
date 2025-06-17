@@ -34,8 +34,15 @@ export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[
   }
 };
 
-export const registerProviderApi = async (payload: RegisterProviderRequest): Promise<RegisterProviderResponse> => {
+export const registerProviderApi = async (
+  provider: RegisteredProvider, 
+  validationArguments: [string, string][] = []
+): Promise<RegisterProviderResponse> => {
   try {
+    const payload: RegisterProviderRequest = {
+      RegisterProvider: [provider, validationArguments],
+    };
+
     const result = await fetch(`${BASE_URL}/api`, {
       method: "POST",
       headers: { 'Content-Type': 'application/json' },

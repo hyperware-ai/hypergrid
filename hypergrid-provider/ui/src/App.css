@@ -474,6 +474,16 @@
   
   --button-subtle-hover-bg: rgba(0, 0, 0, 0.05);
   --card-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); /* Slightly more pronounced shadow */
+
+  /* Additional variables for validation panel */
+  --primary-color: var(--heading-color);
+  --primary-hover-color: var(--link-hover-color);
+  --secondary-color: var(--button-secondary-bg);
+  --secondary-hover-color: var(--button-subtle-hover-bg);
+  --border-color: var(--card-border);
+  --input-bg-color: var(--input-bg);
+  --code-bg-color: var(--scaffold-bg);
+  --code-text-color: var(--scaffold-code-default-color);
 }
 
 /* Define dark theme variables */
@@ -517,6 +527,16 @@ html[data-theme="dark"] {
   
   --button-subtle-hover-bg: rgba(255, 255, 255, 0.08);
   --card-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
+
+  /* Additional variables for validation panel - dark theme */
+  --primary-color: var(--heading-color);
+  --primary-hover-color: var(--link-hover-color);
+  --secondary-color: var(--button-secondary-bg);
+  --secondary-hover-color: var(--button-subtle-hover-bg);
+  --border-color: var(--card-border);
+  --input-bg-color: var(--input-bg);
+  --code-bg-color: var(--scaffold-bg);
+  --code-text-color: var(--scaffold-code-default-color);
 }
 
 /* Apply variables to your existing styles */
@@ -987,4 +1007,203 @@ select {
   /* Ensure it behaves well in flex layout */
   display: flex;
   flex-direction: column;
+}
+
+/* Validation Panel Styles */
+.validation-panel {
+  padding: 20px;
+  max-width: 100%;
+}
+
+.validation-panel h3 {
+  color: var(--primary-color);
+  margin-bottom: 10px;
+}
+
+.validation-panel p {
+  margin-bottom: 20px;
+  color: var(--text-color);
+}
+
+.validation-inputs {
+  margin-bottom: 30px;
+}
+
+.validation-inputs h4 {
+  color: var(--primary-color);
+  margin-bottom: 15px;
+}
+
+.validation-inputs .form-group {
+  margin-bottom: 15px;
+}
+
+.validation-inputs label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: bold;
+  color: var(--text-color);
+}
+
+.validation-inputs input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  background-color: var(--input-bg-color);
+  color: var(--text-color);
+}
+
+.curl-preview {
+  margin-bottom: 30px;
+}
+
+.curl-preview h4 {
+  color: var(--primary-color);
+  margin-bottom: 10px;
+}
+
+.curl-preview .api-scaffold-content {
+  background-color: var(--code-bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 15px;
+  font-family: 'Courier New', monospace;
+  font-size: 14px;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  color: var(--code-text-color);
+}
+
+.feedback {
+  padding: 10px 15px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+  font-weight: bold;
+}
+
+.feedback.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.feedback.error {
+  background-color: #f8d7da;
+  color: #721c24;
+  border: 1px solid #f5c6cb;
+}
+
+.feedback.info {
+  background-color: #d1ecf1;
+  color: #0c5460;
+  border: 1px solid #bee5eb;
+}
+
+.validation-actions {
+  display: flex;
+  gap: 15px;
+  justify-content: flex-start;
+}
+
+.validation-actions button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.validation-actions .btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.validation-actions .btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover-color);
+}
+
+.validation-actions .btn-primary:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.validation-actions .btn-secondary {
+  background-color: var(--secondary-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.validation-actions .btn-secondary:hover:not(:disabled) {
+  background-color: var(--secondary-hover-color);
+}
+
+/* Dark theme adjustments for validation panel */
+[data-theme="dark"] .curl-preview .api-scaffold-content {
+  background-color: #2d3748;
+  color: #e2e8f0;
+  border-color: #4a5568;
+}
+
+[data-theme="dark"] .feedback.success {
+  background-color: #2d5016;
+  color: #9ae6b4;
+  border-color: #276749;
+}
+
+[data-theme="dark"] .feedback.error {
+  background-color: #742a2a;
+  color: #fed7d7;
+  border-color: #e53e3e;
+}
+
+[data-theme="dark"] .feedback.info {
+  background-color: #1a365d;
+  color: #90cdf4;
+  border-color: #3182ce;
+}
+
+/* Floating Cards View */
+.floating-cards-section {
+  position: relative;
+  overflow: visible !important; /* Allow cards to be dragged beyond boundaries */
+}
+
+.floating-cards-container {
+  min-height: 100%;
+  min-width: 100%;
+}
+
+/* Prevent text selection during drag */
+.floating-cards-section * {
+  -webkit-user-select: none;
+  -moz-user-select: none;
+  -ms-user-select: none;
+  user-select: none;
+}
+
+/* Allow text selection for content that should be selectable */
+.floating-cards-section .no-drag {
+  -webkit-user-select: text;
+  -moz-user-select: text;
+  -ms-user-select: text;
+  user-select: text;
+  cursor: default !important; /* Override grab cursor for interactive elements */
+}
+
+.floating-cards-section .no-drag:hover {
+  cursor: default !important;
+}
+
+/* Card hover effects */
+.floating-cards-section .card:hover {
+  transform: scale(1.02);
+  transition: transform 0.2s ease;
+}
+
+/* Blur background when dragging */
+.floating-cards-section.dragging {
+  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
 }

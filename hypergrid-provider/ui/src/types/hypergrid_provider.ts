@@ -49,8 +49,10 @@ export interface RegisteredProvider {
 
 // Request body for the register_provider endpoint
 export interface RegisterProviderRequest {
-  RegisterProvider: RegisteredProvider; // Key matches the Rust function name
+  RegisterProvider: [RegisteredProvider, [string, string][]]; // Tuple variant format
 }
+
+
 
 // Response type for the register_provider endpoint
 export type RegisterProviderResponse = RustResponse<RegisteredProvider>;

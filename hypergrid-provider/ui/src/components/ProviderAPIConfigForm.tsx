@@ -48,7 +48,9 @@ export interface ProviderConfigFormProps {
 
   apiCallFormatSelected: boolean;
   setApiCallFormatSelected: (value: boolean) => void;
-  onRegisterProvider: () => void; 
+  onRegisterProvider: () => void;
+  submitButtonText?: string; // Optional prop for button text
+  showSubmitButton?: boolean; // Optional prop to control button visibility 
 }
 
 const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
@@ -69,7 +71,9 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
   // price, setPrice, // Removed
   apiCallFormatSelected,
   setApiCallFormatSelected,
-  onRegisterProvider, 
+  onRegisterProvider,
+  submitButtonText = "Register Provider Configuration", // Default value for backward compatibility
+  showSubmitButton = true, // Default to showing the button for backward compatibility
 }) => {
 
   // Local state for individual key inputs
@@ -462,16 +466,18 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
         </div>
       </div>
 
-      <div className="form-navigation modal-form-navigation" style={{ display: 'flex', justifyContent: 'flex-end', /*gap: '10px',*/ marginTop: 'auto', paddingTop: '20px' }}>
-        <button 
-          type="button" 
-          onClick={onRegisterProvider} 
-          className="button-primary submit-button"
-          style={{ /* className should handle most styling */ }}
-        >
-          Register Provider Configuration
-        </button>
-      </div>
+      {showSubmitButton && (
+        <div className="form-navigation modal-form-navigation" style={{ display: 'flex', justifyContent: 'flex-end', /*gap: '10px',*/ marginTop: 'auto', paddingTop: '20px' }}>
+          <button 
+            type="button" 
+            onClick={onRegisterProvider} 
+            className="button-primary submit-button"
+            style={{ /* className should handle most styling */ }}
+          >
+            {submitButtonText}
+          </button>
+        </div>
+      )}
     </div>
   );
 };
