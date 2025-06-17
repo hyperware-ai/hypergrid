@@ -13,8 +13,9 @@ import { ValidationPanel } from "./components/ValidationPanel";
 import SelectionModal from "./components/SelectionModal";
 import ProviderConfigForm from "./components/ProviderAPIConfigForm";
 import ProviderMetadataForm from "./components/ProviderMetadataForm";
-import ProviderInfoDisplay from './components/ProviderInfoDisplay';
-import FloatingProviderCard from './components/FloatingProviderCard';
+// import ProviderInfoDisplay from './components/ProviderInfoDisplay'; // Full display - kept for reference
+import MinimalProviderDisplay from './components/MinimalProviderDisplay'; // Minimal display for list view
+import FloatingProviderCard from './components/FloatingProviderCard'; // Card view - temporarily disabled
 import { 
   validateProviderConfig, 
   buildProviderPayload, 
@@ -89,10 +90,13 @@ function App() {
   });
 
   // View mode state
-  const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
-    const storedViewMode = localStorage.getItem('viewMode');
-    return (storedViewMode as 'list' | 'cards') || 'list'; // Default to list view
-  });
+  // TEMPORARILY DISABLED: Card view is hidden from users but code is preserved
+  // To re-enable: uncomment the View toggle button in header and set default to stored value
+  const [viewMode, setViewMode] = useState<'list' | 'cards'>('list'); // Force list view only
+  // const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
+  //   const storedViewMode = localStorage.getItem('viewMode');
+  //   return (storedViewMode as 'list' | 'cards') || 'list'; // Default to list view
+  // });
 
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
@@ -383,9 +387,11 @@ function App() {
                 : <div className="node-not-connected-banner"><p><strong>Node not connected.</strong></p></div>
               }
             </div>
+            {/* TEMPORARILY DISABLED: Card view toggle - uncomment to re-enable floating cards
             <button onClick={toggleViewMode} className="theme-toggle-button" style={{ marginRight: '10px' }}>
                 View: {viewMode === 'list' ? '🃏 Cards' : '📋 List'}
             </button>
+            */}
             <button onClick={toggleTheme} className="theme-toggle-button">
                 Theme: {theme === 'light' ? 'Dark' : 'Light'}
             </button>
@@ -403,8 +409,8 @@ function App() {
             {registeredProviders.length > 0 ? (
               <ul className="provider-list">
                 {registeredProviders.map((provider) => (
-                  <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '1rem'}}>
-                    <ProviderInfoDisplay provider={provider} onProviderUpdated={handleProviderUpdated} onEdit={handleEditProvider} />
+                  <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '0'}}>
+                    <MinimalProviderDisplay provider={provider} onEdit={handleEditProvider} />
                   </li>
                 ))}
               </ul>
@@ -484,7 +490,7 @@ function App() {
           isOpen={showForm} 
           onClose={handleCloseAddNewModal} 
           title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
-          maxWidth="1200px"
+          maxWidth={showValidation ? "500px" : "1200px"}
         >
           {showValidation && providerToValidate ? (
             <ValidationPanel
@@ -562,4 +568,31 @@ function App() {
 }
 
 export default App;
+
+/* 
+ * CARD VIEW RE-INTEGRATION GUIDE
+ * ==============================
+ * 
+ * The floating card view is temporarily disabled but all code is preserved.
+ * To re-enable the card view feature:
+ * 
+ * 1. In the view mode state section (around line 90):
+ *    - Comment out: const [viewMode, setViewMode] = useState<'list' | 'cards'>('list');
+ *    - Uncomment the original localStorage-based initialization
+ * 
+ * 2. In the header controls (around line 385):
+ *    - Uncomment the View toggle button
+ * 
+ * 3. The card view rendering code (lines 433-475) is fully functional and ready to use
+ * 
+ * 4. The FloatingProviderCard component is complete with:
+ *    - Draggable cards with proper drag handling
+ *    - Flip animation between basic/technical info
+ *    - Edit and Copy functionality
+ *    - Beautiful gradients and hover effects
+ * 
+ * 5. All styles in App.css for .floating-cards-section are preserved
+ * 
+ * No other changes needed - the card view will work immediately upon re-enabling!
+ */
 

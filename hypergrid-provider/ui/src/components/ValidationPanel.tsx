@@ -209,7 +209,7 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
   return (
     <div className="validation-panel form-section">
-      <h3>Validate Your Provider</h3>
+      <h3 style={{ marginTop: 0 }}>Validate Your Provider</h3>
       <p>Before registering, let's test your API endpoint to make sure it works correctly. Fill in sample values for the parameters below:</p>
       
       {/* Parameter inputs */}
@@ -249,7 +249,7 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
       )}
       
       {/* Action buttons */}
-      <div className="validation-actions">
+      <div className="validation-actions" style={{ display: 'flex', justifyContent: 'space-between' }}>
         <button
           type="button"
           onClick={handleValidate}
