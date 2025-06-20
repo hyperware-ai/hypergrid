@@ -7,7 +7,7 @@ import fs from 'fs/promises';
 import path from 'path';
 import os from 'os';
 
-// --- Configuration Management --- 
+// --- Configuration Management ---
 const CONFIG_FILE_NAME = 'grid-shim-api.json';
 const DEFAULT_CONFIG_DIR = path.join(os.homedir(), '.hypergrid', 'configs');
 
@@ -31,7 +31,7 @@ async function loadConfig(): Promise<ShimConfig | null> {
         })
         .help()
         .argv;
-    
+
     // Try explicit config file first
     if (argv.configFile) {
         configPath = path.resolve(argv.configFile);
@@ -44,14 +44,14 @@ async function loadConfig(): Promise<ShimConfig | null> {
             console.error(`Failed to load config from ${configPath}: ${error.message}`);
         }
     }
-    
+
     // Try auto-discovery locations
     const discoveryPaths = [
         path.join(process.cwd(), CONFIG_FILE_NAME),
         path.join(DEFAULT_CONFIG_DIR, CONFIG_FILE_NAME),
         path.join(os.homedir(), '.hypergrid', CONFIG_FILE_NAME),
     ];
-    
+
     for (const tryPath of discoveryPaths) {
         try {
             const fileContent = await fs.readFile(tryPath, 'utf-8');
@@ -63,7 +63,7 @@ async function loadConfig(): Promise<ShimConfig | null> {
             // Continue to next path
         }
     }
-    
+
     // No config found - this is OK, we'll run in unconfigured mode
     console.error(`No configuration found. Running in unconfigured mode.`);
     console.error(`Use the 'authorize' tool to configure this MCP server.`);
@@ -77,7 +77,7 @@ async function saveConfig(config: ShimConfig): Promise<string> {
         await fs.writeFile(configPath, JSON.stringify(config, null, 2));
         return configPath;
     }
-    
+
     // Otherwise, save to default location
     await fs.mkdir(DEFAULT_CONFIG_DIR, { recursive: true });
     const savedPath = path.join(DEFAULT_CONFIG_DIR, CONFIG_FILE_NAME);
@@ -86,16 +86,17 @@ async function saveConfig(config: ShimConfig): Promise<string> {
     return savedPath;
 }
 
-// --- Main Execution --- 
+// --- Main Execution ---
 async function main() {
     // Try to load existing config
     currentConfig = await loadConfig();
 
     const server = new McpServer({
-        name: currentConfig 
+        name: currentConfig
             ? `HyperwareMCP Shim (Node: ${currentConfig.node}, ClientID: ${currentConfig.client_id})`
             : `HyperwareMCP Shim (Unconfigured)`,
         version: "0.1.0",
+        instructions: `This is the Hypergrid MCP shim. This shim facilitates access to the Hypergrid protocol, which allows AI agents to connect to a p2p registry of remote data-feed providers. Hypergrid should be used in a situation where you might benefit from external data that is not contained or possibly out-of-date in your training data, or would be clunky to access via web search. This shim exposes three tools: the first is "authorize", which connects the shim to the user's external Hyperware node (Hyperware is the p2p server framework that Hypergrid is built on). If the user doesn't have an external Hyperware node or seems unsure about what that means, direct them to book.hyperware.ai where they can find setup instructions for the Hypergrid Operator Client. The second tool is "search-registry" which allows you to search through all listed providers (a provider is a process running on a Hyperware node using the Hypergrid Provider Client that will return some data to you) to identify candidates for when you might use the third tool, "call-provider", which allows you to set the parameters for and make a request to a previously discovered Provider. You should be using the "search-provider" tool often, anytime you think that it might be helpful to get some targeted specific data, but only actually call a provider you find if it makes sense given your current task. The Provider registry is constantly growing, and a Provider could be many kinds of things, not just some simple data feed. Maybe it transforms some input data, maybe it does something more complex. Be liberal with your searches and decisive with your calls. The search function works based on string-matching, so think about what a Provider relevant to your task might have included in their description.`
     });
 
     // Authorization tool - can be called anytime to configure or reconfigure
@@ -115,25 +116,25 @@ async function main() {
                     "X-Client-ID": client_id,
                     "X-Token": token
                 };
-                
+
                 console.error(`Testing new configuration...`);
                 const testResponse = await fetch(url, {
                     method: "POST",
                     headers: testHeaders,
                     body: JSON.stringify({ SearchRegistry: "test" }),
                 });
-                
+
                 if (!testResponse.ok && testResponse.status !== 404) {
                     throw new Error(`Configuration test failed: ${testResponse.status} ${testResponse.statusText}`);
                 }
-                
+
                 // Save the new config
                 const newConfig: ShimConfig = { url, token, client_id, node };
                 const savedPath = await saveConfig(newConfig);
                 currentConfig = newConfig;
-                
+
                 console.error(`Configuration saved to: ${savedPath}`);
-                
+
                 return {
                     content: [{
                         type: "text",
@@ -162,7 +163,7 @@ async function main() {
                 }]
             };
         }
-        
+
         const body = { SearchRegistry: query };
         console.error(`search-registry: Forwarding to ${currentConfig.url}`);
         const headers = {
@@ -170,7 +171,7 @@ async function main() {
             "X-Client-ID": currentConfig.client_id,
             "X-Token": currentConfig.token
         };
-        
+
         try {
             const res = await fetch(currentConfig.url, {
                 method: "POST",
@@ -187,7 +188,7 @@ async function main() {
             };
         }
     });
-    
+
     // Call provider tool - requires configuration
     server.tool(
         "call-provider",
@@ -205,7 +206,7 @@ async function main() {
                     }]
                 };
             }
-            
+
             const body = {
                 CallProvider: { providerId, providerName, arguments: callArgs },
             };
@@ -215,7 +216,7 @@ async function main() {
                 "X-Client-ID": currentConfig.client_id,
                 "X-Token": currentConfig.token
             };
-            
+
             try {
                 const res = await fetch(currentConfig.url, {
                     method: "POST",
@@ -240,7 +241,7 @@ async function main() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     console.error(`Shim connected and listening for MCP commands.`);
-    
+
     if (!currentConfig) {
         console.error(`\n⚠️  MCP server started in UNCONFIGURED mode.`);
         console.error(`To configure, ask your LLM: "Use the authorize tool with these credentials..."`);
