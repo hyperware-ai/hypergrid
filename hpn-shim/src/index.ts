@@ -12,7 +12,7 @@ interface ShimConfig {
     url: string;         // Base URL for the HPN client API (e.g., http://localhost:8081/hpnclient:nodename.os/api)
     token: string;       // The raw secret token for authentication
     client_id: string;   // The unique client ID for this shim instance
-    node: string;        // The Kinode node name of the HPN client (for reference/logging)
+    node: string;        // The Hyperware node name of the HPN client (for reference/logging)
 }
 
 async function loadConfig(): Promise<ShimConfig> {
