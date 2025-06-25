@@ -106,7 +106,7 @@ async function main() {
             url: z.string().describe("The base URL for the Hypergrid API (e.g., http://localhost:8080/operator:operator:grid-beta.hypr/shim/mcp)"),
             token: z.string().describe("The authentication token"),
             client_id: z.string().describe("The unique client ID"),
-            node: z.string().describe("The Kinode node name")
+            node: z.string().describe("The Hyperware node name")
         },
         async ({ url, token, client_id, node }) => {
             try {
