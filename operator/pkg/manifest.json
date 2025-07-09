@@ -2,7 +2,7 @@
   {
     "process_name": "operator",
     "process_wasm_path": "/operator.wasm",
-    "on_exit": "Restart",
+    "on_exit": "None",
     "request_networking": true,
     "request_capabilities": [
       "http-server:distro:sys",
@@ -13,9 +13,13 @@
       "timer:distro:sys",
       "hypermap-cacher:hypermap-cacher:sys",
       "sign:sign:sys",
-      "hns-indexer:hns-indexer:sys"
+      "hns-indexer:hns-indexer:sys",
+      "hyperwallet:hyperwallet:hallman.hypr"
     ],
-    "grant_capabilities": ["http-server:distro:sys", "terminal:terminal:sys"],
+    "grant_capabilities": [
+      "http-server:distro:sys", 
+      "terminal:terminal:sys"
+    ],
     "public": true
   }
 ]

@@ -26,7 +26,7 @@ use crate::{
     helpers::{send_json_response},
     identity,
     structs::{*, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse, McpRequest, ApiRequest},
-    wallet::{service as wallet_service, payments as wallet_payments},
+    hyperwallet_client::{service as wallet_service, payments as wallet_payments},
     graph::handle_get_hypergrid_graph_layout,
 };
 
@@ -319,6 +319,9 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 
                 // Authorized client management
                 ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
+                
+                // ERC-4337 configuration
+                ApiRequest::SetGaslessEnabled { enabled } => handle_set_gasless_enabled(state, enabled),
             }
         }
         Err(e) if e.is_syntax() || e.is_data() => {
@@ -719,17 +722,8 @@ fn handle_delete_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<
 fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
     info!("Generating new wallet");
     match wallet_service::generate_initial_wallet() {
-        Ok(wallet) => {
-            let wallet_id = wallet.id.clone();
-            state.managed_wallets.insert(wallet_id.clone(), wallet);
-            
-        // Auto-select if none selected
-            if state.selected_wallet_id.is_none() {
-            let _ = wallet_service::select_wallet(state, wallet_id.clone());
-            } else {
-                state.save();
-            }
-            info!("Generated wallet: {}", wallet_id);
+        Ok(wallet_id) => {
+            info!("Generated wallet via hyperwallet: {}", wallet_id);
             send_json_response(StatusCode::OK, &json!({ "success": true, "id": wallet_id }))
         },
         Err(e) => send_json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({ 
@@ -1521,9 +1515,26 @@ fn handle_delete_authorized_client(state: &mut State, client_id: String) -> anyh
         state.save();
         send_json_response(StatusCode::OK, &json!({ "success": true }))
     } else {
-        send_json_response(
-            StatusCode::NOT_FOUND,
-            &json!({ "error": "Client not found" })
-        )
+        send_json_response(StatusCode::NOT_FOUND, &json!({ 
+            "success": false, 
+            "error": "Client not found" 
+        }))
     }
+}
+
+fn handle_set_gasless_enabled(state: &mut State, enabled: bool) -> anyhow::Result<()> {
+    info!("Setting gasless transactions enabled: {}", enabled);
+    
+    state.gasless_enabled = Some(enabled);
+    state.save();
+    
+    send_json_response(StatusCode::OK, &json!({ 
+        "success": true,
+        "gasless_enabled": enabled,
+        "message": if enabled {
+            "Gasless transactions enabled. Payments will use ERC-4337 UserOperations when possible."
+        } else {
+            "Gasless transactions disabled. Payments will use regular transactions."
+        }
+    }))
 }

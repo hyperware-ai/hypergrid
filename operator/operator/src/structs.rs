@@ -165,6 +165,10 @@ pub struct State {
     pub hashed_shim_api_key: Option<String>,
     #[serde(default)]
     pub authorized_clients: HashMap<String, HotWalletAuthorizedClient>,
+    
+    // ERC-4337 configuration
+    #[serde(default)]
+    pub gasless_enabled: Option<bool>,
 
     #[serde(skip)]
     pub db_conn: Option<hyperware_process_lib::sqlite::Sqlite>,
@@ -206,6 +210,7 @@ impl State {
             call_history: Vec::new(),
             hashed_shim_api_key: None, // Will be phased out
             authorized_clients: default_clients, // Initialize as empty HashMap
+            gasless_enabled: None, // Initialize gasless_enabled
             db_conn: None,
             timers_initialized: false,
         }
@@ -316,6 +321,9 @@ pub enum ApiRequest {
     
     // Authorized client management
     DeleteAuthorizedClient { client_id: String },
+    
+    // ERC-4337 configuration
+    SetGaslessEnabled { enabled: bool },
 }
 
 // DEPRECATED: This enum is being phased out. Use McpRequest or ApiRequest instead.
@@ -529,7 +537,8 @@ pub struct NodePosition {
     pub y: f64,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+// Operator TBA funding info for graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OperatorWalletFundingInfo {
     pub eth_balance_str: Option<String>,
@@ -539,7 +548,8 @@ pub struct OperatorWalletFundingInfo {
     pub error_message: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+// Hot wallet funding info for graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct HotWalletFundingInfo {
     pub eth_balance_str: Option<String>,
@@ -547,7 +557,8 @@ pub struct HotWalletFundingInfo {
     pub error_message: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
+// Note (Access List or Signers) info for graph
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NoteInfo {
     pub status_text: String,
@@ -557,53 +568,73 @@ pub struct NoteInfo {
     pub action_id: Option<String>, // e.g., "trigger_set_signers_note"
 }
 
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
+// Graph building structs for visualizer
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged, rename_all = "camelCase")]  // Untagged removes variant wrapper, rename_all converts to camelCase
 pub enum GraphNodeData {
     OwnerNode {
         name: String,
+        #[serde(rename = "tbaAddress")]
         tba_address: Option<String>,
+        #[serde(rename = "ownerAddress")]
         owner_address: Option<String>,
     },
     OperatorWalletNode {
         name: String,
+        #[serde(rename = "tbaAddress")]
         tba_address: String,
+        #[serde(rename = "fundingStatus")]
         funding_status: OperatorWalletFundingInfo,
+        #[serde(rename = "signersNote")]
         signers_note: NoteInfo,
+        #[serde(rename = "accessListNote")]
         access_list_note: NoteInfo,
     },
     HotWalletNode {
         address: String,
         name: Option<String>,
+        #[serde(rename = "statusDescription")]
         status_description: String,
+        #[serde(rename = "isActiveInMcp")]
         is_active_in_mcp: bool,
+        #[serde(rename = "isEncrypted")]
         is_encrypted: bool,
+        #[serde(rename = "isUnlocked")]
         is_unlocked: bool,
+        #[serde(rename = "fundingInfo")]
         funding_info: HotWalletFundingInfo,
+        #[serde(rename = "authorizedClients")]
         authorized_clients: Vec<String>,
         limits: Option<SpendingLimits>,
     },
     AuthorizedClientNode {
+        #[serde(rename = "clientId")]
         client_id: String,
+        #[serde(rename = "clientName")]
         client_name: String,
+        #[serde(rename = "associatedHotWalletAddress")]
         associated_hot_wallet_address: String,
     },
     AddHotWalletActionNode { // For triggering management/linking of hot wallets
         label: String,
+        #[serde(rename = "operatorTbaAddress")]
         operator_tba_address: Option<String>, // Operator TBA this action is related to
+        #[serde(rename = "actionId")]
         action_id: String, // e.g., "trigger_manage_wallets_modal"
     },
     AddAuthorizedClientActionNode {
         label: String,
+        #[serde(rename = "targetHotWalletAddress")]
         target_hot_wallet_address: String, // The HW this client would be for
+        #[serde(rename = "actionId")]
         action_id: String, // e.g., "trigger_add_client_modal"
     },
     MintOperatorWalletActionNode(MintOperatorWalletActionNodeData), // New Variant
 }
 
-// Data for the new action node
-#[derive(Serialize, Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")] // Keep consistency if frontend expects camelCase for data fields
+// Mint operator wallet action data
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct MintOperatorWalletActionNodeData {
     pub label: String,
     pub owner_node_name: String, // To construct the grid-beta-wallet name

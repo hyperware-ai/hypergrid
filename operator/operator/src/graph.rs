@@ -123,7 +123,15 @@ pub fn build_hypergrid_graph_data(
         let current_op_wallet_node_id = format!("operator-wallet-{}", tba_address);
         operator_wallet_node_id = Some(current_op_wallet_node_id.clone());
 
+        info!("Graph: Checking funding for operator TBA: {}", tba_address);
         let funding_details = check_operator_tba_funding_detailed(Some(tba_address));
+        info!("Graph: Funding details received: eth_balance={:?}, usdc_balance={:?}, needs_eth={}, needs_usdc={}", 
+            funding_details.tba_eth_balance_str, 
+            funding_details.tba_usdc_balance_str,
+            funding_details.tba_needs_eth,
+            funding_details.tba_needs_usdc
+        );
+        
         let op_wallet_funding_info = OperatorWalletFundingInfo {
             eth_balance_str: funding_details.tba_eth_balance_str,
             usdc_balance_str: funding_details.tba_usdc_balance_str,
@@ -137,126 +145,138 @@ pub fn build_hypergrid_graph_data(
         let mut signers_note_status_text = "Signers Note: Unknown".to_string();
         let mut signers_note_is_set = false;
 
-        if let Some(selected_hw_id) = &state.selected_wallet_id {
-            if let Some(selected_hw) = state.managed_wallets.get(selected_hw_id) {
-                let hw_address_str = &selected_hw.id.to_string(); // Ensure this is the correct address string
-                match crate::wallet::service::verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
-                    DelegationStatus::Verified => {
-                        access_list_note_status_text = "Access List Note: Set".to_string();
-                        access_list_note_is_set = true;
-                        signers_note_status_text = format!("Signers Note: Set (Verified for {})", truncate_address(hw_address_str));
+        // First check if we have linked hot wallets on-chain
+        let linked_wallets = get_all_onchain_linked_hot_wallet_addresses(Some(entry_name));
+        
+        if let Ok(linked_hw_addresses) = &linked_wallets {
+            if !linked_hw_addresses.is_empty() {
+                // We have linked wallets, so both notes should be set
+                access_list_note_status_text = "Access List Note: Set".to_string();
+                access_list_note_is_set = true;
+                
+                // Check if we have a selected wallet to show specific verification status
+                if let Some(selected_hw_id) = &state.selected_wallet_id {
+                    if let Some(selected_hw) = state.managed_wallets.get(selected_hw_id) {
+                        let hw_address_str = &selected_hw.id.to_string();
+                        match crate::wallet::service::verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
+                            DelegationStatus::Verified => {
+                                signers_note_status_text = format!("Signers Note: Set (Verified for {})", truncate_address(hw_address_str));
+                                signers_note_is_set = true;
+                            }
+                            DelegationStatus::HotWalletNotInList => {
+                                signers_note_status_text = "Signers Note: Set (Selected Hot Wallet Not Listed)".to_string();
+                                signers_note_is_set = true;
+                            }
+                            _ => {
+                                // For other statuses, just indicate it's set since we have linked wallets
+                                signers_note_status_text = format!("Signers Note: Set ({} linked wallets)", linked_hw_addresses.len());
+                                signers_note_is_set = true;
+                            }
+                        }
+                    } else {
+                        // Selected wallet not found, but we have linked wallets
+                        signers_note_status_text = format!("Signers Note: Set ({} linked wallets)", linked_hw_addresses.len());
                         signers_note_is_set = true;
                     }
-                    DelegationStatus::HotWalletNotInList => {
-                        access_list_note_status_text = "Access List Note: Set".to_string();
-                        access_list_note_is_set = true;
-                        signers_note_status_text = "Signers Note: Set (Selected Hot Wallet Not Listed)".to_string();
-                        signers_note_is_set = true; // The note itself is set
-                    }
-                    DelegationStatus::SignersNoteMissing => {
-                        access_list_note_status_text = "Access List Note: Set".to_string();
-                        access_list_note_is_set = true;
-                        signers_note_status_text = "Signers Note: Missing (Pointed to by Access List)".to_string();
-                        signers_note_is_set = false;
-                    }
-                    DelegationStatus::SignersNoteInvalidData(reason) => {
-                        access_list_note_status_text = "Access List Note: Set".to_string();
-                        access_list_note_is_set = true;
-                        signers_note_status_text = format!("Signers Note: Invalid Data ({})", reason);
-                        // Assuming 'invalid data' means it exists but is malformed. If it means unreadable, isSet could be false.
-                        // For now, if we get SignersNoteInvalidData, it implies the note exists.
-                        signers_note_is_set = true; 
-                    }
-                    DelegationStatus::SignersNoteLookupError(reason) => { 
-                        access_list_note_status_text = "Access List Note: Set".to_string();
-                        access_list_note_is_set = true;
-                        signers_note_status_text = format!("Signers Note: Lookup Error ({})", reason);
-                        signers_note_is_set = false;
-                    }
-                    DelegationStatus::AccessListNoteMissing => {
-                        access_list_note_status_text = "Access List Note: Not Set".to_string();
-                        access_list_note_is_set = false;
-                        signers_note_status_text = "Signers Note: Cannot Check (Access List Missing)".to_string();
-                        signers_note_is_set = false;
-                    }
-                    DelegationStatus::AccessListNoteInvalidData(reason) => {
-                        access_list_note_status_text = format!("Access List Note: Invalid Data ({})", reason);
-                        access_list_note_is_set = false;
-                        signers_note_status_text = "Signers Note: Cannot Check (Access List Invalid)".to_string();
-                        signers_note_is_set = false;
-                    }
-                    DelegationStatus::NeedsHotWallet => { 
-                        access_list_note_status_text = "Access List Note: Status Unknown (Wallet Locked/Inactive)".to_string();
-                        access_list_note_is_set = false; 
-                        signers_note_status_text = "Signers Note: Status Unknown (Wallet Locked/Inactive)".to_string();
-                        signers_note_is_set = false; 
-                    }
-                    DelegationStatus::CheckError(reason) => { 
-                        access_list_note_status_text = format!("Access List Note: Check Error ({})", reason);
-                        access_list_note_is_set = false;
-                        signers_note_status_text = format!("Signers Note: Check Error ({})", reason);
-                        signers_note_is_set = false;
-                    }
-                    DelegationStatus::NeedsIdentity => { 
-                        access_list_note_status_text = "Access List Note: Error (Identity Missing)".to_string();
-                        access_list_note_is_set = false;
-                        signers_note_status_text = "Signers Note: Error (Identity Missing)".to_string();
-                        signers_note_is_set = false;
-                    }
+                } else {
+                    // No selected wallet, but we have linked wallets
+                    signers_note_status_text = format!("Signers Note: Set ({} linked wallets)", linked_hw_addresses.len());
+                    signers_note_is_set = true;
                 }
             } else {
+                // No linked wallets, check access list note independently
+                if !entry_name.is_empty() {
+                    let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
+                    if let Ok(hypermap_contract_address) = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS) {
+                        if hypermap_contract_address != EthAddress::ZERO {
+                            let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
+                            let access_list_full_path = format!("~access-list.{}", entry_name);
+                            match hypermap_reader.get(&access_list_full_path) {
+                                Ok((_tba, _owner, Some(data))) => {
+                                    if data.len() == 32 {
+                                        access_list_note_status_text = "Access List Note: Set".to_string();
+                                        access_list_note_is_set = true;
+                                        signers_note_status_text = "Signers Note: Not Set (No Linked Wallets)".to_string();
+                                        signers_note_is_set = false;
+                                    } else {
+                                        access_list_note_status_text = format!("Access List Note: Invalid Data (Expected 32 bytes, got {})", data.len());
+                                        access_list_note_is_set = false;
+                                    }
+                                }
+                                Ok((_tba, _owner, None)) => {
+                                    access_list_note_status_text = "Access List Note: Not Set".to_string();
+                                    access_list_note_is_set = false;
+                                }
+                                Err(e) => {
+                                    if format!("{:?}", e).contains("note not found") {
+                                        access_list_note_status_text = "Access List Note: Not Set".to_string();
+                                    } else {
+                                        access_list_note_status_text = format!("Access List Note: Error Reading ({:?})", e);
+                                    }
+                                    access_list_note_is_set = false;
+                                }
+                            }
+                        }
+                    }
+                }
+                signers_note_status_text = "Signers Note: Not Set (No Linked Wallets)".to_string();
+                signers_note_is_set = false;
+            }
+        } else {
+            // Error getting linked wallets, fall back to checking selected wallet
+            if let Some(selected_hw_id) = &state.selected_wallet_id {
                 // selected_hw_id exists, but wallet not found in managed_wallets (should be rare if state is consistent)
                 access_list_note_status_text = "Access List Note: Status Unknown (Selected Wallet Not Found)".to_string();
                 signers_note_status_text = "Signers Note: Status Unknown (Selected Wallet Not Found)".to_string();
-            }
-        } else {
-            // No hot wallet selected in state. We can't run verify_single_hot_wallet_delegation_detailed.
-            // To get the Access List Note status independently, we'd need a different check.
-            // For now, reflect that we can't determine status without a selected hot wallet for context.
-            // A more robust check would be to read the access list note directly if operator_entry_name is known.
-            // This can be a future improvement.
-             if !entry_name.is_empty() {
-                 // Attempt to check access list note directly if operator entry name is known
-                 // This requires a direct hypermap read, not relying on delegation check which needs a hot wallet
-                 let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
-                 if let Ok(hypermap_contract_address) = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS) {
-                     if hypermap_contract_address != EthAddress::ZERO {
-                         let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
-                         let access_list_full_path = format!("~access-list.{}", entry_name);
-                         match hypermap_reader.get(&access_list_full_path) {
-                             Ok((_tba, _owner, Some(data))) => {
-                                 if data.len() == 32 {
-                                     access_list_note_status_text = "Access List Note: Set".to_string();
-                                     access_list_note_is_set = true;
-                                     signers_note_status_text = "Signers Note: Status Unknown (No Hot Wallet Selected for Full Check)".to_string();
-                                 } else {
-                                     access_list_note_status_text = format!("Access List Note: Invalid Data (Expected 32 bytes, got {})", data.len());
+            } else {
+                // No hot wallet selected in state. We can't run verify_single_hot_wallet_delegation_detailed.
+                // To get the Access List Note status independently, we'd need a different check.
+                // For now, reflect that we can't determine status without a selected hot wallet for context.
+                // A more robust check would be to read the access list note directly if operator_entry_name is known.
+                // This can be a future improvement.
+                 if !entry_name.is_empty() {
+                     // Attempt to check access list note directly if operator entry name is known
+                     // This requires a direct hypermap read, not relying on delegation check which needs a hot wallet
+                     let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
+                     if let Ok(hypermap_contract_address) = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS) {
+                         if hypermap_contract_address != EthAddress::ZERO {
+                             let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
+                             let access_list_full_path = format!("~access-list.{}", entry_name);
+                             match hypermap_reader.get(&access_list_full_path) {
+                                 Ok((_tba, _owner, Some(data))) => {
+                                     if data.len() == 32 {
+                                         access_list_note_status_text = "Access List Note: Set".to_string();
+                                         access_list_note_is_set = true;
+                                         signers_note_status_text = "Signers Note: Status Unknown (No Hot Wallet Selected for Full Check)".to_string();
+                                     } else {
+                                         access_list_note_status_text = format!("Access List Note: Invalid Data (Expected 32 bytes, got {})", data.len());
+                                         access_list_note_is_set = false;
+                                     }
+                                 }
+                                 Ok((_tba, _owner, None)) => {
+                                     access_list_note_status_text = "Access List Note: Set (No Data)".to_string(); // Or "Not Set" if no data means not set.
+                                     access_list_note_is_set = false; // Assuming no data means effectively not set for its purpose.
+                                 }
+                                 Err(e) => {
+                                     if format!("{:?}", e).contains("note not found") {
+                                         access_list_note_status_text = "Access List Note: Not Set".to_string();
+                                     } else {
+                                         access_list_note_status_text = format!("Access List Note: Error Reading ({:?})", e);
+                                     }
                                      access_list_note_is_set = false;
                                  }
                              }
-                             Ok((_tba, _owner, None)) => {
-                                 access_list_note_status_text = "Access List Note: Set (No Data)".to_string(); // Or "Not Set" if no data means not set.
-                                 access_list_note_is_set = false; // Assuming no data means effectively not set for its purpose.
-                             }
-                             Err(e) => {
-                                 if format!("{:?}", e).contains("note not found") {
-                                     access_list_note_status_text = "Access List Note: Not Set".to_string();
-                                 } else {
-                                     access_list_note_status_text = format!("Access List Note: Error Reading ({:?})", e);
-                                 }
-                                 access_list_note_is_set = false;
-                             }
+                         } else {
+                            access_list_note_status_text = "Access List Note: Error (Hypermap Address Zero)".to_string();
                          }
                      } else {
-                        access_list_note_status_text = "Access List Note: Error (Hypermap Address Zero)".to_string();
+                        access_list_note_status_text = "Access List Note: Error (Invalid Hypermap Address)".to_string();
                      }
                  } else {
-                    access_list_note_status_text = "Access List Note: Error (Invalid Hypermap Address)".to_string();
+                    access_list_note_status_text = "Access List Note: Unknown (No Operator ID)".to_string();
                  }
-             } else {
-                access_list_note_status_text = "Access List Note: Unknown (No Operator ID)".to_string();
-             }
-            signers_note_status_text = "Signers Note: Unknown (No Hot Wallet Selected)".to_string(); // Signers note can't be checked without access list context and potentially a specific hot wallet
+                signers_note_status_text = "Signers Note: Unknown (No Hot Wallet Selected)".to_string(); // Signers note can't be checked without access list context and potentially a specific hot wallet
+            }
         }
 
         let signers_note_info = NoteInfo {
@@ -340,7 +360,7 @@ pub fn build_hypergrid_graph_data(
             Ok(linked_hw_addresses) => {
                 for hw_address_str in linked_hw_addresses {
                     let hot_wallet_node_id = format!("hot-wallet-{}", hw_address_str);
-                    let summary = get_wallet_summary_for_address(state, &hw_address_str);
+                    let summary_opt = get_wallet_summary_for_address(state, &hw_address_str);
                     let (needs_eth, eth_balance, funding_err) = check_single_hot_wallet_funding_detailed(state, &hw_address_str);
                     
                     let hw_funding_info = HotWalletFundingInfo {
@@ -349,47 +369,68 @@ pub fn build_hypergrid_graph_data(
                         error_message: funding_err,
                     };
 
-                    let is_active_mcp = state.selected_wallet_id.as_ref() == Some(&summary.id) && state.active_signer_cache.is_some();
-                    let status_desc = if is_active_mcp {
-                        // If it's active in MCP, its status description should reflect unlocked state too
-                        if summary.is_unlocked {
-                            "Active in MCP (Unlocked)".to_string()
+                    // Handle the case where we might not have a summary
+                    if let Some(ref summary) = summary_opt {
+                        let is_active_mcp = state.selected_wallet_id.as_ref() == Some(&summary.id) && state.active_signer_cache.is_some();
+                        let status_desc = if is_active_mcp {
+                            // If it's active in MCP, its status description should reflect unlocked state too
+                            if summary.is_unlocked {
+                                "Active in MCP (Unlocked)".to_string()
+                            } else {
+                                "Active in MCP (Locked)".to_string()
+                            }
+                        } else if state.managed_wallets.contains_key(&summary.id) {
+                            "Managed & Linked".to_string()
                         } else {
-                            "Active in MCP (Locked)".to_string()
+                            "Linked (External)".to_string()
+                        };
+
+                        let mut client_ids_for_this_hw: Vec<String> = Vec::new();
+                        for client in state.authorized_clients.values() {
+                            if client.associated_hot_wallet_address == hw_address_str {
+                                client_ids_for_this_hw.push(client.id.clone());
+                            }
                         }
-                    } else if state.managed_wallets.contains_key(&summary.id) {
-                        "Managed & Linked".to_string()
+
+                        // Get spending limits if it's a managed wallet
+                        let spending_limits = state.managed_wallets.get(&summary.id)
+                            .map(|wallet| wallet.spending_limits.clone());
+
+                        nodes.push(GraphNode {
+                            id: hot_wallet_node_id.clone(),
+                            node_type: "hotWalletNode".to_string(),
+                            data: GraphNodeData::HotWalletNode {
+                                address: hw_address_str.clone(),
+                                name: summary.name.clone(),
+                                status_description: status_desc,
+                                is_active_in_mcp: is_active_mcp, // This might be redundant if statusDescription covers it
+                                is_encrypted: summary.is_encrypted, // ADDED
+                                is_unlocked: summary.is_unlocked,   // ADDED
+                                funding_info: hw_funding_info,
+                                authorized_clients: client_ids_for_this_hw.clone(),
+                                limits: spending_limits, // ADDED
+                            },
+                            position: None,
+                        });
                     } else {
-                        "Linked (External)".to_string()
-                    };
-
-                    let mut client_ids_for_this_hw: Vec<String> = Vec::new();
-                    for client in state.authorized_clients.values() {
-                        if client.associated_hot_wallet_address == hw_address_str {
-                            client_ids_for_this_hw.push(client.id.clone());
-                        }
+                        // No summary found - create a minimal node for external wallet
+                        nodes.push(GraphNode {
+                            id: hot_wallet_node_id.clone(),
+                            node_type: "hotWalletNode".to_string(),
+                            data: GraphNodeData::HotWalletNode {
+                                address: hw_address_str.clone(),
+                                name: None,
+                                status_description: "Linked (External)".to_string(),
+                                is_active_in_mcp: false,
+                                is_encrypted: false,
+                                is_unlocked: false,
+                                funding_info: hw_funding_info,
+                                authorized_clients: Vec::new(),
+                                limits: None,
+                            },
+                            position: None,
+                        });
                     }
-
-                    // Get spending limits if it's a managed wallet
-                    let spending_limits = state.managed_wallets.get(&summary.id)
-                        .map(|wallet| wallet.spending_limits.clone());
-
-                    nodes.push(GraphNode {
-                        id: hot_wallet_node_id.clone(),
-                        node_type: "hotWalletNode".to_string(),
-                        data: GraphNodeData::HotWalletNode {
-                            address: hw_address_str.clone(),
-                            name: summary.name.clone(),
-                            status_description: status_desc,
-                            is_active_in_mcp: is_active_mcp, // This might be redundant if statusDescription covers it
-                            is_encrypted: summary.is_encrypted, // ADDED
-                            is_unlocked: summary.is_unlocked,   // ADDED
-                            funding_info: hw_funding_info,
-                            authorized_clients: client_ids_for_this_hw.clone(),
-                            limits: spending_limits, // ADDED
-                        },
-                        position: None,
-                    });
 
                     if let Some(op_w_id) = &operator_wallet_node_id { 
                         edges.push(GraphEdge {
@@ -400,25 +441,35 @@ pub fn build_hypergrid_graph_data(
                         });
                     }
 
-                    for client_id in client_ids_for_this_hw {
-                        if let Some(client_config) = state.authorized_clients.get(&client_id) {
-                            let client_node_id = format!("auth-client-{}", client_id);
-                            nodes.push(GraphNode {
-                                id: client_node_id.clone(),
-                                node_type: "authorizedClientNode".to_string(),
-                                data: GraphNodeData::AuthorizedClientNode {
-                                    client_id: client_config.id.clone(),
-                                    client_name: client_config.name.clone(),
-                                    associated_hot_wallet_address: client_config.associated_hot_wallet_address.clone(),
-                                },
-                                position: None,
-                            });
-                            edges.push(GraphEdge {
-                                id: format!("edge-{}-{}", hot_wallet_node_id, client_node_id),
-                                source: hot_wallet_node_id.clone(),
-                                target: client_node_id.clone(),
-                                style_type: None, animated: None,
-                            });
+                    // Add client nodes - only if we have a summary (managed wallet)
+                    if summary_opt.is_some() {
+                        let mut client_ids_for_this_hw: Vec<String> = Vec::new();
+                        for client in state.authorized_clients.values() {
+                            if client.associated_hot_wallet_address == hw_address_str {
+                                client_ids_for_this_hw.push(client.id.clone());
+                            }
+                        }
+
+                        for client_id in client_ids_for_this_hw {
+                            if let Some(client_config) = state.authorized_clients.get(&client_id) {
+                                let client_node_id = format!("auth-client-{}", client_id);
+                                nodes.push(GraphNode {
+                                    id: client_node_id.clone(),
+                                    node_type: "authorizedClientNode".to_string(),
+                                    data: GraphNodeData::AuthorizedClientNode {
+                                        client_id: client_config.id.clone(),
+                                        client_name: client_config.name.clone(),
+                                        associated_hot_wallet_address: client_config.associated_hot_wallet_address.clone(),
+                                    },
+                                    position: None,
+                                });
+                                edges.push(GraphEdge {
+                                    id: format!("edge-{}-{}", hot_wallet_node_id, client_node_id),
+                                    source: hot_wallet_node_id.clone(),
+                                    target: client_node_id.clone(),
+                                    style_type: None, animated: None,
+                                });
+                            }
                         }
                     }
 

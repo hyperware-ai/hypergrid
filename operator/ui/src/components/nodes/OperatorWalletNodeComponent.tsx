@@ -4,6 +4,7 @@ import { IOperatorWalletNodeData, IOperatorWalletFundingInfo, INoteInfo, Spendin
 import type { Address } from 'viem';
 import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
+import PaymasterApprovalButton from '../PaymasterApprovalButton';
 import styles from '../OperatorWalletNode.module.css';
 
 const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
@@ -358,6 +359,22 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                     </span>
                 </div>
             </div>
+
+            {/* Paymaster Approval Section - only show if both notes are set */}
+            {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && (
+                <div className={styles.paymasterSection} style={{ marginTop: '12px', marginBottom: '12px' }}>
+                    <PaymasterApprovalButton
+                        operatorTbaAddress={tbaAddress as Address}
+                        onApprovalComplete={() => {
+                            console.log('Paymaster approval complete, refreshing data...');
+                            if (typeof onDataRefreshNeeded === 'function') {
+                                onDataRefreshNeeded();
+                            }
+                        }}
+                        disabled={isProcessingNote || showEthWithdrawInput || showUsdcWithdrawInput || isSendingEth || isSendingUsdc}
+                    />
+                </div>
+            )}
 
             {(canSetAccessList || canSetSigners || needsSignersButNoActiveHW) && (
                 <div className={styles.actionsContainer}>

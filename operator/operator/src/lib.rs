@@ -7,7 +7,11 @@ mod chain;
 mod helpers;
 mod identity;
 mod authorized_services;
-pub mod wallet;
+// Replace wallet module with hyperwallet_client
+pub mod hyperwallet_client;
+
+// Re-export hyperwallet_client as wallet for compatibility
+pub use hyperwallet_client as wallet;
 
 use hyperware_process_lib::homepage::add_to_homepage;
 use hyperware_process_lib::http::server::{HttpBindingConfig, HttpServer};
@@ -16,7 +20,7 @@ use hyperware_process_lib::{await_message, call_init, Address, Message};
 use hyperware_process_lib::sqlite::Sqlite;
 use structs::*;
 
-use crate::wallet::{service as wallet_service};
+//use crate::wallet::{service as wallet_service};
 
 const ICON: &str = include_str!("./icon");
 
@@ -72,7 +76,18 @@ fn init(our: Address) {
     }
 
     // Initialize Wallet Manager
-    wallet_service::initialize_wallet(&mut state);
+    //wallet_service::initialize_wallet(&mut state);
+
+    // Initialize hyperwallet connection
+    if !hyperwallet_client::init_with_hyperwallet() {
+        error!("Failed to initialize with hyperwallet service!");
+        error!("The operator requires hyperwallet service to be running and accessible.");
+        error!("Please ensure hyperwallet:hyperwallet:hallman.hypr is installed and running.");
+    }
+    info!("Successfully initialized with hyperwallet service");
+
+    // Initialize wallet management (migrate existing wallets if any)
+    //wallet::service::initialize_wallet(&mut state);
 
     // Initialize DB as local variable
     info!("Loading database..");

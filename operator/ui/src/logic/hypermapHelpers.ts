@@ -48,9 +48,19 @@ export const tbaExecuteAbi = parseAbi([
     'function execute(address target, uint256 value, bytes calldata data, uint8 operation) returns (bytes memory returnData)',
 ]);
 
+// ABI for ERC20 approve function
+export const erc20Abi = parseAbi([
+    'function approve(address spender, uint256 amount) returns (bool)',
+]);
+
 // Note Keys for Hypergrid
 export const HYPERGRID_ACCESS_LIST_NOTE_KEY = "~access-list";
 export const HYPERGRID_SIGNERS_NOTE_KEY = "~grid-beta-signers";
+
+// ERC-4337 Constants
+export const CIRCLE_PAYMASTER_ADDRESS: Address = '0x0578cFB241215b77442a541325d6A4E6dFE700Ec'; // Circle's USDC paymaster on Base
+export const USDC_ADDRESS_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
+export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 1000000n * 10n ** 6n; // 1M USDC (with 6 decimals)
 
 // -------------------------------------------------------------------------------------------------
 // Encoding Helpers
@@ -130,6 +140,26 @@ export function prepareTbaExecuteArgs({
  */
 export function encodeAddressArray(addresses: Address[]): EncodeAbiParametersReturnType {
     return encodeAbiParameters(parseAbiParameters('address[]'), [addresses]);
+}
+
+/**
+ * Encodes the calldata for ERC20 approve function.
+ * @param spender The address that will be allowed to spend tokens.
+ * @param amount The amount of tokens to approve (in smallest units).
+ * @returns The encoded function data.
+ */
+export function encodeERC20Approve({
+    spender,
+    amount,
+}: {
+    spender: Address;
+    amount: bigint;
+}): Hex {
+    return encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [spender, amount],
+    });
 }
 
 // -------------------------------------------------------------------------------------------------
@@ -372,6 +402,84 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
         setNoteInternal, setAccessListNoteInternal, setSignersNoteInternal,
         transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset
     ]);
+}
+
+/**
+ * Custom hook for approving the paymaster to spend USDC from an Operator TBA.
+ * This is a one-time setup step required for ERC-4337 gasless transactions.
+ * The EOA owner of the Operator TBA calls `operatorTBA.execute(...)` to approve the paymaster.
+ */
+export function useApprovePaymaster(props?: UseWriteHypermapContractProps) {
+    const { onSuccess, onError, onSettled } = props || {};
+
+    const { data: transactionHash, error, isPending, writeContract, writeContractAsync, reset } = useWriteContract({
+        mutation: {
+            onSuccess: onSuccess,
+            onError: onError,
+            onSettled: onSettled,
+        },
+    });
+    
+    const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
+        useWaitForTransactionReceipt({ hash: transactionHash, chainId: BASE_CHAIN_ID });
+
+    const approvePaymasterInternal = useCallback(({
+        operatorTbaAddress,
+        paymasterAddress = CIRCLE_PAYMASTER_ADDRESS,
+        usdcAddress = USDC_ADDRESS_BASE,
+        approvalAmount = DEFAULT_PAYMASTER_APPROVAL_AMOUNT,
+    }: {
+        operatorTbaAddress: Address;
+        paymasterAddress?: Address;
+        usdcAddress?: Address;
+        approvalAmount?: bigint;
+    }) => {
+        if (!operatorTbaAddress) {
+            console.error("Missing operatorTbaAddress for paymaster approval.");
+            if (onError) onError(new Error("Missing operatorTbaAddress"));
+            return;
+        }
+
+        console.log(`useApprovePaymaster: Approving paymaster for Operator TBA ${operatorTbaAddress}`);
+        console.log(`  Paymaster: ${paymasterAddress}`);
+        console.log(`  USDC Contract: ${usdcAddress}`);
+        console.log(`  Approval Amount: ${approvalAmount.toString()} (smallest units)`);
+
+        // Step 1: Encode the ERC20 approve call
+        const approveCallData = encodeERC20Approve({
+            spender: paymasterAddress,
+            amount: approvalAmount,
+        });
+
+        // Step 2: Prepare arguments for operatorTBA.execute()
+        const executeArgs = prepareTbaExecuteArgs({
+            targetContract: usdcAddress,
+            callData: approveCallData,
+            value: 0n,
+            operation: 0, // Standard CALL
+        });
+        
+        console.log(`  executeArgs for TBA: [\n    target: ${executeArgs[0]},\n    value: ${executeArgs[1]},\n    data: ${executeArgs[2]},\n    operation: ${executeArgs[3]}\n   ]`);
+
+        // Step 3: Call execute() on the operatorTbaAddress
+        writeContract({
+            address: operatorTbaAddress,
+            abi: tbaExecuteAbi,
+            functionName: 'execute',
+            args: executeArgs,
+            chainId: BASE_CHAIN_ID,
+        });
+    }, [writeContract, onError]);
+
+    return useMemo(() => ({
+        approvePaymaster: approvePaymasterInternal,
+        transactionHash,
+        isSending: isPending,
+        isConfirming,
+        isConfirmed,
+        error: error || receiptError,
+        reset,
+    }), [approvePaymasterInternal, transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset]);
 }
 
 // Example usage (conceptual, would be in a React component):

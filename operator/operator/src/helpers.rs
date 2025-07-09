@@ -212,27 +212,27 @@ pub fn handle_terminal_debug(
         //         error!("Usage: pay <amount_usdc>"); 
         //    }
         //}
-        "pay-eth" => { // New ETH pay command
-            if let Some(amount_str) = command_arg { // Expects only amount
-                let target_address_str = "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d"; // Hardcoded test address
-                info!("Attempting debug ETH payment to TEST ADDRESS {} amount {}", target_address_str, amount_str);
+        "pay-eth" => {
+            if let Some(amount_str) = command_arg {
+                info!("Attempting test ETH payment via hyperwallet: {} ETH", amount_str);
                 
-                // Get necessary state: Operator TBA and Hot Wallet Signer
-                let operator_tba_addr_str = match state.operator_tba_address.as_ref() {
+                let target_address_str = "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d"; // Test address
+                
+                // Get operator TBA address
+                let operator_tba_addr_str = match &state.operator_tba_address {
                     Some(addr) => addr.clone(),
                     None => { 
-                        error!("Operator TBA address not configured in state."); 
+                        error!("Operator TBA address not configured");
                         return Ok(()); 
                     }
                 };
-                let hot_wallet_signer = match service::get_active_signer(state) {
-                    Ok(signer) => signer,
-                    Err(e) => { 
-                        error!("Failed to get active hot wallet signer: {}", e);
-                        return Ok(()); 
-                    }
-                };
-
+                
+                //// Check if we have an active wallet
+                //if state.selected_wallet_id.is_none() {
+                //    error!("No wallet selected");
+                //    return Ok(());
+                //}
+                
                 // Parse amount string to f64, then to U256 wei
                 let amount_eth_f64 = match amount_str.parse::<f64>() {
                     Ok(f) if f > 0.0 => f,
@@ -243,44 +243,21 @@ pub fn handle_terminal_debug(
                 };
                 let wei_value = EthAmount::from_eth(amount_eth_f64).as_wei();
 
-                // Create provider
-                let eth_provider = eth::Provider::new(structs::CHAIN_ID, 300000); // 300s timeout
+                info!("Sending ETH via hyperwallet: {} ETH ({} wei) from Operator TBA {} to {}", 
+                    amount_eth_f64, wei_value, operator_tba_addr_str, target_address_str);
 
-                info!("Sending ETH execute tx via Operator TBA {} to target {} (Value: {} ETH / {} wei)", 
-                    operator_tba_addr_str, target_address_str, amount_eth_f64, wei_value);
-
-                // Call execute_via_tba_with_signer directly for ETH transfer
-                let execution_result = execute_via_tba_with_signer(
-                    &operator_tba_addr_str,
-                    hot_wallet_signer,
-                    target_address_str,
-                    Vec::new(), // Empty call data for ETH transfer
-                    wei_value, // Value to send in ETH
-                    &eth_provider,
-                    Some(0) // CALL operation
-                );
-
-                // Handle result and wait for confirmation
-                match execution_result {
-                    Ok(receipt) => {
-                        let tx_hash = receipt.hash;
-                        info!("ETH Execute Transaction sent successfully! Tx Hash: {:?}. Waiting for confirmation...", tx_hash);
-                        match wait_for_transaction(tx_hash, eth_provider.clone(), 1, 60) {
-                            Ok(final_receipt) => {
-                                info!("Received final ETH payment receipt: {:#?}", final_receipt);
-                                if final_receipt.status() {
-                                    info!("ETH Payment transaction confirmed successfully! Tx Hash: {:?}", tx_hash);
-                                } else {
-                                    error!("ETH Payment transaction confirmed but FAILED (reverted) on-chain. Tx Hash: {:?}", tx_hash);
-                                }
-                            }
-                            Err(e) => {
-                                error!("Error waiting for ETH payment transaction confirmation ({:?}): {:?}", tx_hash, e);
-                            }
-                        }
+                // Use hyperwallet to handle the ETH transfer
+                match crate::wallet::payments::handle_operator_tba_withdrawal(
+                    state,
+                    crate::wallet::payments::AssetType::Eth,
+                    target_address_str.to_string(),
+                    wei_value.to_string(),
+                ) {
+                    Ok(_) => {
+                        info!("ETH payment initiated successfully via hyperwallet");
                     }
                     Err(e) => {
-                         error!("ETH Payment failed during submission: {:?}", e);
+                        error!("ETH payment failed: {}", e);
                     }
                 }
             } else {
