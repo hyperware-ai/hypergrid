@@ -180,7 +180,6 @@ function App() {
     const hnsName = (providerName.trim() || "[YourProviderName]") + ".grid-beta.hypr";
 
     const metadataFields = {
-      "~provider-name": providerName,
       "~provider-id": window.our?.node || "N/A",
       "~wallet": registeredProviderWallet,
       "~price": price,
@@ -239,16 +238,16 @@ function App() {
 
   const handleCopyProviderMetadata = useCallback(async (provider: RegisteredProvider) => {
     const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid-beta.hypr";
-    const metadataFields = {
-      "~provider-name": provider.provider_name,
-      "~provider-id": provider.provider_id,
-      "~wallet": provider.registered_provider_wallet,
-      "~price": provider.price,
+    const metadata = {
       "~description": provider.description,
       "~instructions": provider.instructions,
+      "~price": provider.price.toString(),
+      "~wallet": provider.registered_provider_wallet,
+      "~provider-id": provider.provider_id,
+      "~site": provider.endpoint.base_url_template,
     };
     const structuredDataToCopy = {
-      [hnsName]: metadataFields,
+      [hnsName]: metadata,
     };
     try {
       await navigator.clipboard.writeText(JSON.stringify(structuredDataToCopy, null, 2));
