@@ -8,14 +8,12 @@ import {
   RegisteredProvider
 } from "./types/hypergrid_provider";
 import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
-import { ApiCallScaffold } from "./components/curlVisualizer";
-import { ValidationPanel } from "./components/ValidationPanel";
+import CurlVisualizer from "./components/curlVisualizer";
+import ValidationPanel from "./components/ValidationPanel";
 import SelectionModal from "./components/SelectionModal";
-import ProviderConfigForm from "./components/ProviderAPIConfigForm";
-import ProviderMetadataForm from "./components/ProviderMetadataForm";
-// import ProviderInfoDisplay from './components/ProviderInfoDisplay'; // Full display - kept for reference
-import MinimalProviderDisplay from './components/MinimalProviderDisplay'; // Minimal display for list view
-import FloatingProviderCard from './components/FloatingProviderCard'; // Card view - temporarily disabled
+import ProviderConfigForm from "./components/ProviderConfigForm";
+import HypergridEntryForm from "./components/HypergridEntryForm";
+import RegisteredProviderView from './components/RegisteredProviderView';
 import { 
   validateProviderConfig, 
   buildProviderPayload, 
@@ -89,32 +87,14 @@ function App() {
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
 
-  // View mode state
-  // TEMPORARILY DISABLED: Card view is hidden from users but code is preserved
-  // To re-enable: uncomment the View toggle button in header and set default to stored value
-  const [viewMode, setViewMode] = useState<'list' | 'cards'>('list'); // Force list view only
-  // const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
-  //   const storedViewMode = localStorage.getItem('viewMode');
-  //   return (storedViewMode as 'list' | 'cards') || 'list'; // Default to list view
-  // });
-
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.setAttribute('data-theme', theme); // Or apply to app-container
   }, [theme]);
 
-  // Effect to update localStorage when view mode changes
-  useEffect(() => {
-    localStorage.setItem('viewMode', viewMode);
-  }, [viewMode]);
-
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-  };
-
-  const toggleViewMode = () => {
-    setViewMode(prevMode => (prevMode === 'list' ? 'cards' : 'list'));
   };
 
   const resetFormFields = () => {
@@ -199,7 +179,7 @@ function App() {
       alert('Failed to copy structured metadata. See console for details.');
     }
   }, [
-    providerName, providerDescription, registeredProviderWallet, price, instructions
+    providerName, providerDescription, registeredProviderWallet, price, instructions, endpointBaseUrl
   ]);
 
   const handleOpenAddNewModal = () => {
@@ -391,19 +371,13 @@ function App() {
                 : <div className="node-not-connected-banner"><p><strong>Node not connected.</strong></p></div>
               }
             </div>
-            {/* TEMPORARILY DISABLED: Card view toggle - uncomment to re-enable floating cards
-            <button onClick={toggleViewMode} className="theme-toggle-button" style={{ marginRight: '10px' }}>
-                View: {viewMode === 'list' ? '🃏 Cards' : '📋 List'}
-            </button>
-            */}
             <button onClick={toggleTheme} className="theme-toggle-button">
                 Theme: {theme === 'light' ? 'Dark' : 'Light'}
             </button>
         </div>
       </header>
       <main className="main-content">
-        {viewMode === 'list' ? (
-          <section className="card providers-display-section">
+        <section className="card providers-display-section">
             <div className="providers-header">
               <h2>Hypergrid Provider Registry</h2>
               <button onClick={handleOpenAddNewModal} className="toggle-form-button">
@@ -414,7 +388,7 @@ function App() {
               <ul className="provider-list">
                 {registeredProviders.map((provider) => (
                   <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '0'}}>
-                    <MinimalProviderDisplay provider={provider} onEdit={handleEditProvider} />
+                    <RegisteredProviderView provider={provider} onEdit={handleEditProvider} />
                   </li>
                 ))}
               </ul>
@@ -423,72 +397,6 @@ function App() {
             )}
             <button onClick={loadAndSetProviders} style={{ marginTop: '1em' }}>Refresh List</button>
           </section>
-        ) : (
-          <section className="floating-cards-section" style={{ 
-            position: 'relative', 
-            height: 'calc(100vh - 120px)', 
-            overflow: 'hidden',
-            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%)',
-            borderRadius: '12px',
-            border: '1px solid var(--card-border)'
-          }}>
-            <div className="floating-cards-header" style={{
-              position: 'absolute',
-              top: '20px',
-              left: '20px',
-              right: '20px',
-              zIndex: 100,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '12px',
-              padding: '12px 20px',
-              border: '1px solid var(--card-border)',
-            }}>
-              <h2 style={{ margin: 0, color: 'var(--heading-color)' }}>Hypergrid Provider Registry</h2>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={handleOpenAddNewModal} className="toggle-form-button">
-                  Add New Provider
-                </button>
-                <button onClick={loadAndSetProviders} className="toggle-form-button">
-                  Refresh
-                </button>
-              </div>
-            </div>
-            
-            {registeredProviders.length > 0 ? (
-              <div className="floating-cards-container" style={{ position: 'relative', width: '100%', height: '100%', paddingTop: '100px' }}>
-                {registeredProviders.map((provider, index) => (
-                  <FloatingProviderCard
-                    key={provider.provider_id || provider.provider_name}
-                    provider={provider}
-                    onEdit={handleEditProvider}
-                    onCopyMetadata={handleCopyProviderMetadata}
-                    initialPosition={{
-                      x: 50 + (index % 3) * 420, // Arrange in a grid-like pattern with more spacing
-                      y: 120 + Math.floor(index / 3) * 520
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                color: 'var(--text-color)',
-                fontSize: '1.2em',
-              }}>
-                <p>No API providers registered.</p>
-                <p>Click "Add New Provider" to create your first floating card! 🃏</p>
-              </div>
-            )}
-          </section>
-        )}
 
         <SelectionModal 
           isOpen={showForm} 
@@ -535,7 +443,7 @@ function App() {
               )}
               <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
                 <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                  <ProviderMetadataForm
+                  <HypergridEntryForm
                     nodeId={window.our?.node || "N/A"}
                     providerName={providerName}
                     setProviderName={setProviderName}
@@ -549,7 +457,7 @@ function App() {
                     setPrice={setPrice}
                     onCopyMetadata={handleCopyFormData}
                   />
-                  <ApiCallScaffold
+                  <CurlVisualizer
                     providerName={providerName}
                     endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
                     endpointBaseUrl={endpointBaseUrl}
@@ -602,31 +510,4 @@ function App() {
 }
 
 export default App;
-
-/* 
- * CARD VIEW RE-INTEGRATION GUIDE
- * ==============================
- * 
- * The floating card view is temporarily disabled but all code is preserved.
- * To re-enable the card view feature:
- * 
- * 1. In the view mode state section (around line 90):
- *    - Comment out: const [viewMode, setViewMode] = useState<'list' | 'cards'>('list');
- *    - Uncomment the original localStorage-based initialization
- * 
- * 2. In the header controls (around line 385):
- *    - Uncomment the View toggle button
- * 
- * 3. The card view rendering code (lines 433-475) is fully functional and ready to use
- * 
- * 4. The FloatingProviderCard component is complete with:
- *    - Draggable cards with proper drag handling
- *    - Flip animation between basic/technical info
- *    - Edit and Copy functionality
- *    - Beautiful gradients and hover effects
- * 
- * 5. All styles in App.css for .floating-cards-section are preserved
- * 
- * No other changes needed - the card view will work immediately upon re-enabling!
- */
 

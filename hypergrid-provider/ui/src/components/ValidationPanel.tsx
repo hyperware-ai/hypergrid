@@ -16,7 +16,7 @@ interface ValidationArgs {
   [key: string]: string;
 }
 
-export const ValidationPanel: React.FC<ValidationPanelProps> = ({
+const ValidationPanel: React.FC<ValidationPanelProps> = ({
   provider,
   onValidationSuccess,
   onValidationError,
@@ -269,4 +269,6 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
       </div>
     </div>
   );
-}; 
+};
+
+export default ValidationPanel; 

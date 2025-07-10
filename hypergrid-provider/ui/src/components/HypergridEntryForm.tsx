@@ -1,6 +1,6 @@
 import React from 'react';
 
-export interface ProviderMetadataFormProps {
+export interface HypergridEntryFormProps {
   nodeId: string;
   providerName: string;
   setProviderName: (value: string) => void;
@@ -15,7 +15,7 @@ export interface ProviderMetadataFormProps {
   onCopyMetadata: () => void;
 }
 
-const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
+const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
   nodeId,
   providerName, setProviderName,
   providerDescription, setProviderDescription,
@@ -217,4 +217,4 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
   );
 };
 
-export default ProviderMetadataForm; 
+export default HypergridEntryForm; 

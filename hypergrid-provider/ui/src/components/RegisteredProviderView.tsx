@@ -1,12 +1,12 @@
 import React from 'react';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 
-export interface MinimalProviderDisplayProps {
+export interface RegisteredProviderViewProps {
   provider: RegisteredProvider;
   onEdit?: (provider: RegisteredProvider) => void;
 }
 
-const MinimalProviderDisplay: React.FC<MinimalProviderDisplayProps> = ({ provider, onEdit }) => {
+const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provider, onEdit }) => {
   const containerStyle: React.CSSProperties = {
     padding: '16px 20px',
     border: '1px solid var(--card-border)',
@@ -135,4 +135,4 @@ const MinimalProviderDisplay: React.FC<MinimalProviderDisplayProps> = ({ provide
   );
 };
 
-export default MinimalProviderDisplay; 
+export default RegisteredProviderView; 
