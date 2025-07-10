@@ -203,7 +203,12 @@ function App() {
   ]);
 
   const handleOpenAddNewModal = () => {
-    resetFormFields();
+    // Don't reset form fields here - preserve state for better UX
+    // Only reset when starting fresh (not when re-opening)
+    // If we're transitioning from edit mode to add mode, reset the form
+    if (isEditMode) {
+      resetFormFields();
+    }
     setShowForm(true);
   };
 
@@ -499,66 +504,96 @@ function App() {
               onCancel={handleValidationCancel}
             />
           ) : (
-            <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
-              <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <ProviderMetadataForm
-                  nodeId={window.our?.node || "N/A"}
-                  providerName={providerName}
-                  setProviderName={setProviderName}
-                  providerDescription={providerDescription}
-                  setProviderDescription={setProviderDescription}
-                  instructions={instructions}
-                  setInstructions={setInstructions}
-                  registeredProviderWallet={registeredProviderWallet}
-                  setRegisteredProviderWallet={setRegisteredProviderWallet}
-                  price={price}
-                  setPrice={setPrice}
-                  onCopyMetadata={handleCopyFormData}
-                />
-                <ApiCallScaffold
-                  providerName={providerName}
-                  endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
-                  endpointBaseUrl={endpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  headerKeys={headerKeys}
-                  bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
-                  apiKey={endpointApiParamKey}
-                  apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
-                  apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
-                />
-              </div>
+            <>
+              {/* Add Clear Form button when not in validation mode */}
+              {!showValidation && (
+                <div style={{ 
+                  display: 'flex', 
+                  justifyContent: 'flex-end', 
+                  marginBottom: '16px',
+                  paddingRight: '20px'
+                }}>
+                  <button 
+                    onClick={resetFormFields}
+                    style={{
+                      padding: '8px 16px',
+                      backgroundColor: '#f44336',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      cursor: 'pointer',
+                      fontSize: '14px',
+                      fontWeight: '500',
+                      transition: 'background-color 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#d32f2f'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f44336'}
+                  >
+                    🗑️ Clear Form
+                  </button>
+                </div>
+              )}
+              <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
+                <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                  <ProviderMetadataForm
+                    nodeId={window.our?.node || "N/A"}
+                    providerName={providerName}
+                    setProviderName={setProviderName}
+                    providerDescription={providerDescription}
+                    setProviderDescription={setProviderDescription}
+                    instructions={instructions}
+                    setInstructions={setInstructions}
+                    registeredProviderWallet={registeredProviderWallet}
+                    setRegisteredProviderWallet={setRegisteredProviderWallet}
+                    price={price}
+                    setPrice={setPrice}
+                    onCopyMetadata={handleCopyFormData}
+                  />
+                  <ApiCallScaffold
+                    providerName={providerName}
+                    endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
+                    endpointBaseUrl={endpointBaseUrl}
+                    pathParamKeys={pathParamKeys}
+                    queryParamKeys={queryParamKeys}
+                    headerKeys={headerKeys}
+                    bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
+                    apiKey={endpointApiParamKey}
+                    apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
+                    apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
+                  />
+                </div>
 
-              <div className="modal-right-column" style={{ flex: 1, overflowY: 'auto' }}>
-                <ProviderConfigForm
-                  providerName={providerName}
-                  topLevelRequestType={topLevelRequestType}
-                  setTopLevelRequestType={setTopLevelRequestType}
-                  authChoice={authChoice}
-                  setAuthChoice={setAuthChoice}
-                  apiKeyQueryParamName={apiKeyQueryParamName}
-                  setApiKeyQueryParamName={setApiKeyQueryParamName}
-                  apiKeyHeaderName={apiKeyHeaderName}
-                  setApiKeyHeaderName={setApiKeyHeaderName}
-                  endpointApiParamKey={endpointApiParamKey}
-                  setEndpointApiKey={setEndpointApiKey}
-                  endpointBaseUrl={endpointBaseUrl}
-                  setEndpointBaseUrl={setEndpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  setPathParamKeys={setPathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  setQueryParamKeys={setQueryParamKeys}
-                  headerKeys={headerKeys}
-                  setHeaderKeys={setHeaderKeys}
-                  bodyKeys={bodyKeys}
-                  setBodyKeys={setBodyKeys}
-                  apiCallFormatSelected={apiCallFormatSelected}
-                  setApiCallFormatSelected={setApiCallFormatSelected}
-                  onRegisterProvider={handleProviderRegistration}
-                  submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
-                />
+                <div className="modal-right-column" style={{ flex: 1, overflowY: 'auto' }}>
+                  <ProviderConfigForm
+                    providerName={providerName}
+                    topLevelRequestType={topLevelRequestType}
+                    setTopLevelRequestType={setTopLevelRequestType}
+                    authChoice={authChoice}
+                    setAuthChoice={setAuthChoice}
+                    apiKeyQueryParamName={apiKeyQueryParamName}
+                    setApiKeyQueryParamName={setApiKeyQueryParamName}
+                    apiKeyHeaderName={apiKeyHeaderName}
+                    setApiKeyHeaderName={setApiKeyHeaderName}
+                    endpointApiParamKey={endpointApiParamKey}
+                    setEndpointApiKey={setEndpointApiKey}
+                    endpointBaseUrl={endpointBaseUrl}
+                    setEndpointBaseUrl={setEndpointBaseUrl}
+                    pathParamKeys={pathParamKeys}
+                    setPathParamKeys={setPathParamKeys}
+                    queryParamKeys={queryParamKeys}
+                    setQueryParamKeys={setQueryParamKeys}
+                    headerKeys={headerKeys}
+                    setHeaderKeys={setHeaderKeys}
+                    bodyKeys={bodyKeys}
+                    setBodyKeys={setBodyKeys}
+                    apiCallFormatSelected={apiCallFormatSelected}
+                    setApiCallFormatSelected={setApiCallFormatSelected}
+                    onRegisterProvider={handleProviderRegistration}
+                    submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
+                  />
+                </div>
               </div>
-            </div>
+            </>
           )}
         </SelectionModal>
       </main>
