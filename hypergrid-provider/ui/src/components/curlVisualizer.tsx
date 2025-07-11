@@ -102,11 +102,13 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   return (
     <div className="api-scaffold-container form-section">
       <h3>API Structure Preview</h3>
-      <pre className="api-scaffold-content">
-        <code>
-          {curlCommand}
-        </code>
-      </pre>
+      <div className="horizontal-scroll">
+        <pre className="api-scaffold-content">
+          <code>
+            {curlCommand}
+          </code>
+        </pre>
+      </div>
     </div>
   );
 };

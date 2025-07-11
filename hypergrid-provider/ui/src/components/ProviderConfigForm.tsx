@@ -191,23 +191,31 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
   ) => (
     <div style={compactInputColumnStyle}>
       <label style={compactLabelStyle}>{label}</label>
-      <div style={{ display: 'flex', gap: '10px', marginBottom: '5px', alignItems: 'center' }}>
+      <div className="key-input-row" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
         <input 
           type="text" 
           value={currentValue} 
           onChange={(e) => setter(e.target.value)} 
           placeholder={placeholder}
-          style={{...compactInputStyle, flexGrow: 1, minWidth: '160px' }}
+          style={{...compactInputStyle, flexGrow: 1 }}
+          onKeyPress={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              addKeyToList(currentValue, keyList, listSetter);
+              setter('');
+            }
+          }}
         />
         <button 
           type="button" 
           onClick={() => { addKeyToList(currentValue, keyList, listSetter); setter(''); }} 
-          style={{...compactInputStyle, backgroundColor: 'var(--button-primary-bg)', color: 'var(--button-primary-text)', border: 'none', flexShrink: 0, padding: '6px 12px' }}
+          style={{...compactInputStyle, flexShrink: 0, padding: '6px 12px' }}
+          className="button-primary"
         >
           Add
         </button>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: '8px' }}>
         {keyList.map(key => (
           <span key={key} style={keyTagStyle}>
             {key}
@@ -215,7 +223,6 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
           </span>
         ))}
       </div>
-      {/* <p className="helper-text" style={compactHelperTextStyle}>Helper text for this section.</p> */}
     </div>
   );
 
@@ -320,108 +327,76 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
           topLevelRequestType === 'postWithJson' ? 'POST with JSON Body' : ''
         }
       </div>
-      
-      <div style={compactFormSectionStyle}>
 
-        <div style={{...compactInputColumnStyle, marginBottom: '15px'}}>
-          <label style={{...compactLabelStyle, marginBottom: '8px', display: 'block'}}>API Key Placement:</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap' }}>
-            {([
-              { value: 'query', label: 'Query Param', description: 'Key in URL (e.g., ?apiKey=...)' },
-              { value: 'header', label: 'HTTP Header', description: 'Key in request header (e.g., X-Api-Key: ...)' },
-            ] as Array<{value: AuthChoice, label: string, description: string}>).map(option => (
-              <div 
-                key={option.value}
-                onClick={() => {
-                  setAuthChoice(option.value);
-                  if (option.value === 'query') setApiKeyHeaderName('');
-                  if (option.value === 'header') setApiKeyQueryParamName('');
-                }}
-                style={{
-                  ...apiKeyPlacementOptionStyle,
-                  ...(authChoice === option.value ? apiKeyPlacementOptionSelectedStyle : {}),
-                }}
-                title={option.description}
-              >
-                {option.label}
-              </div>
-            ))}
-          </div>
+      <div style={compactFormSectionStyle}>
+        <h5 style={compactH5Style}>API Key Placement</h5>
+        <div style={{ display: 'flex', flexWrap: 'wrap' }}>
+          {([
+            { value: 'query', label: 'Query Param' },
+            { value: 'header', label: 'HTTP Header' },
+          ] as { value: AuthChoice; label: string }[]).map(({ value, label }) => (
+            <div
+              key={value}
+              onClick={() => setAuthChoice(value)}
+              style={authChoice === value ? { ...apiKeyPlacementOptionStyle, ...apiKeyPlacementOptionSelectedStyle } : apiKeyPlacementOptionStyle}
+              title={label}
+            >
+              {label}
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* --- MODIFIED: New container for the inline inputs --- */}
+      <div className="form-row-container" style={{ display: 'flex', gap: '20px', alignItems: 'stretch' }}>
+        
+        {/* --- Left Side: Conditional Param Name --- */}
+        <div style={{...compactInputColumnStyle, flex: 1, minWidth: 0 }}>
+          {authChoice === 'query' && (
+            <div>
+              <label htmlFor="apiKeyQueryParamName" style={{...compactLabelStyle, display:'block', marginBottom:'4px'}}>API Key Query Param Name:</label>
+              {!apiKeyQueryParamName ? (
+                <div className="key-input-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input id="apiKeyQueryParamNameInput" type="text" value={currentApiKeyQueryNameInput} onChange={(e) => setCurrentApiKeyQueryNameInput(e.target.value)} placeholder="e.g., api_key" style={{...compactInputStyle, flexGrow: 1 }}/>
+                  <button type="button" onClick={() => { if(currentApiKeyQueryNameInput.trim()) { setApiKeyQueryParamName(currentApiKeyQueryNameInput.trim()); setCurrentApiKeyQueryNameInput(''); }}} className="button-primary" style={{...compactInputStyle, flexShrink: 0, padding: '6px 12px' }}>Set</button>
+                </div>
+              ) : (
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                   <span style={keyTagStyle}>{apiKeyQueryParamName}</span>
+                   <button onClick={() => setApiKeyQueryParamName('')} style={removeKeyButtonStyle} title={`Remove ${apiKeyQueryParamName}`}>&times;</button>
+                 </div>
+              )}
+            </div>
+          )}
+          {authChoice === 'header' && (
+            <div>
+              <label htmlFor="apiKeyHeaderName" style={{...compactLabelStyle, display:'block', marginBottom:'4px'}}>API Key Header Name:</label>
+              {!apiKeyHeaderName ? (
+                <div className="key-input-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input id="apiKeyHeaderNameInput" type="text" value={currentApiKeyHeaderNameInput} onChange={(e) => setCurrentApiKeyHeaderNameInput(e.target.value)} placeholder="e.g., X-API-Key" style={{...compactInputStyle, flexGrow: 1 }}/>
+                  <button type="button" onClick={() => { if(currentApiKeyHeaderNameInput.trim()){ setApiKeyHeaderName(currentApiKeyHeaderNameInput.trim()); setCurrentApiKeyHeaderNameInput(''); }}} className="button-primary" style={{...compactInputStyle, flexShrink: 0, padding: '6px 12px' }}>Set</button>
+                </div>
+              ) : (
+                 <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                   <span style={keyTagStyle}>{apiKeyHeaderName}</span>
+                   <button onClick={() => setApiKeyHeaderName('')} style={removeKeyButtonStyle} title={`Remove ${apiKeyHeaderName}`}>&times;</button>
+                 </div>
+              )}
+            </div>
+          )}
+          {/* This empty div acts as a placeholder when no placement is selected, maintaining alignment */}
+          {authChoice !== 'query' && authChoice !== 'header' && (
+            <div>
+              <label style={{...compactLabelStyle, display:'block', marginBottom:'4px', visibility: 'hidden'}}>Placeholder</label>
+              <div style={{height: '34px'}}></div> {/* Match height of input+button row */}
+            </div>
+          )}
         </div>
 
-        {authChoice === 'query' && (
-          <div style={compactInputColumnStyle}>
-            <label htmlFor="apiKeyQueryParamName" style={{...compactLabelStyle, display:'block', marginBottom:'2px'}}>API Key Query Param Name:</label>
-            {!apiKeyQueryParamName ? (
-              <div className="input-row-for-help" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <input 
-                  id="apiKeyQueryParamNameInput" 
-                  type="text" 
-                  value={currentApiKeyQueryNameInput} 
-                  onChange={(e) => setCurrentApiKeyQueryNameInput(e.target.value)} 
-                  placeholder="e.g., api_key"
-                  style={{...compactInputStyle, flexGrow: 1, padding: '4px 6px'}} 
-                />
-                <button 
-                  type="button" 
-                  onClick={() => { 
-                    if(currentApiKeyQueryNameInput.trim()) {
-                        setApiKeyQueryParamName(currentApiKeyQueryNameInput.trim()); 
-                        setCurrentApiKeyQueryNameInput(''); 
-                    }
-                  }}
-                  style={{...compactInputStyle, backgroundColor: 'var(--button-primary-bg)', color: 'var(--button-primary-text)', border: 'none', flexShrink: 0, padding: '6px 10px'}}
-                >
-                  Set
-                </button>
-                <span className="help-icon" title="Enter the name of the query parameter for the API key." style={{fontSize: '0.8em', marginLeft: '5px'}}>?</span>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-                <span style={keyTagStyle}>{apiKeyQueryParamName}</span>
-                <button onClick={() => setApiKeyQueryParamName('')} style={removeKeyButtonStyle} title={`Remove ${apiKeyQueryParamName}`}>&times;</button>
-              </div>
-            )}
-          </div>
-        )}
-        {authChoice === 'header' && (
-          <div style={compactInputColumnStyle}>
-            <label htmlFor="apiKeyHeaderName" style={{...compactLabelStyle, display:'block', marginBottom:'2px'}}>API Key Header Name:</label>
-            {!apiKeyHeaderName ? (
-              <div className="input-row-for-help" style={{ display: 'flex', alignItems: 'center', gap: '5px' }}>
-                <input 
-                  id="apiKeyHeaderNameInput" 
-                  type="text" 
-                  value={currentApiKeyHeaderNameInput} 
-                  onChange={(e) => setCurrentApiKeyHeaderNameInput(e.target.value)} 
-                  placeholder="e.g., X-API-Key"
-                  style={{...compactInputStyle, flexGrow: 1, padding: '4px 6px'}} 
-                />
-                <button 
-                  type="button" 
-                  onClick={() => { 
-                    if(currentApiKeyHeaderNameInput.trim()){
-                        setApiKeyHeaderName(currentApiKeyHeaderNameInput.trim()); 
-                        setCurrentApiKeyHeaderNameInput(''); 
-                    }
-                  }}
-                  style={{...compactInputStyle, backgroundColor: 'var(--button-primary-bg)', color: 'var(--button-primary-text)', border: 'none', flexShrink: 0, padding: '6px 10px'}}
-                >
-                  Set
-                </button>
-                <span className="help-icon" title="Enter the name of the HTTP header for the API key." style={{fontSize: '0.8em', marginLeft: '5px'}}>?</span>
-              </div>
-            ) : (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '5px' }}>
-                <span style={keyTagStyle}>{apiKeyHeaderName}</span>
-                <button onClick={() => setApiKeyHeaderName('')} style={removeKeyButtonStyle} title={`Remove ${apiKeyHeaderName}`}>&times;</button>
-              </div>
-            )}
-          </div>
-        )}
-        <div style={compactInputColumnStyle}>
-          <div className="input-row-for-help" style={{ display: 'flex', alignItems: 'center' }}>
-            <label htmlFor="endpointApiKey" style={{...compactLabelStyle, marginRight: '5px'}}>API Key Value (Secret)</label>
+        {/* --- Right Side: API Key Value --- */}
+        <div style={{...compactInputColumnStyle, flex: 1, minWidth: 0 }}>
+          <label htmlFor="endpointApiKey" style={{...compactLabelStyle, display: 'block', marginBottom: '4px' }}>API Key Value (Secret)</label>
+          <div className="input-row-for-help" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <input id="endpointApiKey" type="password" value={endpointApiParamKey} onChange={(e) => setEndpointApiKey(e.target.value)} placeholder="Enter secret API Key" style={{...compactInputStyle, flexGrow: 1}}/>
             <span className="help-icon" title="The actual secret API key. It will be stored securely by the backend." style={{fontSize: '0.8em', marginLeft: '5px'}}>?</span>
           </div>
@@ -441,38 +416,40 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
 
       <div style={compactFormSectionStyle}>
         <h5 style={compactH5Style}>Request Parameters Configuration</h5>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '20px' }}>
+        
+        {/* Non-JSON parameters in a row */}
+        <div className={`parameter-sections-container ${topLevelRequestType === "postWithJson" ? 'with-json-body' : ''}`}>
           { (topLevelRequestType === "getWithPath" || topLevelRequestType === "postWithJson") && 
-            <div style={{ flex: '1 1 250px', minWidth: '230px' }}>
+            <div className="parameter-section-item">
               {renderKeyInputSection("Path Parameter Keys", currentPathKeyInput, setCurrentPathKeyInput, pathParamKeys, setPathParamKeys, "e.g., userId")}
             </div>
           }
 
           { (topLevelRequestType === "getWithQuery" || topLevelRequestType === "postWithJson") && 
-            <div style={{ flex: '1 1 250px', minWidth: '230px' }}>
+            <div className="parameter-section-item">
               {renderKeyInputSection("Query Parameter Keys", currentQueryKeyInput, setCurrentQueryKeyInput, queryParamKeys, setQueryParamKeys, "e.g., searchTerm, limit")}
             </div>
           }
-          
-          {topLevelRequestType === "postWithJson" && 
-            <div style={{ flex: '1 1 250px', minWidth: '230px' }}>
-              {renderKeyInputSection("JSON Body Keys", currentBodyKeyInput, setCurrentBodyKeyInput, bodyKeys, setBodyKeys, "e.g., name, email")}
-            </div>
-          }
 
-          <div style={{ flex: '1 1 250px', minWidth: '230px' }}>
+          <div className="parameter-section-item">
             {renderKeyInputSection("Additional Header Keys", currentHeaderKeyInput, setCurrentHeaderKeyInput, headerKeys, setHeaderKeys, "e.g., X-Request-ID")}
           </div>
         </div>
+        
+        {/* JSON Body Keys on its own row */}
+        {topLevelRequestType === "postWithJson" && 
+          <div style={{ width: '100%' }}>
+            {renderKeyInputSection("JSON Body Keys", currentBodyKeyInput, setCurrentBodyKeyInput, bodyKeys, setBodyKeys, "e.g., name, email")}
+          </div>
+        }
       </div>
 
       {showSubmitButton && (
-        <div className="form-navigation modal-form-navigation" style={{ display: 'flex', justifyContent: 'flex-end', /*gap: '10px',*/ marginTop: 'auto', paddingTop: '20px' }}>
+        <div className="form-navigation modal-form-navigation" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 'auto', paddingTop: '20px' }}>
           <button 
             type="button" 
             onClick={onRegisterProvider} 
             className="button-primary submit-button"
-            style={{ /* className should handle most styling */ }}
           >
             {submitButtonText}
           </button>

@@ -1,175 +1,22 @@
-#root {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  text-align: center;
-  width: 75%;
-}
+/* Import modular CSS files */
+@import './styles/theme.css';
+@import './styles/responsive.css';
+@import './styles/mobile.css';
 
-.logo {
-  height: 6em;
-  padding: 1.5em;
-  will-change: filter;
-  transition: filter 300ms;
-}
-.logo:hover {
-  filter: drop-shadow(0 0 2em #646cffaa);
-}
-.logo.react:hover {
-  filter: drop-shadow(0 0 2em #61dafbaa);
-}
-
-@keyframes logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
-  }
-}
-
-@media (prefers-reduced-motion: no-preference) {
-  a:nth-of-type(2) .logo {
-    animation: logo-spin infinite 20s linear;
-  }
-}
-
+/* Card styles */
 .card {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
   padding: 1em;
+  margin-bottom: 1.5rem;
+  box-shadow: var(--card-shadow);
   text-align: left;
 }
 
-.read-the-docs {
-  color: #888;
-}
-
-/* --- Todo List Styles --- */
-
-.task-list {
-  list-style: none; /* Remove default bullet points */
-  padding: 0;
-  margin: 0;
+/* Ensure h2 within cards are also left-aligned */
+.card h2 {
   text-align: left;
-}
-
-.task-item {
-  display: flex;
-  align-items: center;
-  padding: 0.8em 0.5em;
-  border-bottom: 1px solid #eee;
-  font-size: 1.1em;
-}
-
-.task-item:last-child {
-  border-bottom: none;
-}
-
-.task-item.completed .task-text {
-  text-decoration: line-through;
-  color: #888;
-}
-
-.task-text {
-  flex-grow: 1; /* Allow text to take up remaining space */
-  margin-left: 0.5em; /* Space between checkbox and text */
-}
-
-/* Keep input row styles */
-.input-row {
-  display: flex;
-  flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  width: 100%;
-}
-
-.input-row > button {
-  border-top-left-radius: 0;
-  border-bottom-left-radius: 0;
-  padding: 0.5em 1.2em;
-  background-color: #4b9ad8;
-  color: white;
-  font-weight: 600;
-  border: 1px solid #4b9ad8; /* Match border */
-  cursor: pointer;
-  height: calc(2em + 2px); /* Match input height (approx) */
-  box-sizing: border-box;
-}
-
-.input-row > button:hover {
-  background-color: #357abd;
-  border-color: #357abd;
-}
-
-.input-row > input {
-  border: 1px solid #ccc;
-  padding: 0.5em 0.8em;
-  font-size: 1em;
-  border-radius: 0.25em;
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
-  width: 100%;
-  height: 2em; /* Define height */
-  box-sizing: border-box;
-}
-
-/* --- Existing Styles --- */
-
-/* Removed .message-list and related styles as they are replaced by .task-list */
-
-.node-not-connected {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  background-color: rgba(255, 255, 255, 0.9);
-  z-index: 1000;
-}
-
-.verification {
-  display: flex;
-  align-items: center;
-  gap: 1em;
-  margin-top: 0.5em;
-}
-
-.verify-button {
-  background-color: #4b9ad8;
-  border: none;
-  color: white;
-  padding: 0.5em 1em;
-  border-radius: 0.3em;
-  cursor: pointer;
-  font-size: 0.9em;
-}
-
-.verify-button:hover {
-  background-color: #357abd;
-}
-
-.verification-result {
-  font-size: 1.2em;
-  font-weight: bold;
-  padding: 0.2em 0.5em;
-  border-radius: 50%;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.verification-result.verified {
-  color: white;
-  background-color: #4caf50;
-}
-
-.verification-result.failed {
-  color: white;
-  background-color: #f44336;
 }
 
 /* New Layout Styles */
@@ -183,24 +30,37 @@
 }
 
 .app-header {
-  background-color: #1a1a1a;
-  padding: 1rem 2rem;
-  border-bottom: 1px solid #444;
-  color: #f0f0f0;
+  background-color: var(--header-bg);
+  color: var(--header-text);
+  padding: 1rem 1.5rem;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.header-left {
   display: flex;
   align-items: center;
+  gap: 1rem;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.8em;
-  text-align: left;
+  font-size: 1.8rem;
+  color: var(--heading-color);
+}
+
+.header-controls {
+  display: flex;
+  align-items: center;
+  gap: 15px;
 }
 
 .node-info {
-  font-size: 0.9em;
-  text-align: left;
-  color: #aaa;
+  font-size: 0.9rem;
+  color: var(--text-color);
+  opacity: 0.8;
 }
 
 .node-not-connected-banner {
@@ -211,409 +71,9 @@
   border: 1px solid red;
   border-radius: 4px;
 }
+
 .node-not-connected-banner p {
   margin: 0;
-}
-
-
-.providers-display-section .providers-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 1em;
-}
-
-.providers-display-section .providers-header h2 {
-  margin: 0; /* Remove default margin from h2 */
-}
-
-.toggle-form-button {
-  /* Style for the "Add New Provider" / "Cancel" button */
-  padding: 0.6em 1em;
-  font-size: 0.95em;
-}
-
-.add-provider-form-section {
-  margin-top: 2em; /* Space it out from the providers list */
-}
-
-/* Adjustments for helper text in the context of the new explanation */
-.helper-text ul {
-  margin-top: 0.5em !important; /* Ensure spacing for lists in helper text */
-  margin-bottom: 0.5em !important;
-}
-.helper-text ul li {
-  margin-bottom: 0.3em;
-}
-.helper-text ul ul { /* Nested lists */
-  margin-top: 0.2em !important;
-  margin-bottom: 0.2em !important;
-  padding-left: 15px !important; /* Indent nested lists further */
-}
-
-/* Responsive considerations (optional basic example) */
-@media (max-width: 768px) {
-  .app-header {
-    padding: 1rem;
-  }
-  .main-content {
-    padding: 1rem;
-  }
-  .providers-display-section .providers-header {
-    flex-direction: column;
-    align-items: flex-start;
-  }
-  .toggle-form-button {
-    margin-top: 0.5em;
-  }
-}
-
-/* Ensure h2 within cards are also left-aligned */
-.card h2 {
-  text-align: left;
-}
-
-/* Styles for Step 1: Pattern Selection */
-.pattern-selection-section {
-  margin-top: 2em;
-}
-
-.pattern-selection-section h2 {
-  margin-bottom: 0.5em;
-}
-
-.api-patterns-container {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); /* Responsive grid */
-  gap: 1.5em;
-  margin-top: 1.5em;
-}
-
-.pattern-card {
-  background-color: #303030;
-  border: 1px solid #4a4a4a;
-  border-radius: 8px;
-  padding: 1.5em;
-  cursor: pointer;
-  transition: all 0.2s ease-in-out;
-  display: flex;
-  flex-direction: column;
-}
-
-.pattern-card:hover {
-  transform: translateY(-5px);
-  box-shadow: 0 6px 12px rgba(0, 0, 0, 0.2);
-  border-color: #61dafbaa;
-}
-
-.pattern-icon {
-  font-size: 2.5em;
-  margin-bottom: 0.5em;
-  text-align: center;
-}
-
-.pattern-card h3 {
-  margin-top: 0;
-  margin-bottom: 0.75em;
-  color: #61dafbaa;
-  text-align: center;
-}
-
-.pattern-card p {
-  font-size: 0.9em;
-  color: #c0c0c0;
-  flex-grow: 1; /* Makes description take available space */
-  margin-bottom: 1em;
-}
-
-.pattern-example {
-  font-size: 0.85em;
-  color: #aaa;
-  margin-top: auto; /* Pushes example to the bottom if card heights vary */
-  font-weight: bold;
-  margin-bottom: 0.5em;
-}
-
-.pattern-card pre {
-  background-color: #2a2a2a;
-  padding: 0.8em;
-  border-radius: 4px;
-  font-size: 0.8em;
-  color: #b0b0b0;
-  white-space: pre-wrap; /* Allow wrapping */
-  word-break: break-all;
-}
-
-/* Adjust existing button for toggling form / canceling */
-.toggle-form-button,
-.add-provider-form-section button[onClick*="handleBackToPatternSelection"] {
-  background-color: #555; /* A more neutral color for secondary actions */
-}
-
-.toggle-form-button:hover,
-.add-provider-form-section button[onClick*="handleBackToPatternSelection"]:hover {
-  background-color: #666;
-}
-
-/* Primary action button (Register) should remain distinct */
-.add-provider-form-section button[onClick*="handleRegisterProvider"] {
-  background-color: #007bff; /* Keep this as the primary blue */
-}
-.add-provider-form-section button[onClick*="handleRegisterProvider"]:hover {
-  background-color: #0056b3;
-}
-
-/* Styles for API Call Scaffold */
-.api-scaffold-container {
-  background-color: var(--card-bg); /* Use card background for scaffold container */
-  border: 1px solid var(--card-border);
-  padding: 1rem;
-  border-radius: 6px;
-  /* margin-top: 1rem; */ /* Removed, as gap in flex layout handles this */
-}
-
-.api-scaffold-container h3 {
-  margin-top: 0;
-  margin-bottom: 0.25em; /* Closer to the helper text below it */
-  color: #61dafbaa; /* Consistent with other section titles */
-}
-
-.api-scaffold-content {
-  background-color: #1e1e1e; /* Darker background for the code itself */
-  color: #d4d4d4; /* Default text color for code */
-  padding: 1em;
-  border-radius: 4px;
-  font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-  font-size: 0.9em;
-  white-space: pre-wrap; /* Ensures it wraps but respects formatting */
-  word-break: break-all;
-  margin-top: 1em; /* Space from helper text */
-}
-
-.api-scaffold-content .scaffold-method {
-  color: #c586c0; /* Color for HTTP method (e.g., purple) */
-  font-weight: bold;
-}
-
-.api-scaffold-content .scaffold-url {
-  color: #9cdcfe; /* Color for URL (e.g., light blue) */
-}
-
-.api-scaffold-content .scaffold-query {
-  color: #4ec9b0; /* Color for query parameters (e.g., teal) */
-}
-
-.api-scaffold-content .scaffold-section-title {
-  color: #ce9178; /* Color for section titles like "Headers:", "Body:" (e.g., orange) */
-  font-weight: bold;
-  margin-top: 0.75em; /* Space before header/body sections */
-  display: block; /* Ensure it takes its own line */
-}
-
-.api-scaffold-content div { /* For individual header lines or body lines */
-  margin-left: 1em; /* Indent lines within Headers/Body */
-  line-height: 1.4;
-}
-
-/* JSON styling for API scaffold */
-.api-scaffold-content div[class*="scaffold-section-title"] + div {
-    color: #d7ba7d; /* JSON syntax color */
-    font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
-}
-
-.api-scaffold-content div[class*="scaffold-section-title"] + div .json-key {
-    color: #9cdcfe; /* Keys in light blue */
-}
-
-.api-scaffold-content div[class*="scaffold-section-title"] + div .json-string {
-    color: #ce9178; /* String values in orange */
-}
-
-.api-scaffold-content div[class*="scaffold-section-title"] + div .json-punctuation {
-    color: #d4d4d4; /* Braces, commas, etc. in light gray */
-}
-
-/* Define light theme variables by default (or under :root or html[data-theme="light"]) */
-:root {
-  --background-color: #f6f6f6; /* USER SPECIFIED LIGHT BACKGROUND */
-  --text-color: #111111;       /* USER SPECIFIED LIGHT TEXT */
-  --heading-color: #004fff;    /* USER SPECIFIED LIGHT HEADING */
-
-  --header-bg: #ffffff;
-  --header-text: var(--heading-color); /* Use main heading color */
-  --card-bg: #ffffff;
-  --card-border: #e0e0e0;
-  --button-primary-bg: #3498db;
-  --button-primary-text: #ffffff;
-  --button-secondary-bg: #bdc3c7;
-  --button-secondary-text: #2c3e50;
-  --input-bg: #fff;
-  --input-border: #ccc;
-  --input-text: #111111; /* Match main text color */
-  --link-color: #004fff; /* Match heading color for consistency or choose another blue */
-  --link-hover-color: #003cb3; /* Darker shade of link-color */
-  
-  --modal-content-bg: #fff;
-  --modal-header-border: #dee2e6;
-  --modal-title-color: var(--heading-color); /* Use main heading color */
-  --modal-close-color: #6c757d;
-  --modal-close-hover-color: #000000;
-  --modal-overlay-bg: rgba(0, 0, 0, 0.65);
-
-  --provider-item-border: #eee;
-  --details-summary-bg: #f0f0f0; /* Lighter than main bg for subtle contrast */
-  
-  --scaffold-bg: #efefef; 
-  --scaffold-border-color: #dee2e6;
-  --scaffold-code-default-color: var(--text-color);
-  --scaffold-method-color: #007bff; 
-  --scaffold-url-color: #28a745;    
-  --scaffold-query-color: #fd7e14;  
-  --scaffold-header-key-color: #6f42c1; 
-  --scaffold-section-title-color: var(--heading-color); /* Use main heading color */
-  
-  --button-subtle-hover-bg: rgba(0, 0, 0, 0.05);
-  --card-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); /* Slightly more pronounced shadow */
-
-  /* Additional variables for validation panel */
-  --primary-color: var(--heading-color);
-  --primary-hover-color: var(--link-hover-color);
-  --secondary-color: var(--button-secondary-bg);
-  --secondary-hover-color: var(--button-subtle-hover-bg);
-  --border-color: var(--card-border);
-  --input-bg-color: var(--input-bg);
-  --code-bg-color: var(--scaffold-bg);
-  --code-text-color: var(--scaffold-code-default-color);
-}
-
-/* Define dark theme variables */
-html[data-theme="dark"] {
-  --background-color: #111111; /* USER SPECIFIED DARK BACKGROUND */
-  --text-color: #f6f6f6;       /* USER SPECIFIED DARK TEXT */
-  --heading-color: #dcff71;    /* USER SPECIFIED DARK HEADING */
-
-  --header-bg: #1c1c1c; /* Slightly lighter than main bg for depth */
-  --header-text: var(--heading-color); /* Use main heading color */
-  --card-bg: #1e1e1e;
-  --card-border: #333333;
-  --button-primary-bg: #dcff71; /* Match heading for primary actions */
-  --button-primary-text: #111111; /* Contrasting text for primary button */
-  --button-secondary-bg: #3a3a3a;
-  --button-secondary-text: #f0f0f0;
-  --input-bg: #2c2c2c;
-  --input-border: #444444;
-  --input-text: #f6f6f6; /* Match main text color */
-  --link-color: #dcff71; /* Match heading color for consistency */
-  --link-hover-color: #caff40; /* Lighter shade */
-  
-  --modal-content-bg: #1e1e1e;
-  --modal-header-border: #333333;
-  --modal-title-color: var(--heading-color); /* Use main heading color */
-  --modal-close-color: #aaaaaa;
-  --modal-close-hover-color: #ffffff;
-  --modal-overlay-bg: rgba(0, 0, 0, 0.75);
-
-  --provider-item-border: #333333;
-  --details-summary-bg: #2a2a2a;
-  
-  --scaffold-bg: #1c1c1c; 
-  --scaffold-border-color: #333333;
-  --scaffold-code-default-color: var(--text-color);
-  --scaffold-method-color: #bb86fc; /* Vibrant purple */
-  --scaffold-url-color: #03dac6;    /* Teal */
-  --scaffold-query-color: #f0ad4e;  
-  --scaffold-header-key-color: #ff9800; /* Amber */
-  --scaffold-section-title-color: var(--heading-color); /* Use main heading color */
-  
-  --button-subtle-hover-bg: rgba(255, 255, 255, 0.08);
-  --card-shadow: 0 3px 6px rgba(0,0,0,0.16), 0 3px 6px rgba(0,0,0,0.23);
-
-  /* Additional variables for validation panel - dark theme */
-  --primary-color: var(--heading-color);
-  --primary-hover-color: var(--link-hover-color);
-  --secondary-color: var(--button-secondary-bg);
-  --secondary-hover-color: var(--button-subtle-hover-bg);
-  --border-color: var(--card-border);
-  --input-bg-color: var(--input-bg);
-  --code-bg-color: var(--scaffold-bg);
-  --code-text-color: var(--scaffold-code-default-color);
-}
-
-/* Apply variables to your existing styles */
-body {
-  margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
-    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
-    sans-serif;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  background-color: var(--background-color);
-  color: var(--text-color);
-  transition: background-color 0.3s ease, color 0.3s ease;
-}
-
-/* Generic Heading Styles */
-h1, h2, h3, h4, h5, h6 {
-  color: var(--heading-color);
-  font-weight: 600; /* Making headings a bit bolder */
-}
-
-/* ... (other global styles) ... */
-
-.app-container {
-  display: flex;
-  flex-direction: column;
-  min-height: 100vh;
-  background-color: var(--background-color);
-  color: var(--text-color);
-}
-
-.app-header {
-  background-color: var(--header-bg);
-  color: var(--header-text);
-  padding: 1rem 1.5rem;
-  box-shadow: 0 2px 5px rgba(0,0,0,0.1);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-}
-
-.app-header h1 {
-  margin: 0;
-  font-size: 1.8rem;
-  color: var(--heading-color); /* Explicitly set for app title */
-}
-
-.header-controls {
-    display: flex;
-    align-items: center;
-    gap: 15px; /* Space between toggle button and node info */
-}
-
-.theme-toggle-button {
-  background: none;
-  border: none;
-  color: var(--link-color); 
-  cursor: pointer;
-  padding: 0.25rem 0.5rem; 
-  font-size: 0.85rem;    
-  text-decoration: none; 
-  border-radius: 4px;    
-  margin-left: 5px;      
-}
-
-.theme-toggle-button:hover,
-.theme-toggle-button:focus { 
-  color: var(--link-hover-color);
-  background-color: var(--button-subtle-hover-bg); 
-  text-decoration: underline; 
-  outline: none; 
-}
-
-.node-info {
-  font-size: 0.9rem;
-  color: var(--text-color); /* Node info should use regular text color */
-  opacity: 0.8; /* Slightly muted */
 }
 
 .main-content {
@@ -624,42 +84,112 @@ h1, h2, h3, h4, h5, h6 {
   width: 100%;
 }
 
-.card {
+/* Providers Section */
+.providers-display-section .providers-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1em;
+}
+
+.providers-display-section .providers-header h2 {
+  margin: 0;
+  color: var(--heading-color);
+}
+
+.toggle-form-button {
+  padding: 0.6em 1em;
+  font-size: 0.95em;
+}
+
+.provider-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.provider-item {
+  border-bottom: 1px solid var(--provider-item-border);
+  padding: 1rem 0;
+}
+
+.provider-item:last-child {
+  border-bottom: none;
+}
+
+/* Registered Provider Card */
+.registered-provider-card {
   background-color: var(--card-bg);
   border: 1px solid var(--card-border);
   border-radius: 8px;
   padding: 1.5rem;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
   box-shadow: var(--card-shadow);
 }
 
-.card h2 { /* Ensure card titles also use the heading color */
-  color: var(--heading-color);
-  margin-top: 0; /* Adjust as needed */
-}
-
-/* Ensure provider list headers use heading color */
-.providers-display-section .providers-header h2 {
+.provider-name {
+  margin: 0;
+  font-size: 1.2rem;
   color: var(--heading-color);
 }
 
-/* Update other elements like buttons, inputs, modal etc. */
+.provider-icon {
+  font-size: 1.2em;
+  margin-right: 0.5rem;
+}
+
+.provider-price {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.provider-edit-button {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border: 1px solid var(--input-border);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: opacity 0.2s ease;
+}
+
+.provider-edit-button:hover {
+  opacity: 0.8;
+}
+
+/* App Logo */
+.app-logo {
+  height: 40px;
+  width: auto;
+  margin-right: 15px;
+  vertical-align: middle;
+}
+
+/* Button styles */
 button, input[type="text"], input[type="url"], input[type="password"], select, textarea {
   background-color: var(--input-bg);
   color: var(--input-text);
   border: 1px solid var(--input-border);
-  padding: 0.6em 0.8em; /* Standardized padding */
+  padding: 0.6em 0.8em;
   border-radius: 4px;
   font-size: 0.95em;
 }
 
 input[type="text"], input[type="url"], input[type="password"], select, textarea {
-    width: 100%; /* Make form inputs take full available width by default */
-    box-sizing: border-box; /* Include padding and border in the element's total width and height */
+  width: 100%;
+  box-sizing: border-box;
 }
 
 select {
-    padding-right: 2em; /* Space for dropdown arrow */
+  padding-right: 2em;
 }
 
 .button-primary {
@@ -667,6 +197,7 @@ select {
   color: var(--button-primary-text);
   border: none;
 }
+
 .button-primary:hover {
   opacity: 0.9;
 }
@@ -674,69 +205,286 @@ select {
 .button-secondary {
   background-color: var(--button-secondary-bg);
   color: var(--button-secondary-text);
-  border: 1px solid var(--input-border); /* Give secondary buttons a slight border */
+  border: 1px solid var(--input-border);
 }
+
 .button-secondary:hover {
   opacity: 0.9;
 }
 
-.provider-item {
-  border-bottom: 1px solid var(--provider-item-border);
-  padding: 1rem 0;
-}
-.provider-item:last-child {
-    border-bottom: none;
-}
-
-.provider-item strong {
-    color: var(--heading-color); /* Make provider names stand out */
-    font-size: 1.1em;
+/* Specific button styles */
+.providers-header > .toggle-form-button {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border: none;
 }
 
-.provider-item details summary {
-    background-color: var(--details-summary-bg);
-    color: var(--text-color); /* Summary text should be normal text color */
-    padding: 0.5em;
-    border-radius: 4px;
-    cursor: pointer;
-}
-.provider-item details[open] summary {
-    border-bottom-left-radius: 0;
-    border-bottom-right-radius: 0;
-}
-.provider-item details ul {
-    padding: 0.5em 1em 1em 1em;
-    margin: 0;
-    background-color: var(--details-summary-bg);
-    border: 1px solid var(--card-border); /* Match card border */
-    border-top: none;
-    border-bottom-left-radius: 4px;
-    border-bottom-right-radius: 4px;
+.providers-header > .toggle-form-button:hover {
+  opacity: 0.9;
 }
 
-/* Styles for ApiCallScaffold in App.css */
+/* Modal styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: var(--modal-overlay-bg, rgba(0, 0, 0, 0.65));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 15px;
+  backdrop-filter: blur(3px);
+}
+
+.modal-content {
+  background-color: var(--modal-content-bg, #ffffff);
+  color: var(--text-color, #333333);
+  padding: 20px 25px 25px 25px;
+  border-radius: 12px;
+  box-shadow: var(--card-shadow, 0 8px 25px rgba(0, 0, 0, 0.2));
+  width: 100%;
+  max-width: 800px;
+  max-height: 90vh;
+  overflow-y: auto;
+  position: relative;
+  animation: slideInUp 0.3s ease-out;
+}
+
+@keyframes slideInUp {
+  from {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-bottom: 12px;
+  margin-bottom: 15px;
+  border-bottom: 1px solid var(--modal-header-border, #dee2e6);
+  position: relative;
+}
+
+.modal-title {
+  margin: 0;
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--modal-title-color, #212529);
+}
+
+.modal-close-button {
+  background: transparent;
+  border: none;
+  font-size: 1.6rem;
+  font-weight: 400;
+  color: var(--modal-close-color, #6c757d);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.2s ease;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.modal-close-button:hover {
+  color: var(--modal-close-hover-color, #000000);
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+.modal-body {
+  /* Inherits text color from .modal-content */
+}
+
+/* Modal content layout */
+.modal-content-columns {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+}
+
+.modal-left-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.modal-right-column {
+  flex: 1;
+  overflow-y: auto;
+}
+
+/* Form styles */
+.form-section {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 1rem;
+  border-radius: 6px;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 500;
+  font-size: 0.9em;
+  color: var(--text-color);
+  opacity: 0.95;
+}
+
+.form-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  font-weight: 500;
+  font-size: 0.9em;
+  color: var(--text-color);
+  opacity: 0.95;
+}
+
+.form-navigation {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.modal-form-navigation {
+  display: flex;
+  justify-content: flex-end;
+  gap: 1rem;
+}
+
+/* Hypergrid Entry Form */
+.hypergrid-entry-form {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 1rem;
+  border-radius: 6px;
+}
+
+.hns-name {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--heading-color);
+  margin-bottom: 1rem;
+}
+
+/* Input helpers */
+.input-row-for-help {
+  display: flex;
+  align-items: center;
+  gap: 0.6em;
+  margin-bottom: 0.5em;
+}
+
+.input-row-for-help label {
+  margin-bottom: 0;
+  flex-shrink: 0;
+  min-width: 180px;
+  font-size: 0.85em;
+  color: var(--text-color);
+  opacity: 0.95;
+}
+
+.input-row-for-help input[type="text"],
+.input-row-for-help input[type="password"],
+.input-row-for-help input[type="url"],
+.input-row-for-help select {
+  flex-grow: 1;
+  width: auto;
+  margin-bottom: 0;
+  font-size: 0.85em;
+  padding: 0.4em 0.6em;
+}
+
+.help-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.3em;
+  height: 1.3em;
+  border-radius: 50%;
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  font-size: 0.75em;
+  font-weight: bold;
+  cursor: help;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.key-input-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* API Configuration */
+.api-format-selection-pane {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 1rem;
+  border-radius: 6px;
+}
+
+.form-row-container {
+  display: flex;
+  gap: 20px;
+  align-items: stretch;
+}
+
+.parameter-sections-container {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.parameter-sections-container.with-json-body {
+  margin-bottom: 20px;
+}
+
+.parameter-section-item {
+  flex: 1;
+  min-width: 250px;
+}
+
+/* API Scaffold */
+.api-scaffold-container {
+  background-color: var(--card-bg);
+  border: 1px solid var(--card-border);
+  padding: 1rem;
+  border-radius: 6px;
+}
 
 .api-scaffold-container h3 {
-  color: var(--heading-color); 
+  color: var(--heading-color);
   margin-top: 0;
   margin-bottom: 0.5em;
 }
 
-.api-scaffold-container .helper-text {
-  color: var(--text-color); 
-  opacity: 0.85;
-  font-size: 0.9em;
-  margin-top: -0.25em; 
-  margin-bottom: 1em; 
-  text-align: center; /* Center the text content */
-  max-width: 90%;     /* Optional: make the block slightly narrower */
-  margin-left: auto;  /* Center the block horizontally */
-  margin-right: auto; /* Center the block horizontally */
-}
-
-.api-scaffold-content { 
+.api-scaffold-content {
   background-color: var(--scaffold-bg);
-  color: var(--scaffold-code-default-color); 
+  color: var(--scaffold-code-default-color);
   border: 1px solid var(--scaffold-border-color);
   padding: 1rem;
   border-radius: 4px;
@@ -747,272 +495,30 @@ select {
 }
 
 .api-scaffold-content code {
-    white-space: pre-wrap; 
-    word-break: break-all; 
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 
-.scaffold-method {
-  color: var(--scaffold-method-color);
-  font-weight: bold;
+.horizontal-scroll {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
-.scaffold-url {
-  color: var(--scaffold-url-color);
-}
-
-.scaffold-query {
-  color: var(--scaffold-query-color);
-}
-
-.scaffold-section-title {
-  color: var(--scaffold-section-title-color);
-  font-weight: bold;
-  margin-top: 0.75em;
-  margin-bottom: 0.25em;
-  display: block; 
-}
-
-.api-scaffold-content div > span.scaffold-header-key { 
-    color: var(--scaffold-header-key-color);
-    font-weight: 500;
-}
-
-/* Cleanup old specific styles that are now covered by theme variables */
-/* For example, .pattern-card and its children should now use theme variables */
-.pattern-card {
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
-  /* ... other styles like radius, cursor, transition ... */
-}
-
-.pattern-card:hover {
-  /* ... keep transform, adjust shadow if needed based on theme ... */
-  border-color: var(--link-color); /* Example: use link color for hover border */
-  box-shadow: var(--card-shadow); /* Could be a slightly more emphasized shadow variable */
-}
-
-.pattern-card h3 {
-  color: var(--heading-color);
-  /* ... */
-}
-
-.pattern-card p {
-  color: var(--text-color);
-  opacity: 0.9;
-  /* ... */
-}
-
-.pattern-example {
-  color: var(--text-color);
-  opacity: 0.7;
-  /* ... */
-}
-
-.pattern-card pre {
-  background-color: var(--scaffold-bg); /* Use scaffold bg for consistency */
-  color: var(--scaffold-code-default-color);
-  /* ... */
-}
-
-/* General form styling inside modal */
-.modal-form-container .form-step {
-    margin-bottom: 1.5rem;
-}
-
-.modal-form-container .form-section h5 {
-    color: var(--heading-color);
-    opacity: 0.9;
-    margin-bottom: 0.75rem;
-    border-bottom: 1px solid var(--card-border);
-    padding-bottom: 0.5rem;
-}
-
-.modal-form-container .input-column {
-    margin-bottom: 1rem;
-}
-
-.modal-form-container label {
-    display: block;
-    margin-bottom: 0.35rem;
-    font-weight: 500;
-    font-size: 0.9em;
-    color: var(--text-color);
-    opacity: 0.95;
-}
-
-.modal-form-container .helper-text {
-    font-size: 0.8em;
-    color: var(--text-color);
-    opacity: 0.7;
-    margin-top: 0.3rem;
-}
-
-/* Ensure buttons inside modal form also use theme variables */
-.modal-form-navigation .button-primary {
-    background-color: var(--button-primary-bg);
-    color: var(--button-primary-text);
-}
-
-.modal-form-navigation .button-secondary {
-    background-color: var(--button-secondary-bg);
-    color: var(--button-secondary-text);
-}
-
-/* Form specific helper text styling, like <code> */
-.form-step .helper-text code {
-  background-color: var(--scaffold-bg); /* Consistent with code blocks */
-  color: var(--scaffold-code-default-color);
-  padding: 0.1em 0.4em;
-  border-radius: 3px;
-  font-size: 0.95em;
-}
-
-/* Specific styling for the 'Add New Provider Configuration' button on the main page */
-.providers-header > .toggle-form-button {
-    background-color: var(--button-primary-bg);
-    color: var(--button-primary-text);
-    border: none;
-}
-.providers-header > .toggle-form-button:hover {
-    opacity: 0.9;
-}
-
-/* New styles for modal content layout */
-.modal-content-layout-split {
-  display: flex;
-  flex-direction: row;
-  gap: 1.5rem; /* Adjust gap as needed */
-}
-
-.modal-content-layout-split > .api-scaffold-container {
-  flex: 0 0 45%; /* Do not grow, do not shrink, basis 45% */
-  /* max-height: 70vh; /* Example: constrain height if content is too long */
-  /* overflow-y: auto; */
-}
-
-.modal-content-layout-split > .modal-form-container {
-  flex: 1 1 55%; /* Grow and shrink as needed, basis 55% */
-  /* max-height: 70vh; /* Example: constrain height */
-  /* overflow-y: auto; */
-}
-
-.app-logo {
-  height: 40px; /* Adjust as needed for your logo's aspect ratio and header height */
-  width: auto;   /* Maintain aspect ratio */
-  margin-right: 15px; /* Space between logo and title */
-  vertical-align: middle; /* Helps align with text if header elements aren't perfectly centered by flex */
-}
-
-/* Adjust .app-header if needed to ensure logo and title are well aligned */
-.app-header {
-  /* ... your existing .app-header styles ... */
-  display: flex; /* Should already be there */
-  align-items: center; /* Ensures logo and title are vertically aligned */
-}
-
-/* Styles for input rows with help icons */
-.input-row-for-help {
-  display: flex;
-  align-items: center; /* Vertically align label, input, icon */
-  gap: 0.6em;         /* Adjusted gap */
-  margin-bottom: 0.5em; /* Add some space below each row */
-}
-
-.input-row-for-help label {
-  margin-bottom: 0; /* Remove default label bottom margin */
-  flex-shrink: 0;   /* Prevent label from shrinking */
-  min-width: 180px; /* Adjust as needed - this creates alignment */
-  /* text-align: right; /* Optional: for aligning text to the right edge of the label's box */
-  font-size: 0.85em; /* Smaller font size for label */
-  color: var(--text-color);
-  opacity: 0.95;
-}
-
-.input-row-for-help input[type="text"],
-.input-row-for-help input[type="password"],
-.input-row-for-help input[type="url"],
-.input-row-for-help select {
-  flex-grow: 1;     /* Allow input/select to take remaining space */
-  width: auto;      /* Override width: 100% from general input styles */
-  margin-bottom: 0; /* Remove bottom margin if it was for a <p> below */
-  font-size: 0.85em; /* Smaller font size for input/select */
-  padding: 0.4em 0.6em; /* Reduced padding for more compact inputs */
-}
-
-.help-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 1.3em; /* Slightly larger for touch */
-  height: 1.3em;
-  border-radius: 50%;
-  background-color: var(--button-secondary-bg); /* Use a theme variable */
-  color: var(--button-secondary-text);       /* Use a theme variable */
-  font-size: 0.75em; /* Smaller font inside the icon */
-  font-weight: bold;
-  cursor: help;
-  user-select: none; /* Prevent selecting the '?' */
-  flex-shrink: 0; /* Prevent icon from shrinking */
-}
-
-/* Adjust .input-column if its primary content is now .input-row-for-help */
-.input-column {
-    margin-bottom: 0.5rem; /* Reduced margin if direct children are input-row-for-help */
-}
-
-/* Existing helper text style for any full paragraph helpers that remain */
-.modal-form-container .helper-text {
-    font-size: 0.8em;
-    color: var(--text-color);
-    opacity: 0.7;
-    margin-top: 0.3rem; /* Keep for paragraphs */
-}
-
-/* Style for short, inline helper text */
-.helper-text-short {
-  font-size: 0.75em;
-  color: var(--text-color);
-  opacity: 0.6;
-  margin-top: 0.15rem;
-  margin-left: calc(180px + 0.6em + 0.6em); /* Align with start of input field (label min-width + gap + input padding-left approx) */
-  /* Adjust margin-left based on your final label min-width and gap */
-  display: block; /* Ensure it takes its own line if needed */
-}
-
-/* New styles for modal content layout */
-.modal-content-layout-split {
-  display: flex;
-  flex-direction: row;
-  gap: 1.5rem; /* Adjust gap as needed */
-}
-
-.modal-content-layout-split > .api-scaffold-container {
-  flex: 0 0 45%; /* Do not grow, do not shrink, basis 45% */
-  /* max-height: 70vh; /* Example: constrain height if content is too long */
-  /* overflow-y: auto; */
-}
-
-.modal-content-layout-split > .modal-form-container {
-  flex: 1 1 55%; /* Grow and shrink as needed, basis 55% */
-  /* max-height: 70vh; /* Example: constrain height */
-  /* overflow-y: auto; */
-}
-
-/* Apply similar box styling to the form container on the right */
-.modal-form-container {
-  background-color: var(--card-bg); /* Use card background */
-  border: 1px solid var(--card-border);
-  padding: 1rem; /* Adjusted padding to match api-scaffold-container (was 1.5rem) */
-  border-radius: 6px; /* Match scaffold container */
-  /* Ensure it behaves well in flex layout */
-  display: flex;
-  flex-direction: column;
-}
-
-/* Validation Panel Styles */
+/* Validation Panel */
 .validation-panel {
   padding: 20px;
   max-width: 100%;
+}
+
+.validation-columns {
+  display: flex;
+  flex-direction: row;
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.validation-inputs, .curl-preview {
+  flex: 1;
 }
 
 .validation-panel h3 {
@@ -1023,10 +529,6 @@ select {
 .validation-panel p {
   margin-bottom: 20px;
   color: var(--text-color);
-}
-
-.validation-inputs {
-  margin-bottom: 30px;
 }
 
 .validation-inputs h4 {
@@ -1140,108 +642,51 @@ select {
   background-color: var(--secondary-hover-color);
 }
 
-/* Dark theme adjustments for validation panel */
-[data-theme="dark"] .curl-preview .api-scaffold-content {
-  background-color: #2d3748;
-  color: #e2e8f0;
-  border-color: #4a5568;
-}
-
-[data-theme="dark"] .feedback.success {
-  background-color: #2d5016;
-  color: #9ae6b4;
-  border-color: #276749;
-}
-
-[data-theme="dark"] .feedback.error {
-  background-color: #742a2a;
-  color: #fed7d7;
-  border-color: #e53e3e;
-}
-
-[data-theme="dark"] .feedback.info {
-  background-color: #1a365d;
-  color: #90cdf4;
-  border-color: #3182ce;
-}
-
-/* Floating Cards View */
-.floating-cards-section {
+/* Desktop menu styles */
+.desktop-menu-container {
   position: relative;
-  overflow: visible !important; /* Allow cards to be dragged beyond boundaries */
 }
 
-.floating-cards-container {
-  min-height: 100%;
-  min-width: 100%;
-}
-
-/* Prevent text selection during drag */
-.floating-cards-section * {
-  -webkit-user-select: none;
-  -moz-user-select: none;
-  -ms-user-select: none;
-  user-select: none;
-}
-
-/* Allow text selection for content that should be selectable */
-.floating-cards-section .no-drag {
-  -webkit-user-select: text;
-  -moz-user-select: text;
-  -ms-user-select: text;
-  user-select: text;
-  cursor: default !important; /* Override grab cursor for interactive elements */
-}
-
-.floating-cards-section .no-drag:hover {
-  cursor: default !important;
-}
-
-/* Card hover effects */
-.floating-cards-section .card:hover {
-  transform: scale(1.02);
-  transition: transform 0.2s ease;
-}
-
-/* Blur background when dragging */
-.floating-cards-section.dragging {
-  background: linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(147, 51, 234, 0.1) 100%);
-}
-
-/* SelectionModal styles */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: var(--modal-overlay-bg, rgba(0, 0, 0, 0.65)); /* Fallback if var is not defined */
+.desktop-menu-button {
+  background: none;
+  border: 1px solid var(--button-border);
+  color: var(--text-color);
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  min-width: 40px;
+  height: 40px;
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 1000;
-  padding: 15px; /* Add some padding for smaller screens */
-  backdrop-filter: blur(3px); /* Optional: Frosted glass effect for background */
 }
 
-.modal-content {
-  background-color: var(--modal-content-bg, #ffffff); /* Fallback to a light color */
-  color: var(--text-color, #333333); /* Inherit general text color */
-  padding: 20px 25px 25px 25px; /* Adjust padding */
-  border-radius: 12px; /* More rounded corners */
-  box-shadow: var(--card-shadow, 0 8px 25px rgba(0, 0, 0, 0.2)); /* Softer, more modern shadow */
-  width: 100%;
-  max-width: 650px; /* Adjust max-width as needed */
-  max-height: 90vh;
-  overflow-y: auto;
-  position: relative;
-  animation: slideInUp 0.3s ease-out; /* Animation */
+.desktop-menu-button:hover {
+  background-color: var(--button-subtle-hover-bg);
+  border-color: var(--button-hover-border);
 }
 
-@keyframes slideInUp {
+.desktop-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  min-width: 200px;
+  z-index: 1001;
+  animation: fadeInDown 0.2s ease-out;
+  overflow: hidden;
+}
+
+@keyframes fadeInDown {
   from {
     opacity: 0;
-    transform: translateY(30px);
+    transform: translateY(-10px);
   }
   to {
     opacity: 1;
@@ -1249,39 +694,84 @@ select {
   }
 }
 
-.modal-header {
+.desktop-menu-dropdown .menu-item {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--card-border);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-bottom: 12px; /* Reduced padding */
-  margin-bottom: 15px; /* Reduced margin */
-  border-bottom: 1px solid var(--modal-header-border, #dee2e6); /* Lighter border */
+  transition: background-color 0.2s ease;
 }
 
-.modal-title {
-  margin: 0;
-  font-size: 1.4rem; /* Adjusted title size */
-  font-weight: 600; /* Slightly bolder */
-  color: var(--modal-title-color, #212529); /* Darker title color */
+.desktop-menu-dropdown .menu-item:last-child {
+  border-bottom: none;
 }
 
-.modal-close-button {
-  background: transparent; /* Transparent background */
+.desktop-menu-dropdown .menu-button {
+  width: 100%;
+  background: none;
   border: none;
-  font-size: 1.8rem; /* Adjusted size */
-  font-weight: 300; /* Lighter weight for a softer look */
-  color: var(--modal-close-color, #6c757d);
+  text-align: left;
   cursor: pointer;
-  padding: 0; /* Remove padding */
-  line-height: 1;
-  transition: color 0.2s ease; /* Smooth transition */
+  color: var(--text-color);
+  padding: 0;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
 }
 
-.modal-close-button:hover {
-  color: var(--modal-close-hover-color, #000000); /* Black on hover */
+.desktop-menu-dropdown .menu-button:hover {
+  background-color: var(--button-subtle-hover-bg);
 }
 
-.modal-body {
-  /* color: var(--text-color); /* Text color should be inherited from .modal-content */
-  /* Add any specific styles for the modal's body content if needed */
+.desktop-menu-dropdown .menu-button:active {
+  background-color: var(--button-secondary-bg);
+  opacity: 0.7;
 }
+
+.desktop-menu-dropdown .menu-label {
+  font-size: 0.9rem;
+  color: var(--text-color);
+  opacity: 0.8;
+}
+
+.desktop-menu-dropdown .menu-value {
+  font-size: 0.9rem;
+  color: var(--text-color);
+  font-weight: 500;
+}
+
+/* Clear and Copy form button styles */
+.clear-form-button {
+  background-color: var(--button-secondary-bg) !important;
+  color: var(--button-secondary-text) !important;
+  opacity: 0.8;
+  font-size: 0.85rem !important;
+  padding: 6px 14px !important;
+  border: 1px solid var(--button-border) !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.clear-form-button:hover {
+  opacity: 1 !important;
+  background-color: var(--button-secondary-hover) !important;
+}
+
+.copy-form-button {
+  background-color: var(--button-secondary-bg) !important;
+  color: var(--button-secondary-text) !important;
+  opacity: 0.8;
+  font-size: 0.85rem !important;
+  padding: 6px 14px !important;
+  border: 1px solid var(--button-border) !important;
+  border-radius: 4px !important;
+  cursor: pointer !important;
+  transition: all 0.2s ease !important;
+}
+
+.copy-form-button:hover {
+  opacity: 1 !important;
+  background-color: var(--button-secondary-hover) !important;
+}
+

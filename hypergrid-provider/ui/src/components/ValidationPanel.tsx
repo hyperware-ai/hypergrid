@@ -26,32 +26,27 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   const [isValidating, setIsValidating] = useState(false);
   const [feedback, setFeedback] = useState<ApiResponseFeedback | null>(null);
 
-  // Initialize validation args with sample values
   useEffect(() => {
     const initialArgs: ValidationArgs = {};
     
-    // Add path params
     if (provider.endpoint.path_param_keys) {
       provider.endpoint.path_param_keys.forEach(key => {
         initialArgs[key] = key === 'id' ? '123' : `sample_${key}`;
       });
     }
     
-    // Add query params
     if (provider.endpoint.query_param_keys) {
       provider.endpoint.query_param_keys.forEach(key => {
         initialArgs[key] = key === 'limit' ? '10' : `sample_${key}`;
       });
     }
     
-    // Add headers
     if (provider.endpoint.header_keys) {
       provider.endpoint.header_keys.forEach(key => {
         initialArgs[key] = key.toLowerCase().includes('version') ? '1.0' : `sample_${key}`;
       });
     }
     
-    // Add body params for POST
     if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
       provider.endpoint.body_param_keys.forEach(key => {
         initialArgs[key] = `sample_${key}`;
@@ -61,17 +56,14 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     setValidationArgs(initialArgs);
   }, [provider]);
 
-  // Generate curl preview
   const generateCurlPreview = (): string => {
     let url = provider.endpoint.base_url_template;
     const queryParams: string[] = [];
     const headers: string[] = [];
     let bodyData: { [key: string]: string } = {};
 
-    // Process based on request structure
     switch (provider.endpoint.request_structure) {
       case RequestStructureType.GetWithPath:
-        // Replace path parameters
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
             const value = validationArgs[key] || `{${key}}`;
@@ -81,7 +73,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         break;
       
       case RequestStructureType.GetWithQuery:
-        // Add query parameters
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
             const value = validationArgs[key] || `{${key}}`;
@@ -91,21 +82,18 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         break;
       
       case RequestStructureType.PostWithJson:
-        // Replace path parameters
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
             const value = validationArgs[key] || `{${key}}`;
             url = url.replace(`{${key}}`, value);
           });
         }
-        // Add query parameters
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
             const value = validationArgs[key] || `{${key}}`;
             queryParams.push(`${key}=${encodeURIComponent(value)}`);
           });
         }
-        // Add body parameters
         if (provider.endpoint.body_param_keys) {
           provider.endpoint.body_param_keys.forEach(key => {
             bodyData[key] = validationArgs[key] || `{${key}}`;
@@ -114,12 +102,10 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         break;
     }
 
-    // Add API key to query if configured
     if (provider.endpoint.api_key && provider.endpoint.api_key_query_param_name) {
       queryParams.push(`${provider.endpoint.api_key_query_param_name}=${provider.endpoint.api_key.substring(0, 3)}...`);
     }
 
-    // Add headers
     if (provider.endpoint.method === HttpMethod.POST) {
       headers.push('-H "Content-Type: application/json"');
     }
@@ -135,10 +121,8 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       headers.push(`-H "${provider.endpoint.api_key_header_name}: ${provider.endpoint.api_key.substring(0, 3)}..."`);
     }
 
-    // Build final URL
     const finalUrl = queryParams.length > 0 ? `${url}?${queryParams.join('&')}` : url;
     
-    // Build curl command
     let curlCommand = `curl -X ${provider.endpoint.method}`;
     
     if (headers.length > 0) {
@@ -166,7 +150,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     setFeedback(null);
 
     try {
-      // Convert validationArgs to the format expected by the API
       const validationArguments: [string, string][] = Object.entries(validationArgs);
       
       const response = await registerProviderApi(provider, validationArguments);
@@ -185,7 +168,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     }
   };
 
-  // Get all parameter keys that need values
   const getAllParamKeys = (): string[] => {
     const keys = new Set<string>();
     
@@ -212,44 +194,42 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       <h3 style={{ marginTop: 0 }}>Validate Your Provider</h3>
       <p>Before registering, let's test your API endpoint to make sure it works correctly. Fill in sample values for the parameters below:</p>
       
-      {/* Parameter inputs */}
-      {paramKeys.length > 0 && (
-        <div className="validation-inputs">
-          <h4>Test Parameters</h4>
-          {paramKeys.map(key => (
-            <div key={key} className="form-group">
-              <label htmlFor={`validation-${key}`}>
-                {key}:
-              </label>
-              <input
-                id={`validation-${key}`}
-                type="text"
-                value={validationArgs[key] || ''}
-                onChange={(e) => handleValidationArgChange(key, e.target.value)}
-                placeholder={`Enter value for ${key}`}
-              />
-            </div>
-          ))}
+      <div className="validation-columns">
+        {paramKeys.length > 0 && (
+          <div className="validation-inputs">
+            <h4>Test Parameters</h4>
+            {paramKeys.map(key => (
+              <div key={key} className="form-group">
+                <label htmlFor={`validation-${key}`}>
+                  {key}:
+                </label>
+                <input
+                  id={`validation-${key}`}
+                  type="text"
+                  value={validationArgs[key] || ''}
+                  onChange={(e) => handleValidationArgChange(key, e.target.value)}
+                  placeholder={`Enter value for ${key}`}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+        
+        <div className="curl-preview">
+          <h4>Preview API Call</h4>
+          <pre className="api-scaffold-content">
+            <code>{generateCurlPreview()}</code>
+          </pre>
         </div>
-      )}
-      
-      {/* Curl preview */}
-      <div className="curl-preview">
-        <h4>Preview API Call</h4>
-        <pre className="api-scaffold-content">
-          <code>{generateCurlPreview()}</code>
-        </pre>
       </div>
       
-      {/* Feedback display */}
       {feedback && (
         <div className={`feedback ${feedback.status}`}>
           {feedback.message}
         </div>
       )}
       
-      {/* Action buttons */}
-      <div className="validation-actions" style={{ display: 'flex', justifyContent: 'space-between' }}>
+      <div className="validation-actions">
         <button
           type="button"
           onClick={handleValidate}

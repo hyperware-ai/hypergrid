@@ -55,6 +55,8 @@ function App() {
   // Validation state
   const [showValidation, setShowValidation] = useState(false);
   const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
   
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -86,12 +88,45 @@ function App() {
     const storedTheme = localStorage.getItem('theme');
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
-
+  
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.setAttribute('data-theme', theme); // Or apply to app-container
   }, [theme]);
+  
+  // Close menus on escape key and click outside
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (mobileMenuOpen) setMobileMenuOpen(false);
+        if (desktopMenuOpen) setDesktopMenuOpen(false);
+      }
+    };
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Check if click is outside desktop menu
+      if (desktopMenuOpen && !target.closest('.desktop-menu-container')) {
+        setDesktopMenuOpen(false);
+      }
+      // Check if click is outside mobile menu
+      if (mobileMenuOpen && 
+          !target.closest('.mobile-menu-overlay') &&
+          !target.closest('.mobile-action-button')) {
+        setMobileMenuOpen(false);
+      }
+    };
+    
+    if (mobileMenuOpen || desktopMenuOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('keydown', handleEscape);
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [mobileMenuOpen, desktopMenuOpen]);
 
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
@@ -357,30 +392,71 @@ function App() {
   return (
     <div className={`app-container ${theme}`}>
       <header className="app-header" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000 }}>
-        <div>
+        <div className="header-left">
           <img 
             src={theme === 'dark' ? logoGlow : logoIris} 
             alt="App Logo" 
-            className="app-logo" 
+            className="app-logo desktop-only" 
+          />
+          <img 
+            src={theme === 'dark' ? logoGlow : logoIris} 
+            alt="App Logo" 
+            className="app-logo mobile-only" 
           />
         </div>
+        {/* Desktop controls */}
         <div className="header-controls">
-            <div className="node-info">
+            <div className="node-info desktop-only">
               {nodeConnected 
-                ? <>Node ID: <strong>{window.our?.node || "N/A"}</strong></>
+                ? <>Node ID: <strong className="text-truncate" style={{ maxWidth: '200px', display: 'inline-block', verticalAlign: 'bottom' }}>{window.our?.node || "N/A"}</strong></>
                 : <div className="node-not-connected-banner"><p><strong>Node not connected.</strong></p></div>
               }
             </div>
-            <button onClick={toggleTheme} className="theme-toggle-button">
-                Theme: {theme === 'light' ? 'Dark' : 'Light'}
-            </button>
+            <div className="desktop-menu-container desktop-only">
+              <button 
+                onClick={() => setDesktopMenuOpen(!desktopMenuOpen)}
+                className="desktop-menu-button"
+                aria-label="Toggle menu"
+              >
+                ☰
+              </button>
+              {/* Desktop dropdown menu */}
+              {desktopMenuOpen && (
+                <div className="desktop-menu-dropdown">
+                  <button 
+                    className="menu-item menu-button"
+                    onClick={() => {
+                      toggleTheme();
+                      // Don't close the menu after theme change
+                    }}
+                  >
+                    <span className="menu-label">Theme</span>
+                    <span className="menu-value">
+                      {theme === 'light' ? (
+                        <>☀️ Light Mode</>
+                      ) : (
+                        <>🌙 Dark Mode</>
+                      )}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+        </div>
+        
+        {/* Mobile node info */}
+        <div className="node-info mobile-only">
+          {nodeConnected 
+            ? <strong className="text-truncate" style={{ maxWidth: '150px', display: 'inline-block' }}>{window.our?.node || "N/A"}</strong>
+            : <strong style={{ color: '#ff6b6b' }}>Offline</strong>
+          }
         </div>
       </header>
       <main className="main-content">
         <section className="card providers-display-section">
             <div className="providers-header">
               <h2>Hypergrid Provider Registry</h2>
-              <button onClick={handleOpenAddNewModal} className="toggle-form-button">
+              <button onClick={handleOpenAddNewModal} className="toggle-form-button desktop-only">
                 Add New Provider Configuration
               </button>
             </div>
@@ -397,12 +473,72 @@ function App() {
             )}
             <button onClick={loadAndSetProviders} style={{ marginTop: '1em' }}>Refresh List</button>
           </section>
+          
+          {/* Mobile bottom action bar */}
+          <div className="mobile-bottom-action-bar mobile-only">
+            <button onClick={handleOpenAddNewModal} className="mobile-action-button primary">
+              <span className="button-icon">➕</span>
+              <span className="button-text">Add Provider</span>
+            </button>
+            <button 
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="mobile-action-button secondary"
+              aria-label="Toggle menu"
+            >
+              <span className="button-icon">☰</span>
+              <span className="button-text">Menu</span>
+            </button>
+          </div>
+          
+          {/* Mobile menu dropdown - now appears from bottom */}
+          {mobileMenuOpen && (
+            <div className="mobile-menu-overlay mobile-only" onClick={() => setMobileMenuOpen(false)}>
+              <div className="mobile-menu-bottom" onClick={(e) => e.stopPropagation()}>
+                <div className="mobile-menu-header">
+                  <h3>Settings</h3>
+                  <button className="close-menu-button" onClick={() => setMobileMenuOpen(false)}>✕</button>
+                </div>
+                <div className="mobile-menu-content">
+                  <div className="menu-item">
+                    <span className="menu-label">Node Status</span>
+                    <div className="node-info-detailed">
+                      {nodeConnected 
+                        ? <><span className="status-indicator online"></span>Connected: <strong className="text-wrap-mobile">{window.our?.node || "N/A"}</strong></>
+                        : <><span className="status-indicator offline"></span><strong>Node not connected</strong></>
+                      }
+                    </div>
+                  </div>
+                  <div className="menu-item">
+                    <span className="menu-label">App Version</span>
+                    <span className="menu-value">1.0.0</span>
+                  </div>
+                  <div className="menu-divider"></div>
+                  <button 
+                    className="menu-item menu-button"
+                    onClick={() => {
+                      toggleTheme();
+                      // Don't close the menu after theme change
+                    }}
+                  >
+                    <span className="menu-label">Theme</span>
+                    <span className="menu-value">
+                      {theme === 'light' ? (
+                        <>☀️ Light Mode</>
+                      ) : (
+                        <>🌙 Dark Mode</>
+                      )}
+                    </span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
         <SelectionModal 
           isOpen={showForm} 
           onClose={handleCloseAddNewModal} 
           title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
-          maxWidth={showValidation ? "500px" : "1200px"}
+          maxWidth={showValidation ? "min(500px, 95vw)" : "min(1200px, 95vw)"}
         >
           {showValidation && providerToValidate ? (
             <ValidationPanel
@@ -413,31 +549,26 @@ function App() {
             />
           ) : (
             <>
-              {/* Add Clear Form button when not in validation mode */}
+              {/* Add Clear Form and Copy buttons when not in validation mode */}
               {!showValidation && (
                 <div style={{ 
                   display: 'flex', 
                   justifyContent: 'flex-end', 
                   marginBottom: '16px',
-                  paddingRight: '20px'
+                  paddingRight: '20px',
+                  gap: '8px'
                 }}>
                   <button 
-                    onClick={resetFormFields}
-                    style={{
-                      padding: '8px 16px',
-                      backgroundColor: '#f44336',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '14px',
-                      fontWeight: '500',
-                      transition: 'background-color 0.2s',
-                    }}
-                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = '#d32f2f'}
-                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = '#f44336'}
+                    onClick={handleCopyFormData}
+                    className="copy-form-button"
                   >
-                    🗑️ Clear Form
+                    <span className="button-icon desktop-only">📋</span> Copy
+                  </button>
+                  <button 
+                    onClick={resetFormFields}
+                    className="clear-form-button"
+                  >
+                    <span className="button-icon">🗑️</span> Clear Form
                   </button>
                 </div>
               )}
@@ -455,7 +586,6 @@ function App() {
                     setRegisteredProviderWallet={setRegisteredProviderWallet}
                     price={price}
                     setPrice={setPrice}
-                    onCopyMetadata={handleCopyFormData}
                   />
                   <CurlVisualizer
                     providerName={providerName}

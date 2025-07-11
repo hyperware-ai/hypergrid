@@ -102,6 +102,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
 
   return (
     <div 
+      className="registered-provider-card"
       style={isHovered ? containerHoverStyle : containerStyle}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
@@ -109,11 +110,11 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
     >
       <div style={leftSectionStyle}>
         <div style={headerStyle}>
-          <h3 style={providerNameStyle}>
-            🔌 {provider.provider_name}.grid-beta.hypr
+          <h3 className="provider-name" style={providerNameStyle}>
+            <span className="provider-icon">🔌</span> {provider.provider_name}.grid-beta.hypr
           </h3>
-          <span style={priceStyle}>
-            <span style={{ fontSize: '0.9em', opacity: 0.9 }}>💰 Price:</span>
+          <span className="provider-price" style={priceStyle}>
+            <span style={{ fontSize: '0.9em', opacity: 0.9 }}>💰 <span className="desktop-only">Price:</span></span>
             <strong>{formatPrice(provider.price)}</strong>
           </span>
         </div>
@@ -123,13 +124,15 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
       </div>
       
       <button 
+        className="provider-edit-button"
         onClick={(e) => {
           e.stopPropagation();
           onEdit?.(provider);
         }}
         style={editButtonStyle}
       >
-        ✏️ Edit
+        <span className="desktop-only">✏️ Edit</span>
+        <span className="mobile-only">✏️</span>
       </button>
     </div>
   );
