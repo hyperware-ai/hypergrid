@@ -589,6 +589,8 @@ pub enum GraphNodeData {
         signers_note: NoteInfo,
         #[serde(rename = "accessListNote")]
         access_list_note: NoteInfo,
+        #[serde(rename = "gaslessEnabled")]
+        gasless_enabled: bool,
     },
     HotWalletNode {
         address: String,

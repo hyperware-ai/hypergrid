@@ -95,6 +95,18 @@ pub fn execute_payment_if_needed(
     _provider_id: String,
     operator_wallet_id: &str,
 ) -> Option<PaymentAttemptResult> {
+    execute_payment_with_metadata(state, provider_wallet_address, amount_usdc_str, _provider_id, operator_wallet_id, None)
+}
+
+/// Execute a payment with optional metadata (for testing paymaster formats)
+pub fn execute_payment_with_metadata(
+    state: &State,
+    provider_wallet_address: &str,
+    amount_usdc_str: &str,
+    _provider_id: String,
+    operator_wallet_id: &str,
+    metadata: Option<serde_json::Map<String, serde_json::Value>>,
+) -> Option<PaymentAttemptResult> {
     info!("Executing payment via hyperwallet: {} USDC to {}", 
           amount_usdc_str, provider_wallet_address);
     
@@ -137,43 +149,114 @@ pub fn execute_payment_if_needed(
     
     // Check if we should use gasless transactions
     if should_use_gasless(state) && account_abstraction::is_gasless_available(operator_wallet_id, Some(crate::structs::CHAIN_ID as u64)) {
-        info!("Using gasless transaction for payment");
+        // Check if metadata explicitly disables paymaster
+        let use_paymaster = if let Some(ref meta) = metadata {
+            meta.get("use_paymaster")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(true) // Default to true if not specified
+        } else {
+            true
+        };
         
-        // Build and sign UserOperation for gasless payment
-        match account_abstraction::prepare_gasless_payment(
-            operator_wallet_id,
-            usdc_contract,
-            &call_data,
-            Some("0"),
-            None, // No password needed if wallet is unlocked
-            Some(crate::structs::CHAIN_ID as u64),
-        ) {
-            Ok((signed_user_op, entry_point)) => {
-                // Submit the UserOperation
-                match account_abstraction::submit_user_operation(
-                    signed_user_op,
-                    &entry_point,
-                    None, // Use default bundler
+        if !use_paymaster {
+            info!("Building UserOperation WITHOUT paymaster (using ETH for gas)");
+        } else {
+            info!("Using gasless transaction for payment (with paymaster)");
+        }
+        
+        // For gasless transactions, we need to:
+        // 1. Create the ERC20 transfer calldata
+        // 2. Wrap it in a TBA execute call
+        // 3. Build UserOperation with TBA as sender
+        
+        // The TBA execute calldata wraps the ERC20 transfer
+        // We need to properly encode: execute(address target, uint256 value, bytes data, uint8 operation)
+        use alloy_primitives::{Address as EthAddress, U256, Bytes};
+        use alloy_sol_types::{SolCall, sol};
+        
+        sol! {
+            function execute(address target, uint256 value, bytes data, uint8 operation) external returns (bytes memory);
+        }
+        
+        // Parse the USDC contract address
+        let usdc_addr = usdc_contract.parse::<EthAddress>()
+            .map_err(|_| "Invalid USDC address".to_string());
+        
+        // Decode the ERC20 transfer calldata
+        let erc20_data = hex::decode(call_data.trim_start_matches("0x"))
+            .map_err(|_| "Invalid call data".to_string());
+        
+        match (usdc_addr, erc20_data) {
+            (Ok(addr), Ok(data)) => {
+                // Create the execute call
+                let execute_call = executeCall {
+                    target: addr,
+                    value: U256::ZERO,
+                    data: data.into(),
+                    operation: 0, // CALL
+                };
+                
+                let tba_calldata = format!("0x{}", hex::encode(execute_call.abi_encode()));
+                
+                // Use the new build_and_sign function that includes permit signing
+                match account_abstraction::build_and_sign_user_operation_with_metadata(
+                    operator_wallet_id, // Hot wallet that will sign
+                    &operator_tba, // Target is the TBA (self-call)
+                    &tba_calldata,
+                    Some("0"),
+                    use_paymaster, // Pass the use_paymaster flag
+                    metadata, // Pass the metadata through
+                    None, // No password needed if wallet is already unlocked
                     Some(crate::structs::CHAIN_ID as u64),
                 ) {
-                    Ok(user_op_hash) => {
-                        info!("Gasless payment submitted: user_op_hash = {}", user_op_hash);
-                        Some(PaymentAttemptResult::Success {
-                            tx_hash: user_op_hash,
-                            amount_paid: amount_usdc_str.to_string(),
-                            currency: "USDC".to_string(),
-                        })
+                    Ok(signed_data) => {
+                        // The response should contain the signed UserOperation
+                        let signed_user_op = signed_data.get("signed_user_operation")
+                            .ok_or("Missing signed_user_operation")
+                            .map_err(|e| e.to_string());
+                        
+                        let entry_point = signed_data.get("entry_point")
+                            .and_then(|e| e.as_str())
+                            .ok_or("Missing entry_point")
+                            .map_err(|e| e.to_string());
+                        
+                        match (signed_user_op, entry_point) {
+                            (Ok(signed_op), Ok(ep)) => {
+                                // Submit the UserOperation
+                                match account_abstraction::submit_user_operation(
+                                    signed_op.clone(),
+                                    ep,
+                                    None,
+                                    Some(crate::structs::CHAIN_ID as u64),
+                                ) {
+                                    Ok(user_op_hash) => {
+                                        info!("Gasless payment submitted: user_op_hash = {}", user_op_hash);
+                                        Some(PaymentAttemptResult::Success {
+                                            tx_hash: user_op_hash,
+                                            amount_paid: amount_usdc_str.to_string(),
+                                            currency: "USDC".to_string(),
+                                        })
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to submit gasless payment: {}", e);
+                                        execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
+                                    }
+                                }
+                            }
+                            _ => {
+                                error!("Failed to get signed UserOperation data");
+                                execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
+                            }
+                        }
                     }
                     Err(e) => {
-                        error!("Failed to submit gasless payment: {}", e);
-                        // Fall back to regular payment
+                        error!("Failed to build and sign UserOperation: {}", e);
                         execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
                     }
                 }
             }
-            Err(e) => {
-                error!("Failed to prepare gasless payment: {}", e);
-                // Fall back to regular payment
+            _ => {
+                error!("Failed to parse USDC address or call data");
                 execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
             }
         }

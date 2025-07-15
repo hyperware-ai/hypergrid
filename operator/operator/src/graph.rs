@@ -303,6 +303,7 @@ pub fn build_hypergrid_graph_data(
                 funding_status: op_wallet_funding_info,
                 signers_note: signers_note_info,
                 access_list_note: access_list_note_info,
+                gasless_enabled: state.gasless_enabled.unwrap_or(false),
             },
             position: None,
         });

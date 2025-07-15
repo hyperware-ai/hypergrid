@@ -18,20 +18,22 @@ import { useCallback, useMemo } from 'react';
 export { viemNamehash };
 
 // -------------------------------------------------------------------------------------------------
-// Constants - Consider moving to a central constants.ts or abis.ts if not already there
+// Constants
 // -------------------------------------------------------------------------------------------------
 
+// Base Chain ID
+export const BASE_CHAIN_ID = 8453; // Ethereum Mainnet = 1, Base = 8453
+
+// Hypermap Contract Address on Base
 export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda';
 
-// Default implementation address for new Token Bound Accounts (TBAs) created via hypermap.mint()
-// This is the HYPER_ACCOUNT_IMPL from the explorer example.
-// For Hypergrid, if a *specific Hypergrid operator TBA implementation* is required, this address should be updated.
-// export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = '0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97';
+// TBA Implementation Addresses
+// Old implementation (0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97 was even older, now using:)
+export const OLD_TBA_IMPLEMENTATION: Address = '0x000000000046886061414588bb9F63b6C53D8674'; // Works but no gasless support
+export const NEW_TBA_IMPLEMENTATION: Address = '0x19b89306e31D07426E886E3370E62555A0743D96'; // Supports ERC-4337 gasless
 
-// Using the correct Operator TBA implementation address with delegated signing
-export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = '0x000000000046886061414588bb9F63b6C53D8674';
-
-export const BASE_CHAIN_ID = 8453; // Base Mainnet
+// Default to the new implementation for new deployments (supports gasless)
+export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = NEW_TBA_IMPLEMENTATION;
 
 // ABI for the Hypermap contract (relevant functions)
 export const hypermapAbi = parseAbi([
@@ -59,6 +61,7 @@ export const HYPERGRID_SIGNERS_NOTE_KEY = "~grid-beta-signers";
 
 // ERC-4337 Constants
 export const CIRCLE_PAYMASTER_ADDRESS: Address = '0x0578cFB241215b77442a541325d6A4E6dFE700Ec'; // Circle's USDC paymaster on Base
+export const PIMLICO_PAYMASTER_ADDRESS: Address = '0x888888888888Ec68A58AB8094Cc1AD20Ba3D2402'; // Pimlico's USDC paymaster on Base
 export const USDC_ADDRESS_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
 export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 1000000n * 10n ** 6n; // 1M USDC (with 6 decimals)
 
@@ -90,7 +93,7 @@ export function encodeHypermapMintCall({
         functionName: 'mint',
         args: [
             owner,
-            stringToHex(subLabel), // The label of the sub-node to mint relative to msg.sender's owned parent node
+            stringToHex(subLabel), // The label of the sub-node to mint relative to msg.sender's owned parent node. :)
             initializationData,
             implementationAddress,
         ],

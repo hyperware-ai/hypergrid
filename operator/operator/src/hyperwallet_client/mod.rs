@@ -41,10 +41,12 @@ pub fn init_with_hyperwallet() -> bool {
                 "UpdateSpendingLimits",
                 "RenameWallet",
                 "BuildUserOperation",
+                "BuildAndSignUserOperation",
                 "SignUserOperation",
                 "SubmitUserOperation",
                 "EstimateUserOperationGas",
-                "GetUserOperationReceipt"
+                "GetUserOperationReceipt",
+                "ConfigurePaymaster"
             ],
             "spending_limits": {
                 "per_tx_eth": "10.0",

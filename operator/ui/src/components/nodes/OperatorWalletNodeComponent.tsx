@@ -361,7 +361,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
             </div>
 
             {/* Paymaster Approval Section - only show if both notes are set */}
-            {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && (
+            {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && data.gaslessEnabled && (
                 <div className={styles.paymasterSection} style={{ marginTop: '12px', marginBottom: '12px' }}>
                     <PaymasterApprovalButton
                         operatorTbaAddress={tbaAddress as Address}
@@ -373,6 +373,21 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                         }}
                         disabled={isProcessingNote || showEthWithdrawInput || showUsdcWithdrawInput || isSendingEth || isSendingUsdc}
                     />
+                </div>
+            )}
+            
+            {/* Show info when operator is configured but gasless is not available */}
+            {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && !data.gaslessEnabled && (
+                <div style={{ 
+                    marginTop: '12px', 
+                    padding: '8px', 
+                    backgroundColor: '#f0f0f0', 
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    color: '#666',
+                    textAlign: 'center'
+                }}>
+                    <em>This TBA uses an older implementation. ETH required for gas fees.</em>
                 </div>
             )}
 

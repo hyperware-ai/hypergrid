@@ -1,56 +1,100 @@
-//! Account Abstraction (ERC-4337) operations for hyperwallet client
-//! This module provides functions to build, sign, and submit UserOperations for gasless transactions
+//! Account abstraction operations via hyperwallet
 
+use hyperware_process_lib::{Request, Address};
 use hyperware_process_lib::logging::{info, error};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use chrono;
 use uuid;
+use crate::hyperwallet_client::service::call_hyperwallet;
+
+// Hyperwallet service address
+const HYPERWALLET_ADDRESS: (&str, &str, &str, &str) = ("our", "hyperwallet", "hyperwallet", "hallman.hypr");
 
 use super::send_hyperwallet_request;
 
-/// Build a UserOperation for gasless transaction
+/// Build a UserOperation for an account abstraction transaction
 pub fn build_user_operation(
     wallet_id: &str,
-    target: &str,
+    to: &str,
     call_data: &str,
     value: Option<&str>,
     use_paymaster: bool,
     chain_id: Option<u64>,
 ) -> Result<serde_json::Value, String> {
-    info!("Building UserOperation for wallet {}", wallet_id);
+    build_user_operation_with_metadata(wallet_id, to, call_data, value, use_paymaster, None, chain_id)
+}
+
+/// Build a UserOperation with optional metadata (for testing)
+pub fn build_user_operation_with_metadata(
+    wallet_id: &str,
+    to: &str,
+    call_data: &str,
+    value: Option<&str>,
+    use_paymaster: bool,
+    metadata: Option<serde_json::Map<String, serde_json::Value>>,
+    chain_id: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    let target = HYPERWALLET_ADDRESS;
     
-    let request = json!({
-        "operation": "BuildUserOperation",
-        "params": {
-            "target": target,
-            "call_data": call_data,
-            "value": value.unwrap_or("0"),
-            "use_paymaster": use_paymaster,
-        },
-        "auth": {
-            "process_address": hyperware_process_lib::our().to_string(),
-            "signature": null
-        },
-        "wallet_id": wallet_id,
-        "chain_id": chain_id.unwrap_or(8453), // Default to Base
-        "request_id": format!("operator-build-userop-{}", uuid::Uuid::new_v4()),
-        "timestamp": chrono::Utc::now().timestamp()
+    let mut params = serde_json::json!({
+        "sender": wallet_id,
+        "target": to,  // Changed from "to" to "target"
+        "call_data": call_data,
+        "value": value.unwrap_or("0"),
+        "use_paymaster": use_paymaster,
     });
     
-    match send_hyperwallet_request(request) {
-        Ok(response) => {
-            if response.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-                Ok(response.get("data").cloned().unwrap_or(json!({})))
+    // Add metadata if provided
+    if let Some(meta) = metadata {
+        params["metadata"] = serde_json::Value::Object(meta);
+    }
+    
+    let request = serde_json::json!({
+        "operation": "BuildUserOperation",
+        "params": params,
+        "wallet_id": wallet_id,
+        "chain_id": chain_id.unwrap_or(crate::structs::CHAIN_ID),
+        "auth": {
+            "process_address": format!("{}@operator:operator:grid-beta.hypr", hyperware_process_lib::our().node()),
+            "signature": null
+        },
+        "request_id": null,
+        "timestamp": std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs()
+    });
+    
+    let body = serde_json::to_vec(&request)
+        .map_err(|e| format!("Failed to serialize request: {}", e))?;
+    
+    let response = Request::new()
+        .target(target)
+        .body(body)
+        .send_and_await_response(120)
+        .map_err(|e| format!("Failed to send request to hyperwallet: {}", e))?
+        .map_err(|e| format!("Hyperwallet request failed: {}", e))?;
+    
+    let operation_response: serde_json::Value = serde_json::from_slice(response.body())
+        .map_err(|e| format!("Failed to parse hyperwallet response: {}", e))?;
+    
+    if let Some(success) = operation_response.get("success").and_then(|s| s.as_bool()) {
+        if success {
+            if let Some(data) = operation_response.get("data") {
+                Ok(data.clone())
             } else {
-                let error_msg = response.get("error")
-                    .and_then(|e| e.get("message"))
-                    .and_then(|m| m.as_str())
-                    .unwrap_or("Unknown error");
-                Err(format!("Failed to build UserOperation: {}", error_msg))
+                Err("Success response missing data field".to_string())
             }
+        } else {
+            let error_msg = operation_response.get("error")
+                .and_then(|e| e.get("message"))
+                .and_then(|m| m.as_str())
+                .unwrap_or("Unknown error");
+            Err(error_msg.to_string())
         }
-        Err(e) => Err(format!("Failed to communicate with hyperwallet: {}", e))
+    } else {
+        Err("Response missing success field".to_string())
     }
 }
 
@@ -274,4 +318,77 @@ pub fn prepare_gasless_payment(
         .clone();
     
     Ok((signed_user_op, entry_point.to_string()))
+} 
+
+/// Build and sign a UserOperation with EIP-2612 permit in one step
+pub fn build_and_sign_user_operation_with_metadata(
+    wallet_id: &str,
+    target: &str,
+    call_data: &str,
+    value: Option<&str>,
+    use_paymaster: bool,
+    metadata: Option<serde_json::Map<String, serde_json::Value>>,
+    password: Option<String>,
+    chain_id: Option<u64>,
+) -> Result<serde_json::Value, String> {
+    let mut params = serde_json::json!({
+        "target": target,
+        "call_data": call_data,
+        "use_paymaster": use_paymaster,
+    });
+    
+    if let Some(v) = value {
+        params["value"] = serde_json::Value::String(v.to_string());
+    }
+    
+    if let Some(pwd) = password {
+        params["password"] = serde_json::Value::String(pwd);
+    }
+    
+    // Note: metadata is not directly supported in BuildAndSignUserOpParams
+    // but we can add gas parameters if they exist in metadata
+    if let Some(meta) = metadata {
+        if let Some(gas_params) = meta.get("gas_params") {
+            params["gas_params"] = gas_params.clone();
+        }
+    }
+    
+    let operation_request = json!({
+        "operation": "BuildAndSignUserOperation",
+        "params": params,
+        "auth": {
+            "process_address": hyperware_process_lib::our().to_string(),
+            "signature": null
+        },
+        "wallet_id": Some(wallet_id.to_string()),
+        "chain_id": chain_id,
+        "request_id": format!("operator-{}", uuid::Uuid::new_v4()),
+        "timestamp": chrono::Utc::now().timestamp()
+    });
+    
+    let body = serde_json::to_vec(&operation_request)
+        .map_err(|e| format!("Failed to serialize request: {}", e))?;
+    
+    let response = Request::new()
+        .target(HYPERWALLET_ADDRESS)
+        .body(body)
+        .send_and_await_response(30)
+        .map_err(|e| format!("Failed to send request to hyperwallet: {}", e))?
+        .map_err(|e| format!("Hyperwallet request failed: {}", e))?;
+    
+    let response_json: serde_json::Value = serde_json::from_slice(response.body())
+        .map_err(|e| format!("Failed to parse hyperwallet response: {}", e))?;
+    
+    // Check for success
+    if response_json.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        if let Some(data) = response_json.get("data") {
+            Ok(data.clone())
+        } else {
+            Ok(json!({}))
+        }
+    } else if let Some(error) = response_json.get("error") {
+        Err(format!("Hyperwallet error: {}", error))
+    } else {
+        Err("Unknown hyperwallet response format".to_string())
+    }
 } 

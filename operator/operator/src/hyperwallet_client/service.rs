@@ -56,8 +56,8 @@ enum HyperwalletResponse {
     Error { error: String },
 }
 
-/// Helper function to make requests to hyperwallet service
-fn call_hyperwallet(request: HyperwalletRequest) -> Result<serde_json::Value, String> {
+/// Make a request to the hyperwallet service
+pub fn call_hyperwallet(request: HyperwalletRequest) -> Result<serde_json::Value, String> {
     let target = HYPERWALLET_ADDRESS;
     
     // Clone the request for the second match

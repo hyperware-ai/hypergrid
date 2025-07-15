@@ -228,6 +228,7 @@ export interface IOperatorWalletNodeData {
     fundingStatus: IOperatorWalletFundingInfo;
     signersNote: INoteInfo;
     accessListNote: INoteInfo;
+    gaslessEnabled?: boolean;
 }
 
 export interface IHotWalletNodeData {
