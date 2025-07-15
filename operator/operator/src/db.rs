@@ -68,7 +68,6 @@ pub fn write_db_schema(db: &Sqlite) -> anyhow::Result<()> {
           id INTEGER PRIMARY KEY AUTOINCREMENT,
           hash TEXT NOT NULL UNIQUE,
           name TEXT NOT NULL UNIQUE,
-          provider_name TEXT,
           site TEXT,
           description TEXT,
           provider_id TEXT,
@@ -194,7 +193,6 @@ pub fn search_provider(db: &Sqlite, query: String) -> Result<Vec<HashMap<String,
     let s = r#"
         SELECT * FROM providers
         WHERE (name LIKE ?1 COLLATE NOCASE)
-        OR (provider_name LIKE ?1 COLLATE NOCASE)
         OR (site LIKE ?1 COLLATE NOCASE)
         OR (description LIKE ?1 COLLATE NOCASE)
         OR (provider_id = ?2) 

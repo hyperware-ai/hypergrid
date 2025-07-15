@@ -37,7 +37,7 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
     position: 'relative',
   };
   const titleStyle: React.CSSProperties = { marginTop: 0, marginBottom: '15px', color: '#ccc', textAlign: 'left' };
-  const hnsNameStyle: React.CSSProperties = { ...sharedBaseStyle, color: '#ccc', marginBottom: '5px', fontSize: '1.1em', fontWeight: 'bold', textAlign: 'left' };
+  const hnsNameStyle: React.CSSProperties = { ...sharedBaseStyle, color: '#ccc', marginBottom: '5px', fontSize: '1.1em', fontWeight: 'bold', textAlign: 'left', display: 'flex', alignItems: 'baseline', paddingLeft: '20px' };
 
   const copyButtonStyle: React.CSSProperties = {
     position: 'absolute',
@@ -106,21 +106,31 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
     <div style={containerStyle}>
       <button onClick={onCopyMetadata} style={copyButtonStyle} title="Copy Metadata">📋 Copy</button>
       <h4 style={titleStyle}>Provider Registration Mint Outline</h4>
-      <div style={hnsNameStyle}>{(providerName.trim() || "[YourProviderName]") + ".grid-beta.hypr"}</div>
+      <div style={hnsNameStyle}>
+          <input
+            id="pform-providerName"
+            type="text"
+            value={providerName}
+            onChange={(e) => setProviderName(e.target.value)}
+            placeholder="provider-name"
+            style={{
+              ...sharedBaseStyle,
+              fontSize: '1.1em',
+              fontWeight: 'bold',
+              background: 'transparent',
+              color: '#eee',
+              border: 'none',
+              borderBottom: '1px dashed #666',
+              padding: '2px 0px',
+              outline: 'none',
+              textAlign: 'left',
+              width: `${providerName.length || 13}ch`, // Use actual length or placeholder length
+            }}
+          />
+        <span>.grid-beta.hypr</span>
+      </div>
 
       {/* Trunk line from HNS name down to the first branch */}
-      <div style={trunkConnectorStyle}>
-        <span style={treeCharSpanStyle}>│</span>
-      </div>
-
-      {/* Provider Name Input */}
-      <div style={treeLineStyle}>
-        <span style={treeCharSpanStyle}>├─</span>
-        <label htmlFor="pform-providerName" style={{...fieldLabelStyle, textAlign: 'left'}}>~provider-name:</label>
-        <input id="pform-providerName" type="text" value={providerName} onChange={(e) => setProviderName(e.target.value)} placeholder="Enter unique name" style={inputStyle} />
-      </div>
-
-      {/* Trunk Connector */}
       <div style={trunkConnectorStyle}>
         <span style={treeCharSpanStyle}>│</span>
       </div>

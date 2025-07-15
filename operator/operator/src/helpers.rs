@@ -389,7 +389,7 @@ pub fn handle_terminal_debug(
             info!("get-owner <node>: Query Hypermap for owner of a given node.");
             info!("query-provider <name>: Query the local DB for a provider by its exact name.");
             info!("list-providers : List all providers in the database.");
-            info!("search-providers <query>: Search providers by name, provider_name, site, description, or provider_id.");
+            info!("search-providers <query>: Search providers by name, site, description, or provider_id.");
             info!("db-stats       : Show database statistics and the current root hash status.");
             info!("check-provider-id <provider_id>: Check for provider by provider_id.");
             info!("check-grid-root: Check the grid-beta.hypr entry status.");
@@ -533,7 +533,7 @@ pub fn handle_terminal_debug(
                 }
             } else {
                 error!("Usage: search-providers <search_query>");
-                info!("Searches in: name, provider_name, site, description, provider_id");
+                info!("Searches in: name, site, description, provider_id");
             }
         }
         "db-stats" => {
