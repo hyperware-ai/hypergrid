@@ -14,6 +14,43 @@
   text-align: left;
 }
 
+/* Tab Navigation */
+.tab-navigation {
+  display: flex;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid var(--card-border);
+}
+
+.tab-button {
+  background: none;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  color: var(--text-color);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.3s ease;
+}
+
+.tab-button:hover {
+  color: var(--primary-color);
+}
+
+.tab-button.active {
+  color: var(--primary-color);
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--primary-color);
+}
+
 /* Ensure h2 within cards are also left-aligned */
 .card h2 {
   text-align: left;
@@ -55,6 +92,12 @@
   display: flex;
   align-items: center;
   gap: 15px;
+}
+
+.wallet-connect-wrapper {
+  display: flex;
+  align-items: center;
+  margin-left: 10px;
 }
 
 .node-info {

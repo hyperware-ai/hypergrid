@@ -1,6 +1,6 @@
 import React from 'react';
 
-export interface ProviderMetadataFormProps {
+export interface HypergridEntryFormProps {
   nodeId: string;
   providerName: string;
   setProviderName: (value: string) => void;
@@ -12,17 +12,15 @@ export interface ProviderMetadataFormProps {
   setRegisteredProviderWallet: (value: string) => void;
   price: string;
   setPrice: (value: string) => void;
-  onCopyMetadata: () => void;
 }
 
-const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
+const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
   nodeId,
   providerName, setProviderName,
   providerDescription, setProviderDescription,
   instructions, setInstructions,
   registeredProviderWallet, setRegisteredProviderWallet,
   price, setPrice,
-  onCopyMetadata,
 }) => {
   const sharedBaseStyle: React.CSSProperties = {
     fontFamily: 'monospace',
@@ -38,20 +36,6 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
   };
   const titleStyle: React.CSSProperties = { marginTop: 0, marginBottom: '15px', color: '#ccc', textAlign: 'left' };
   const hnsNameStyle: React.CSSProperties = { ...sharedBaseStyle, color: '#ccc', marginBottom: '5px', fontSize: '1.1em', fontWeight: 'bold', textAlign: 'left', display: 'flex', alignItems: 'baseline', paddingLeft: '20px' };
-
-  const copyButtonStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '10px',
-    right: '10px',
-    padding: '4px 8px',
-    fontSize: '0.75em',
-    backgroundColor: 'var(--button-secondary-bg)', 
-    color: 'var(--button-secondary-text)', 
-    border: '1px solid var(--input-border)',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    zIndex: 1,
-  };
 
   const treeLineStyle: React.CSSProperties = {
     display: 'flex',
@@ -104,7 +88,7 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
   };
   return (
     <div style={containerStyle}>
-      <button onClick={onCopyMetadata} style={copyButtonStyle} title="Copy Metadata">📋 Copy Mint</button>
+
       <h4 style={titleStyle}>Provider Registration Mint Outline</h4>
       <div style={hnsNameStyle}>
           <input
@@ -217,4 +201,4 @@ const ProviderMetadataForm: React.FC<ProviderMetadataFormProps> = ({
   );
 };
 
-export default ProviderMetadataForm; 
+export default HypergridEntryForm; 

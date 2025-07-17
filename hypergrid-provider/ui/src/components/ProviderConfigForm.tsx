@@ -50,7 +50,8 @@ export interface ProviderConfigFormProps {
   setApiCallFormatSelected: (value: boolean) => void;
   onRegisterProvider: () => void;
   submitButtonText?: string; // Optional prop for button text
-  showSubmitButton?: boolean; // Optional prop to control button visibility 
+  showSubmitButton?: boolean; // Optional prop to control button visibility
+  isWalletConnected?: boolean; // Optional prop to control button enabled state 
 }
 
 const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
@@ -74,6 +75,7 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
   onRegisterProvider,
   submitButtonText = "Register Provider Configuration", // Default value for backward compatibility
   showSubmitButton = true, // Default to showing the button for backward compatibility
+  isWalletConnected = true, // Default to enabled for backward compatibility
 }) => {
 
   // Local state for individual key inputs
@@ -450,8 +452,14 @@ const ProviderConfigForm: React.FC<ProviderConfigFormProps> = ({
             type="button" 
             onClick={onRegisterProvider} 
             className="button-primary submit-button"
+            disabled={!isWalletConnected}
+            style={{
+              opacity: isWalletConnected ? 1 : 0.5,
+              cursor: isWalletConnected ? 'pointer' : 'not-allowed',
+            }}
+            title={!isWalletConnected ? 'Connect your wallet to register provider' : ''}
           >
-            {submitButtonText}
+            {isWalletConnected ? submitButtonText : 'Connect Wallet to Register'}
           </button>
         </div>
       )}

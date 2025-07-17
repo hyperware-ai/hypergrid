@@ -1,6 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import HyperwareClientApi from "@hyperware-ai/client-api";
 import "./App.css";
+
+// RainbowKit and wagmi imports
+import '@rainbow-me/rainbowkit/styles.css';
+import {
+  getDefaultConfig,
+  RainbowKitProvider,
+} from '@rainbow-me/rainbowkit';
+import { WagmiProvider } from 'wagmi';
+import {
+  base,
+} from 'wagmi/chains';
+import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+
 import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
   HttpMethod,
@@ -23,7 +36,11 @@ import {
   buildUpdateProviderPayload,
   processUpdateResponse
 } from "./utils/providerFormUtils";
+import { useAccount } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { updateProviderApi } from "./utils/api";
+import { useProviderRegistration } from "./registration/hypermapUtils";
+import ProviderRegistrationOverlay from "./components/ProviderRegistrationOverlay";
 
 // Import logos
 import logoGlow from './assets/logo_glow.png';
@@ -43,10 +60,36 @@ const WEBSOCKET_URL = import.meta.env.DEV
 export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
 export type AuthChoice = "none" | "query" | "header";
 
-function App() {
+// RainbowKit configuration
+const config = getDefaultConfig({
+  appName: 'Hypergrid Provider',
+  projectId: 'YOUR_PROJECT_ID', // Get from https://cloud.walletconnect.com
+  chains: [base],
+  ssr: false,
+});
+
+const queryClient = new QueryClient();
+
+function AppContent() {
   const { registeredProviders, setRegisteredProviders } = useHypergridProviderStore();
   const [nodeConnected, setNodeConnected] = useState(true);
   const [_wsApiInstance, setWsApiInstance] = useState<HyperwareClientApi | undefined>();
+  
+  // Blockchain integration
+  const { isConnected: isWalletConnected } = useAccount();
+  
+  // Blockchain registration
+  const providerRegistration = useProviderRegistration({
+    onRegistrationComplete: (providerAddress) => {
+      resetFormFields();
+      handleCloseAddNewModal();
+      loadAndSetProviders();
+      alert(`Provider "${providerRegistration.pendingProviderData?.provider_name}" successfully registered on-chain at ${providerAddress}!`);
+    },
+    onRegistrationError: (error) => {
+      alert(`Blockchain registration failed: ${error}`);
+    }
+  });
 
   // New Form State
   const [showForm, setShowForm] = useState(false);
@@ -181,41 +224,6 @@ function App() {
     setRegisteredProviderWallet(formData.registeredProviderWallet || "");
     setPrice(formData.price || "");
   };
-  
-  const handleCopyFormData = useCallback(async () => {
-    // Validation check
-    if (!providerName.trim() || 
-        !registeredProviderWallet.trim() || 
-        !price.trim() || 
-        !providerDescription.trim()) {
-      alert("Please fill all required metadata fields (Provider Name, Wallet, Price, Description) before copying.");
-      return;
-    }
-
-    const hnsName = (providerName.trim() || "[YourProviderName]") + ".grid-beta.hypr";
-
-    const metadataFields = {
-      "~provider-id": window.our?.node || "N/A",
-      "~wallet": registeredProviderWallet,
-      "~price": price,
-      "~description": providerDescription,
-      "~instructions": instructions,
-    };
-
-    const structuredDataToCopy = {
-      [hnsName]: metadataFields,
-    };
-
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(structuredDataToCopy, null, 2));
-      alert('Provider metadata (HNS structure) copied to clipboard!');
-    } catch (err) {
-      console.error('Failed to copy structured metadata: ', err);
-      alert('Failed to copy structured metadata. See console for details.');
-    }
-  }, [
-    providerName, providerDescription, registeredProviderWallet, price, instructions, endpointBaseUrl
-  ]);
 
   const handleOpenAddNewModal = () => {
     // Don't reset form fields here - preserve state for better UX
@@ -312,6 +320,12 @@ function App() {
       alert(validationResult.error); // Display error from validation util
       return;
     }
+    
+    // Check if wallet is connected for new registrations
+    if (!isEditMode && !isWalletConnected) {
+      alert('Please connect your wallet to register on-chain');
+      return;
+    }
 
     if (isEditMode && editingProvider) {
       // Handle update for existing provider
@@ -345,18 +359,24 @@ function App() {
     providerName, providerDescription, instructions, topLevelRequestType,
     endpointBaseUrl, pathParamKeys, queryParamKeys, headerKeys, bodyKeys,
     endpointApiParamKey, authChoice, apiKeyQueryParamName, apiKeyHeaderName,
-    registeredProviderWallet, price, isEditMode, editingProvider, handleProviderUpdated
+    registeredProviderWallet, price, isEditMode, editingProvider, handleProviderUpdated,
+    isWalletConnected
   ]);
 
-  const handleValidationSuccess = useCallback((registeredProvider: RegisteredProvider) => {
+  const handleValidationSuccess = useCallback(async (registeredProvider: RegisteredProvider) => {
     console.log("Provider validated and registered successfully:", registeredProvider);
     
-    resetFormFields();
-    handleCloseAddNewModal();
-    loadAndSetProviders();
-    
-    alert(`Provider "${registeredProvider.provider_name}" successfully validated and registered!`);
-  }, [loadAndSetProviders]);
+    // Start blockchain registration if wallet is connected
+    if (isWalletConnected) {
+      providerRegistration.startRegistration(registeredProvider);
+    } else {
+      // No wallet connected, just complete the off-chain registration
+      resetFormFields();
+      handleCloseAddNewModal();
+      loadAndSetProviders();
+      alert(`Provider "${registeredProvider.provider_name}" successfully validated and registered off-chain! Connect a wallet to register on-chain.`);
+    }
+  }, [loadAndSetProviders, isWalletConnected, providerRegistration]);
 
   const handleValidationError = useCallback((error: string) => {
     console.error("Validation failed:", error);
@@ -367,6 +387,8 @@ function App() {
     setShowValidation(false);
     setProviderToValidate(null);
   }, []);
+  
+
 
   useEffect(() => {
     loadAndSetProviders();
@@ -411,6 +433,9 @@ function App() {
                 ? <>Node ID: <strong className="text-truncate" style={{ maxWidth: '200px', display: 'inline-block', verticalAlign: 'bottom' }}>{window.our?.node || "N/A"}</strong></>
                 : <div className="node-not-connected-banner"><p><strong>Node not connected.</strong></p></div>
               }
+            </div>
+            <div className="wallet-connect-wrapper desktop-only">
+              <ConnectButton />
             </div>
             <div className="desktop-menu-container desktop-only">
               <button 
@@ -460,6 +485,7 @@ function App() {
                 Add New Provider Configuration
               </button>
             </div>
+
             {registeredProviders.length > 0 ? (
               <ul className="provider-list">
                 {registeredProviders.map((provider) => (
@@ -499,6 +525,11 @@ function App() {
                   <button className="close-menu-button" onClick={() => setMobileMenuOpen(false)}>✕</button>
                 </div>
                 <div className="mobile-menu-content">
+                  <div className="menu-item">
+                    <span className="menu-label">Wallet</span>
+                    <ConnectButton />
+                  </div>
+                  <div className="menu-divider"></div>
                   <div className="menu-item">
                     <span className="menu-label">Node Status</span>
                     <div className="node-info-detailed">
@@ -541,37 +572,49 @@ function App() {
           maxWidth={showValidation ? "min(500px, 95vw)" : "min(1200px, 95vw)"}
         >
           {showValidation && providerToValidate ? (
-            <ValidationPanel
-              provider={providerToValidate}
-              onValidationSuccess={handleValidationSuccess}
-              onValidationError={handleValidationError}
-              onCancel={handleValidationCancel}
-            />
+            <div style={{ position: 'relative' }}>
+              <ValidationPanel
+                provider={providerToValidate}
+                onValidationSuccess={handleValidationSuccess}
+                onValidationError={handleValidationError}
+                onCancel={handleValidationCancel}
+              />
+              
+              {/* Blockchain Registration Progress Overlay */}
+              <ProviderRegistrationOverlay
+                isVisible={providerRegistration.isRegistering}
+                step={providerRegistration.step}
+                currentNoteIndex={providerRegistration.currentNoteIndex}
+                mintedProviderAddress={providerRegistration.mintedProviderAddress}
+                isMinting={providerRegistration.isMinting}
+                isSettingNotes={providerRegistration.isSettingNotes}
+                isMintTxLoading={providerRegistration.isMintTxLoading}
+                isNotesTxLoading={providerRegistration.isNotesTxLoading}
+                mintError={providerRegistration.mintError}
+                notesError={providerRegistration.notesError}
+              />
+            </div>
           ) : (
             <>
-              {/* Add Clear Form and Copy buttons when not in validation mode */}
+              {/* Add Clear Form button when not in validation mode */}
               {!showValidation && (
                 <div style={{ 
                   display: 'flex', 
                   justifyContent: 'flex-end', 
-                  marginBottom: '16px',
+                  marginBottom: '10px',
                   paddingRight: '20px',
                   gap: '8px'
                 }}>
                   <button 
-                    onClick={handleCopyFormData}
-                    className="copy-form-button"
-                  >
-                    <span className="button-icon desktop-only">📋</span> Copy
-                  </button>
-                  <button 
                     onClick={resetFormFields}
                     className="clear-form-button"
+                    style={{ height: '5px', fontSize: '3px' }}
                   >
                     <span className="button-icon">🗑️</span> Clear Form
                   </button>
                 </div>
               )}
+              
               <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
                 <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <HypergridEntryForm
@@ -628,6 +671,7 @@ function App() {
                     setApiCallFormatSelected={setApiCallFormatSelected}
                     onRegisterProvider={handleProviderRegistration}
                     submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
+                    isWalletConnected={isWalletConnected}
                   />
                 </div>
               </div>
@@ -636,6 +680,18 @@ function App() {
         </SelectionModal>
       </main>
     </div>
+  );
+}
+
+function App() {
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider>
+          <AppContent />
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
   );
 }
 
