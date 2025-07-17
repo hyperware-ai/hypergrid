@@ -320,18 +320,9 @@ impl HypergridProviderState {
         validate_response_status(&validation_result)
             .map_err(|e| format!("Validation failed, failed to register provider: {}", e))?;
 
-        let unique_id = format!(
-            "{}_{}_{}", // TODO: This is not a good way to generate a unique ID, we should use a better one
-            our().node.to_string(),
-            provider.provider_name,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-        );
-        
+        // Use node identity as provider_id - no need for timestamps or fuzzing
         let provider_with_id = RegisteredProvider {
-            provider_id: unique_id,
+            provider_id: our().node.to_string(),
             ..provider
         };
 
@@ -394,29 +385,10 @@ impl HypergridProviderState {
                     }
                 }
 
-                let updated_provider_with_id = if name_changed {
-                    // If name changed, create new provider with new ID (essentially a new registration)
-                    let unique_id = format!(
-                        "{}_{}_{}",
-                        our().node.to_string(),
-                        updated_provider.provider_name,
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs()
-                    );
-                    RegisteredProvider {
-                        provider_id: unique_id, // Generate truly unique ID
-                        ..updated_provider
-                    }
-                } else {
-                    // If name unchanged, keep the original provider_id
-                    let original_provider_id = self.registered_providers[index].provider_id.clone();
-                    RegisteredProvider {
-                        provider_name: provider_name.clone(), // Keep original name
-                        provider_id: original_provider_id,    // Keep original ID
-                        ..updated_provider
-                    }
+                // Always use node identity as provider_id
+                let updated_provider_with_id = RegisteredProvider {
+                    provider_id: our().node.to_string(),
+                    ..updated_provider
                 };
 
                 // Update the provider
