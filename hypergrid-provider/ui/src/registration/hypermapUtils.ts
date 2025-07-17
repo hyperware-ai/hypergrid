@@ -3,12 +3,10 @@ import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagm
 import { encodePacked, stringToHex, decodeEventLog, type Address } from 'viem';
 import { 
   GRID_BETA_1_ADDRESS, 
-  HYPERMAP_ADDRESS,
   hyperGridNamespaceMinterAbi,
-  generateNoteCall,
+  generateProviderNotesCallsArray,
   tbaExecuteAbi,
-  erc6551RegistryAbi,
-  PROVIDER_NOTE_KEYS
+  erc6551RegistryAbi
 } from './hypermap';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 
@@ -81,7 +79,6 @@ export function getRegistrationStepText(
   isSettingNotes: boolean,
   isMintTxLoading: boolean,
   isNotesTxLoading: boolean,
-  totalNotes: number = 5,
 ): string {
   switch (step) {
     case 'minting':
@@ -89,9 +86,9 @@ export function getRegistrationStepText(
       if (isMintTxLoading) return 'Waiting for transaction confirmation...';
       return 'Preparing to mint...';
     case 'notes':
-      if (isSettingNotes) return `Setting metadata note ${currentNoteIndex + 1}/${totalNotes}...`;
-      if (isNotesTxLoading) return `Waiting for note ${currentNoteIndex + 1}/${totalNotes} confirmation...`;
-      return `Preparing to set note ${currentNoteIndex + 1}/${totalNotes}...`;
+      if (isSettingNotes) return 'Setting provider metadata notes...';
+      if (isNotesTxLoading) return 'Waiting for notes transaction confirmation...';
+      return 'Preparing to set notes...';
     case 'complete':
       return 'Provider successfully registered on-chain!';
     default:
@@ -184,140 +181,82 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     }
   }, [isMintTxSuccess, mintTxReceipt, state.pendingProviderData, state.step, callbacks, resetMint]);
 
-  // Set up notes array when moving to notes step
+    // Set notes after minting - use multicall with DELEGATECALL
   useEffect(() => {
-    if (state.step === 'notes' && state.mintedProviderAddress && state.pendingProviderData && state.notesToSet.length === 0) {
-      console.log('Preparing notes for sequential setting');
-      
-      const notesToSet = [
-        { key: PROVIDER_NOTE_KEYS.PROVIDER_ID, value: state.pendingProviderData.provider_id },
-        { key: PROVIDER_NOTE_KEYS.WALLET, value: state.pendingProviderData.registered_provider_wallet },
-        { key: PROVIDER_NOTE_KEYS.DESCRIPTION, value: state.pendingProviderData.description },
-        { key: PROVIDER_NOTE_KEYS.INSTRUCTIONS, value: state.pendingProviderData.instructions },
-        { key: PROVIDER_NOTE_KEYS.PRICE, value: state.pendingProviderData.price.toString() },
-      ];
-
-      setState(prev => ({
-        ...prev,
-        notesToSet,
-        currentNoteIndex: 0,
-      }));
-    }
-  }, [state.step, state.mintedProviderAddress, state.pendingProviderData, state.notesToSet.length]);
-
-    // Set notes sequentially, one at a time
-  useEffect(() => {
-    if (
-      state.step === 'notes' && 
-      state.mintedProviderAddress && 
-      state.notesToSet.length > 0 && 
-      state.currentNoteIndex < state.notesToSet.length &&
-      !state.isProcessingNote &&
-      !isSettingNotes && 
-      !isNotesTxLoading
-    ) {
-      const currentNote = state.notesToSet[state.currentNoteIndex];
-      console.log(`Setting note ${state.currentNoteIndex + 1}/${state.notesToSet.length}: ${currentNote.key} = ${currentNote.value}`);
-      
-      // Mark that we're processing this note
-      setState(prev => ({ ...prev, isProcessingNote: true }));
+    if (state.step === 'notes' && state.mintedProviderAddress && state.pendingProviderData && !isSettingNotes && !isNotesTxLoading) {
+      console.log('Setting notes via multicall with DELEGATECALL');
       
       try {
-        // Generate the hypermap note call
-        const hypermapNoteCallData = generateNoteCall({ 
-          noteKey: currentNote.key, 
-          noteValue: currentNote.value 
+        const { tbaAddress, executeArgs } = generateProviderNotesCallsArray({
+          tbaAddress: state.mintedProviderAddress,
+          providerId: state.pendingProviderData.provider_id,
+          wallet: state.pendingProviderData.registered_provider_wallet,
+          description: state.pendingProviderData.description,
+          instructions: state.pendingProviderData.instructions,
+          price: state.pendingProviderData.price.toString(),
         });
 
-        // Call TBA.execute(HYPERMAP_ADDRESS, note_calldata)
+        console.log('TBA execute args for multicall:', {
+          tbaAddress,
+          target: executeArgs[0],
+          value: executeArgs[1].toString(),
+          operation: executeArgs[3], // Should be 1 for DELEGATECALL
+        });
+
+        // Call TBA.execute(MULTICALL, multicallData, 0, 1)
         setNote({
-          address: state.mintedProviderAddress,
+          address: tbaAddress,
           abi: tbaExecuteAbi,
           functionName: 'execute',
-          args: [
-            HYPERMAP_ADDRESS, // target: Hypermap contract
-            0n,              // value: 0 ETH
-            hypermapNoteCallData, // data: the note call
-            0,               // operation: 0 for CALL
-          ],
+          args: executeArgs,
+          gas: 1000000n, // Match the example
         } as any);
       } catch (error) {
-        console.error('Failed to set note:', error);
-        const errorMessage = `Failed to set note ${currentNote.key}: ${(error as Error).message}`;
+        console.error('Failed to create notes multicall:', error);
+        const errorMessage = `Failed to set notes: ${(error as Error).message}`;
         setState(prev => ({ 
           ...prev, 
           isRegistering: false, 
           step: 'idle',
           error: errorMessage,
           processedTxHashes: new Set(),
-          isProcessingNote: false,
         }));
         callbacks.onRegistrationError(errorMessage);
       }
     }
-  }, [state.step, state.mintedProviderAddress, state.notesToSet, state.currentNoteIndex, state.isProcessingNote, isSettingNotes, isNotesTxLoading, setNote, callbacks]);
+  }, [state.step, state.mintedProviderAddress, state.pendingProviderData, isSettingNotes, isNotesTxLoading, setNote, callbacks]);
 
   // Handle notes transaction success
   useEffect(() => {
-    if (isNotesTxSuccess && state.step === 'notes' && notesTxHash && !state.processedTxHashes.has(notesTxHash)) {
-      console.log('Processing note success:', {
-        currentNoteIndex: state.currentNoteIndex,
-        currentNote: state.notesToSet[state.currentNoteIndex],
-        txHash: notesTxHash
-      });
+    if (isNotesTxSuccess && state.step === 'notes') {
+      console.log('All notes set successfully via multicall');
       
-      const nextNoteIndex = state.currentNoteIndex + 1;
-      
-      console.log(`Note ${state.currentNoteIndex + 1} set successfully (tx: ${notesTxHash})`);
-      console.log(`Current note was: ${state.notesToSet[state.currentNoteIndex]?.key}`);
-      
-      // Mark this transaction as processed
       setState(prev => ({
         ...prev,
-        processedTxHashes: new Set([...prev.processedTxHashes, notesTxHash])
+        step: 'complete',
+        isRegistering: false,
       }));
       
-      // Reset transaction state to allow next transaction
-      resetNote();
-      
-      if (nextNoteIndex < state.notesToSet.length) {
-        // Move to next note
-        console.log(`Moving to note ${nextNoteIndex + 1}`);
-        setState(prev => ({
-          ...prev,
-          currentNoteIndex: nextNoteIndex,
-          isProcessingNote: false, // Allow next note to be processed
-        }));
-      } else {
-        // All notes set - complete the registration
-        console.log('All notes set successfully, completing registration');
-        setState(prev => ({
-          ...prev,
-          step: 'complete',
-          isRegistering: false,
-        }));
-        
-        if (state.mintedProviderAddress) {
-          callbacks.onRegistrationComplete(state.mintedProviderAddress);
-        }
-        
-        // Reset state for next registration
-        setTimeout(() => {
-          setState(prev => ({
-            ...prev,
-            step: 'idle',
-            mintedProviderAddress: null,
-            currentNoteIndex: 0,
-            pendingProviderData: null,
-            error: null,
-            notesToSet: [],
-            processedTxHashes: new Set(),
-            isProcessingNote: false,
-          }));
-        }, 2000); // Give user time to see completion message
+      if (state.mintedProviderAddress) {
+        callbacks.onRegistrationComplete(state.mintedProviderAddress);
       }
+      
+      // Reset state for next registration
+      setTimeout(() => {
+        setState(prev => ({
+          ...prev,
+          step: 'idle',
+          mintedProviderAddress: null,
+          currentNoteIndex: 0,
+          pendingProviderData: null,
+          error: null,
+          notesToSet: [],
+          processedTxHashes: new Set(),
+          isProcessingNote: false,
+        }));
+      }, 2000);
     }
-  }, [isNotesTxSuccess, state.step, state.currentNoteIndex, state.notesToSet.length, state.mintedProviderAddress, notesTxHash, state.processedTxHashes, callbacks, resetNote]);
+  }, [isNotesTxSuccess, state.step, state.mintedProviderAddress, callbacks]);
 
   // Handle mint errors
   useEffect(() => {
@@ -406,6 +345,5 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     mintError,
     notesError,
     startRegistration,
-    totalNotesToSet: state.notesToSet.length,
   };
 } 

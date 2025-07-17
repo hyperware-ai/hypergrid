@@ -179,7 +179,7 @@ export function generateProviderNotesMulticall({
 
 /**
  * Generates TBA execute arguments for setting provider notes via multicall
- * Follows the operator pattern: TBA.execute(MULTICALL_ADDRESS, multicall_data)
+ * Uses DELEGATECALL pattern from the example code
  */
 export function generateProviderNotesCallsArray({
     tbaAddress,
@@ -224,7 +224,7 @@ export function generateProviderNotesCallsArray({
             MULTICALL_ADDRESS, // target: Multicall contract
             0n,               // value: 0 ETH
             multicallData,    // data: the multicall
-            0,                // operation: 0 for CALL
+            1,                // operation: 1 for DELEGATECALL (critical!)
         ] as const
     };
 }
