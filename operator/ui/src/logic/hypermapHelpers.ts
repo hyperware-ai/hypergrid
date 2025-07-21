@@ -30,7 +30,10 @@ export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664E
 // TBA Implementation Addresses
 // Old implementation (0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97 was even older, now using:)
 export const OLD_TBA_IMPLEMENTATION: Address = '0x000000000046886061414588bb9F63b6C53D8674'; // Works but no gasless support
-export const NEW_TBA_IMPLEMENTATION: Address = '0x19b89306e31D07426E886E3370E62555A0743D96'; // Supports ERC-4337 gasless
+//export const NEW_TBA_IMPLEMENTATION: Address = '0x19b89306e31D07426E886E3370E62555A0743D96'; // Supports ERC-4337 gasless (was faulty, no delegation)
+//export const NEW_TBA_IMPLEMENTATION: Address = '0x70fAa7d49036E155B6A1889f0c856931e129CcCD'; // Supports ERC-4337 gasless (fixed) (not fixed lol)
+//export const NEW_TBA_IMPLEMENTATION: Address = '0x73dFF273A33C4BCF95DE2cD8c812BF97931774Ab'; // Supports ERC-4337 gasless (not fixed)
+export const NEW_TBA_IMPLEMENTATION: Address =  '0x3950D18044D7DAA56BFd6740fE05B42C95201535'; // actually fixed (final: part deux)
 
 // Default to the new implementation for new deployments (supports gasless)
 export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = NEW_TBA_IMPLEMENTATION;
@@ -39,10 +42,6 @@ export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = NEW_TBA_IMPLEMENTATI
 export const hypermapAbi = parseAbi([
     'function mint(address owner, bytes calldata node, bytes calldata data, address implementation) external returns (address tba)',
     'function note(bytes calldata noteKey, bytes calldata noteValue) external returns (bytes32 labelhash)',
-    // Add other Hypermap functions if needed by other helpers:
-    // 'function get(bytes32 node) external view returns (address tba, address owner, bytes memory note)',
-    // 'function tbaOf(bytes32 entry) external view returns (address tba)',
-    // 'function fact(bytes calldata factKey, bytes calldata factValue) external returns (bytes32 namehash)',
 ]);
 
 // ABI for the standard 'execute' function on a Token Bound Account (TBA)
@@ -61,9 +60,9 @@ export const HYPERGRID_SIGNERS_NOTE_KEY = "~grid-beta-signers";
 
 // ERC-4337 Constants
 export const CIRCLE_PAYMASTER_ADDRESS: Address = '0x0578cFB241215b77442a541325d6A4E6dFE700Ec'; // Circle's USDC paymaster on Base
-export const PIMLICO_PAYMASTER_ADDRESS: Address = '0x888888888888Ec68A58AB8094Cc1AD20Ba3D2402'; // Pimlico's USDC paymaster on Base
+//export const PIMLICO_PAYMASTER_ADDRESS: Address = '0x888888888888Ec68A58AB8094Cc1AD20Ba3D2402'; // Pimlico's USDC paymaster on Base
 export const USDC_ADDRESS_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
-export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 1000000n * 10n ** 6n; // 1M USDC (with 6 decimals)
+export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 100n * 10n ** 6n; // 100 USDC (with 6 decimals)
 
 // -------------------------------------------------------------------------------------------------
 // Encoding Helpers
@@ -200,7 +199,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
     const mintInternal = useCallback(({
         parentTbaAddress, // Address of the parent TBA (e.g., pertinent.os's TBA)
         ownerOfNewSubTba,   // EOA that will own the new sub-TBA
-        subLabelToMint,     // Label for the new sub-entry (e.g., "grid-beta-wallet")
+        subLabelToMint,     // Label for the new sub-entry (e.g., "grid-beta-wallet" or "grid-beta-wallet-aa")
         implementationForNewSubTba = DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
     }: {
         parentTbaAddress: Address;
@@ -217,7 +216,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
             return;
         }
         
-        console.log(`useMintOperatorSubEntry: Preparing to mint sub-label '${subLabelToMint}' under parent TBA ${parentTbaAddress}.`);
+        console.log(`useMintOperatorSubEntry: Preparing to mint sub-label '${subLabelToMint}'(SHOULD BE 'grid-beta-wallet-aa-final') under parent TBA ${parentTbaAddress}.`);
         console.log(`  New sub-TBA will be owned by: ${ownerOfNewSubTba}`);
         console.log(`  New sub-TBA implementation: ${implementationForNewSubTba}`);
 
@@ -485,7 +484,7 @@ export function useApprovePaymaster(props?: UseWriteHypermapContractProps) {
     }), [approvePaymasterInternal, transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset]);
 }
 
-// Example usage (conceptual, would be in a React component):
+// Example usage 
 /*
 function MyComponent() {
     const { address: connectedAccount } = useAccount();

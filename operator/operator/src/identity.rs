@@ -10,7 +10,8 @@ use crate::chain; // To call get_implementation_address
 
 // TBA Implementation addresses
 const OLD_TBA_IMPLEMENTATION: &str = "0x000000000046886061414588bb9F63b6C53D8674"; // Works but no gasless
-const NEW_TBA_IMPLEMENTATION: &str = "0x19b89306e31D07426E886E3370E62555A0743D96"; // Supports ERC-4337 gasless
+//const NEW_TBA_IMPLEMENTATION: &str = "0x19b89306e31D07426E886E3370E62555A0743D96"; // Supports ERC-4337 gasless (was faulty, no delegation)
+const NEW_TBA_IMPLEMENTATION: &str = "0x3950D18044D7DAA56BFd6740fE05B42C95201535"; // Supports ERC-4337 gasless (fixed)
 
 /// Checks for the expected Hypergrid sub-entry (e.g., grid-beta-wallet.<node_name>.<tlz>)
 /// and verifies it uses a supported HyperAccountAccessControlMinter implementation.
@@ -60,7 +61,7 @@ pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<
             }
         }
         IdentityStatus::NotFound => {
-            let expected_sub_entry_name = format!("grid-beta-wallet.{}", our.node);
+            let expected_sub_entry_name = format!("grid-beta-wallet-aa-final.{}", our.node);
             error!("---------------------------------------------------------------------");
             error!("Hypergrid operational sub-entry not found!");
             error!("Expected sub-entry: {}", expected_sub_entry_name);
@@ -80,7 +81,7 @@ pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<
         }
         IdentityStatus::IncorrectImplementation { found, expected } => {
             // This now means UNSUPPORTED implementation (not old or new)
-            let expected_sub_entry_name = format!("grid-beta-wallet.{}", our.node);
+            let expected_sub_entry_name = format!("grid-beta-wallet-aa-final.{}", our.node);
             error!("---------------------------------------------------------------------");
             error!("Hypergrid operational sub-entry uses UNSUPPORTED implementation!");
             error!("Sub-entry: {}", expected_sub_entry_name);
@@ -120,7 +121,7 @@ pub fn check_operator_identity_detailed(our: &Address) -> IdentityStatus {
     info!("Checking detailed Hypergrid Operator Identity status for node: {}", our.node);
 
     let base_node_name = our.node.clone();
-    let expected_sub_entry_name = format!("grid-beta-wallet.{}", base_node_name);
+    let expected_sub_entry_name = format!("grid-beta-wallet-aa-final.{}", base_node_name);
     
     let provider = eth::Provider::new(CHAIN_ID, 30000); // 30s timeout
     let hypermap_addr = match EthAddress::from_str(hypermap::HYPERMAP_ADDRESS) {

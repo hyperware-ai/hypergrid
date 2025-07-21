@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Address } from 'viem';
-import { useApprovePaymaster, CIRCLE_PAYMASTER_ADDRESS, USDC_ADDRESS_BASE, DEFAULT_PAYMASTER_APPROVAL_AMOUNT, PIMLICO_PAYMASTER_ADDRESS } from '../logic/hypermapHelpers';
+import { useApprovePaymaster, CIRCLE_PAYMASTER_ADDRESS, USDC_ADDRESS_BASE, DEFAULT_PAYMASTER_APPROVAL_AMOUNT } from '../logic/hypermapHelpers';
 
 interface PaymasterApprovalButtonProps {
     operatorTbaAddress: Address;
@@ -62,7 +62,7 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
         
         approvePaymaster({
             operatorTbaAddress,
-            paymasterAddress: PIMLICO_PAYMASTER_ADDRESS,
+            paymasterAddress: CIRCLE_PAYMASTER_ADDRESS,
             usdcAddress: USDC_ADDRESS_BASE,
             approvalAmount: DEFAULT_PAYMASTER_APPROVAL_AMOUNT,
         });
@@ -121,7 +121,7 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
                         This will allow Circle's paymaster to spend up to {approvalAmountDisplay} from this TBA for gas fees.
                     </p>
                     <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#888' }}>
-                        Paymaster: {PIMLICO_PAYMASTER_ADDRESS.slice(0, 6)}...{PIMLICO_PAYMASTER_ADDRESS.slice(-4)}
+                        Paymaster: {CIRCLE_PAYMASTER_ADDRESS.slice(0, 6)}...{CIRCLE_PAYMASTER_ADDRESS.slice(-4)}
                     </p>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button
