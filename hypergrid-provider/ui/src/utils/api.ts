@@ -7,7 +7,7 @@ import {
   UpdateProviderResponse,
 } from '../types/hypergrid_provider';
 
-const BASE_URL = import.meta.env.BASE_URL; // Assuming BASE_URL is accessible here or passed in
+const BASE_URL = import.meta.env.BASE_URL; 
 
 export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[]> => {
   const requestData = { GetRegisteredProviders: {} } as any;
@@ -35,12 +35,11 @@ export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[
 };
 
 export const registerProviderApi = async (
-  provider: RegisteredProvider, 
-  validationArguments: [string, string][] = []
+  provider: RegisteredProvider
 ): Promise<RegisterProviderResponse> => {
   try {
     const payload: RegisterProviderRequest = {
-      RegisterProvider: [provider, validationArguments],
+      RegisterProvider: provider,
     };
 
     const result = await fetch(`${BASE_URL}/api`, {
@@ -66,6 +65,47 @@ export const registerProviderApi = async (
     throw new Error("Unknown error during provider registration.");
   }
 };
+
+// Validate provider endpoint and cache for later registration
+export const validateProviderApi = async (
+  provider: RegisteredProvider, 
+  validationArguments: [string, string][] = []
+): Promise<{ success: boolean; error?: string; response?: string }> => {
+  try {
+    const payload = {
+      ValidateProvider: [provider, validationArguments],
+    };
+
+    const result = await fetch(`${BASE_URL}/api`, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!result.ok) {
+      const errorText = await result.text();
+      console.error(`Validation request failed: ${result.status} ${result.statusText}. Response:`, errorText);
+      return { 
+        success: false, 
+        error: `Validation failed: ${result.statusText} - ${errorText}` 
+      };
+    }
+
+    const responseText = await result.text();
+    console.log('Validation successful:', responseText);
+    
+    return { success: true, response: responseText };
+  } catch (error) {
+    console.error("Failed to validate provider:", error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown validation error' 
+    };
+  }
+};
+
+
+
 
 export const updateProviderApi = async (providerName: string, updatedProvider: RegisteredProvider): Promise<UpdateProviderResponse> => {
   console.log("Updating provider:", providerName, updatedProvider);

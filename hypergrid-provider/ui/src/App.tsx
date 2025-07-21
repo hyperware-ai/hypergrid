@@ -24,7 +24,7 @@ import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
 import CurlVisualizer from "./components/curlVisualizer";
 import ValidationPanel from "./components/ValidationPanel";
 import SelectionModal from "./components/SelectionModal";
-import ProviderConfigForm from "./components/ProviderConfigForm";
+import APIConfigForm from "./components/APIConfigForm";
 import HypergridEntryForm from "./components/HypergridEntryForm";
 import RegisteredProviderView from './components/RegisteredProviderView';
 import { 
@@ -80,11 +80,25 @@ function AppContent() {
   
   // Blockchain registration
   const providerRegistration = useProviderRegistration({
-    onRegistrationComplete: (providerAddress) => {
-      resetFormFields();
-      handleCloseAddNewModal();
-      loadAndSetProviders();
-      alert(`Provider "${providerRegistration.pendingProviderData?.provider_name}" successfully registered on-chain at ${providerAddress}!`);
+    onRegistrationComplete: async (providerAddress) => {
+      // Blockchain registration succeeded, now register in backend
+      if (providerRegistration.pendingProviderData) {
+        try {
+          const response = await registerProviderApi(providerRegistration.pendingProviderData);
+          const feedback = processRegistrationResponse(response);
+          
+          if (response.Ok) {
+            console.log('Provider registered in backend after hypergrid registration success:', response.Ok);
+            loadAndSetProviders();
+          } else {
+            console.error('Failed to register in backend after hypergrid registration success:', feedback.message);
+            alert(`Blockchain registration succeeded but backend registration failed: ${feedback.message}`);
+          }
+        } catch (error) {
+          console.error('Error registering in backend after hypergrid registration success:', error);
+          alert('Blockchain registration succeeded but backend registration failed.');
+        }
+      }
     },
     onRegistrationError: (error) => {
       alert(`Blockchain registration failed: ${error}`);
@@ -298,7 +312,7 @@ function AppContent() {
     const formData: ProviderFormData = {
       providerName,
       providerDescription,
-      providerId: isEditMode ? editingProvider?.provider_id || "" : "", // Use existing ID when editing
+      providerId: isEditMode ? editingProvider?.provider_id || "" : (window.our?.node || ""), // Use node ID for new providers
       instructions, // Add instructions field
       registeredProviderWallet,
       price,
@@ -323,7 +337,7 @@ function AppContent() {
     
     // Check if wallet is connected for new registrations
     if (!isEditMode && !isWalletConnected) {
-      alert('Please connect your wallet to register on-chain');
+      alert('Please connect your wallet to register on the hypergrid');
       return;
     }
 
@@ -363,20 +377,20 @@ function AppContent() {
     isWalletConnected
   ]);
 
-  const handleValidationSuccess = useCallback(async (registeredProvider: RegisteredProvider) => {
-    console.log("Provider validated and registered successfully:", registeredProvider);
+  const handleValidationSuccess = useCallback(async (providerToRegister: RegisteredProvider) => {
+    console.log("Starting registration for provider:", providerToRegister);
     
-    // Start blockchain registration if wallet is connected
+    // Start hypergrid registration if wallet is connected
     if (isWalletConnected) {
-      providerRegistration.startRegistration(registeredProvider);
+      providerRegistration.startRegistration(providerToRegister);
     } else {
-      // No wallet connected, just complete the off-chain registration
-      resetFormFields();
-      handleCloseAddNewModal();
-      loadAndSetProviders();
-      alert(`Provider "${registeredProvider.provider_name}" successfully validated and registered off-chain! Connect a wallet to register on-chain.`);
+      // No wallet connected - show message and don't proceed
+      alert('Please connect your wallet to complete provider registration on the hypergrid.');
+      // Reset back to config form so user can connect wallet and try again
+      setShowValidation(false);
+      setProviderToValidate(null);
     }
-  }, [loadAndSetProviders, isWalletConnected, providerRegistration]);
+  }, [isWalletConnected, providerRegistration]);
 
   const handleValidationError = useCallback((error: string) => {
     console.error("Validation failed:", error);
@@ -571,50 +585,16 @@ function AppContent() {
           title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
           maxWidth={showValidation ? "min(500px, 95vw)" : "min(1200px, 95vw)"}
         >
-          {showValidation && providerToValidate ? (
-            <div style={{ position: 'relative' }}>
+          <div style={{ position: 'relative' }}>
+            {showValidation && providerToValidate ? (
               <ValidationPanel
                 provider={providerToValidate}
                 onValidationSuccess={handleValidationSuccess}
                 onValidationError={handleValidationError}
                 onCancel={handleValidationCancel}
               />
-              
-              {/* Blockchain Registration Progress Overlay */}
-              <ProviderRegistrationOverlay
-                isVisible={providerRegistration.isRegistering}
-                step={providerRegistration.step}
-                currentNoteIndex={providerRegistration.currentNoteIndex}
-                mintedProviderAddress={providerRegistration.mintedProviderAddress}
-                isMinting={providerRegistration.isMinting}
-                isSettingNotes={providerRegistration.isSettingNotes}
-                isMintTxLoading={providerRegistration.isMintTxLoading}
-                isNotesTxLoading={providerRegistration.isNotesTxLoading}
-                mintError={providerRegistration.mintError}
-                notesError={providerRegistration.notesError}
-              />
-            </div>
-          ) : (
-            <>
-              {/* Add Clear Form button when not in validation mode */}
-              {!showValidation && (
-                <div style={{ 
-                  display: 'flex', 
-                  justifyContent: 'flex-end', 
-                  marginBottom: '10px',
-                  paddingRight: '20px',
-                  gap: '8px'
-                }}>
-                  <button 
-                    onClick={resetFormFields}
-                    className="clear-form-button"
-                    style={{ height: '5px', fontSize: '3px' }}
-                  >
-                    <span className="button-icon">🗑️</span> Clear Form
-                  </button>
-                </div>
-              )}
-              
+            ) : (
+            <>              
               <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
                 <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
                   <HypergridEntryForm
@@ -644,8 +624,8 @@ function AppContent() {
                   />
                 </div>
 
-                <div className="modal-right-column" style={{ flex: 1, overflowY: 'auto' }}>
-                  <ProviderConfigForm
+                <div className="modal-right-column" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  <APIConfigForm
                     providerName={providerName}
                     topLevelRequestType={topLevelRequestType}
                     setTopLevelRequestType={setTopLevelRequestType}
@@ -677,6 +657,28 @@ function AppContent() {
               </div>
             </>
           )}
+          
+          {/* Hypergrid Registration Progress Overlay - Outside conditional so it persists */}
+          <ProviderRegistrationOverlay
+            isVisible={providerRegistration.isRegistering}
+            step={providerRegistration.step}
+            currentNoteIndex={providerRegistration.currentNoteIndex}
+            mintedProviderAddress={providerRegistration.mintedProviderAddress}
+            isMinting={providerRegistration.isMinting}
+            isSettingNotes={providerRegistration.isSettingNotes}
+            isMintTxLoading={providerRegistration.isMintTxLoading}
+            isNotesTxLoading={providerRegistration.isNotesTxLoading}
+            mintError={providerRegistration.mintError}
+            notesError={providerRegistration.notesError}
+            onClose={() => {
+              // Close validation panel when registration overlay closes
+              setShowValidation(false);
+              setProviderToValidate(null);
+              resetFormFields();
+              handleCloseAddNewModal();
+            }}
+          />
+        </div>
         </SelectionModal>
       </main>
     </div>

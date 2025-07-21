@@ -3,6 +3,19 @@
 @import './styles/responsive.css';
 @import './styles/mobile.css';
 
+/* Form element dimensions - centralized control
+   Change these variables to adjust all form element heights throughout the app */
+   :root {
+    --form-input-height: auto;           /* Text inputs, selects - let content determine height */
+    --form-button-height: auto;          /* Add/Set buttons - let content determine height */
+    --form-action-button-height: 20px;   /* Submit/Action buttons */
+    --form-input-padding: 6px 6px;       /* Input field padding - 0px vertical */
+    --form-button-padding: 7px 12px;     /* Small button padding - 0px vertical */
+    --form-action-button-padding: 0.25rem 1rem; /* Large button padding - reduced vertical */
+    --form-input-font-size: 0.9em;       /* Smaller text = shorter inputs */
+    --form-button-font-size: 0.9em;      /* Smaller text = shorter buttons */
+    --form-line-height: 1;               /* Tight line height */
+  }
 /* Card styles */
 .card {
   background-color: var(--card-bg);
@@ -370,7 +383,8 @@ select {
 
 .modal-right-column {
   flex: 1;
-  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 /* Form styles */
@@ -495,6 +509,30 @@ select {
   align-items: stretch;
 }
 
+/* Desktop parameter sections - force horizontal layout */
+@media (min-width: 769px) {
+  .modal-right-column .parameter-sections-container,
+  .parameter-sections-container {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 20px !important;
+  }
+
+  .modal-right-column .parameter-section-item,
+  .parameter-section-item {
+    flex: 1 1 calc(50% - 10px) !important;
+    min-width: 200px !important;
+    max-width: calc(50% - 10px) !important;
+  }
+  
+  /* When all 4 parameters are present, allow them to wrap nicely */
+  .parameter-sections-container.with-json-body .parameter-section-item {
+    flex: 1 1 calc(50% - 10px) !important;
+  }
+}
+
+/* Base styles for all screens */
 .parameter-sections-container {
   display: flex;
   flex-direction: row;
@@ -515,26 +553,28 @@ select {
 .api-scaffold-container {
   background-color: var(--card-bg);
   border: 1px solid var(--card-border);
-  padding: 1rem;
-  border-radius: 6px;
+  padding: 0.4rem;
+  border-radius: 8px;
+  box-shadow: var(--card-shadow);
 }
 
 .api-scaffold-container h3 {
   color: var(--heading-color);
   margin-top: 0;
-  margin-bottom: 0.5em;
+  margin-bottom: 0.4rem;
+  font-size: 1.1rem;
 }
 
 .api-scaffold-content {
   background-color: var(--scaffold-bg);
   color: var(--scaffold-code-default-color);
   border: 1px solid var(--scaffold-border-color);
-  padding: 1rem;
+  padding: 0.6rem 0.8rem;
   border-radius: 4px;
   overflow-x: auto;
   font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, Courier, monospace;
-  font-size: 0.9em;
-  line-height: 1.5;
+  font-size: 0.85em;
+  line-height: 1.4;
 }
 
 .api-scaffold-content code {
@@ -683,6 +723,38 @@ select {
 
 .validation-actions .btn-secondary:hover:not(:disabled) {
   background-color: var(--secondary-hover-color);
+}
+
+/* Validation parameters grid layout */
+.validation-params-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 15px;
+  margin-top: 10px;
+}
+
+.validation-param-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.validation-param-label {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-color);
+  margin: 0;
+}
+
+.validation-param-input {
+  padding: 8px 10px;
+  font-size: 0.9rem;
+  border: 1px solid var(--input-border);
+  border-radius: 4px;
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 /* Desktop menu styles */

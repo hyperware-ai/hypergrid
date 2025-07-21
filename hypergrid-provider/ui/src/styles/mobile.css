@@ -325,14 +325,6 @@
     padding: 0 !important;
   }
   
-  /* Clear form button container */
-  .modal-body > div:first-child {
-    margin: 0 0 10px 0 !important;
-    padding: 0 !important;
-    display: flex !important;
-    gap: 8px !important;
-    justify-content: flex-end !important;
-  }
   
   /* Clear and copy form button mobile styles */
   .clear-form-button {
@@ -439,10 +431,11 @@
   /* Parameter keys grid on mobile */
   .parameter-sections-container {
     gap: 1rem !important;
+    flex-direction: column !important; /* Stack vertically on mobile */
   }
   
   .parameter-section-item {
-    flex: 1 1 100% !important;
+    flex: none !important;
     min-width: 100% !important;
   }
   
@@ -462,17 +455,17 @@
   .key-input-row input {
     flex-grow: 1 !important;
     font-size: 0.9rem !important;
-    padding: 8px 10px !important;
-    height: 40px !important;
-    min-height: 40px !important;
+    padding: var(--form-input-padding) !important;
+    height: var(--form-input-height) !important;
+    min-height: var(--form-input-height) !important;
   }
   
   .key-input-row button {
     width: auto !important;
-    padding: 8px 18px !important;
+    padding: var(--form-button-padding) !important;
     font-size: 0.9rem !important;
-    height: 40px !important;
-    min-height: 40px !important;
+    height: var(--form-button-height) !important;
+    min-height: var(--form-button-height) !important;
     flex-shrink: 0 !important;
   }
   
@@ -526,6 +519,25 @@
     margin-bottom: 0.75rem !important;
     width: 100% !important;
   }
+
+  /* Validation parameters grid on mobile */
+  .validation-params-grid {
+    grid-template-columns: 1fr !important; /* Single column on mobile */
+    gap: 10px !important;
+  }
+
+  .validation-param-item {
+    gap: 3px !important;
+  }
+
+  .validation-param-label {
+    font-size: 0.85rem !important;
+  }
+
+  .validation-param-input {
+    padding: 6px 8px !important;
+    font-size: 0.85rem !important;
+  }
   
   .validation-inputs label {
     font-size: 0.85rem !important;
@@ -538,8 +550,8 @@
   
   .validation-inputs input {
     font-size: 0.9rem !important;
-    padding: 0.5rem 0.75rem !important;
-    height: 40px !important;
+    padding: var(--form-input-padding) !important;
+    height: var(--form-input-height) !important;
     width: 100% !important;
     box-sizing: border-box !important;
   }
@@ -624,9 +636,9 @@
   .modal-form-navigation button,
   .validation-actions button {
     width: 100% !important;
-    padding: 0.75rem 1rem !important;
+    padding: var(--form-action-button-padding) !important;
     font-size: 0.95rem !important;
-    min-height: 44px !important; /* Touch-friendly height */
+    min-height: var(--form-action-button-height) !important;
   }
   
   .validation-actions .btn-primary {

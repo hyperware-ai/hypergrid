@@ -49,7 +49,7 @@ export interface RegisteredProvider {
 
 // Request body for the register_provider endpoint
 export interface RegisterProviderRequest {
-  RegisterProvider: [RegisteredProvider, [string, string][]]; // Tuple variant format
+  RegisterProvider: RegisteredProvider; // Just the provider, no validation arguments
 }
 
 

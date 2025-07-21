@@ -144,6 +144,7 @@ impl HypergridProviderState {
         }
     }
 
+
     /// Initialize VFS drive for storing provider data
     pub fn init_vfs_drive(&mut self) -> Result<(), String> {
         match create_drive(our().package_id(), "providers", None) {
@@ -294,7 +295,6 @@ impl HypergridProviderState {
     async fn register_provider(
         &mut self,
         provider: RegisteredProvider,
-        arguments: Vec<(String, String)>,
     ) -> Result<RegisteredProvider, String> {
         info!("Registering provider: {:?}", provider);
         if self
@@ -307,29 +307,12 @@ impl HypergridProviderState {
                 provider.provider_name
             ));
         }
-        // Step 1: Validate the endpoint by making a test call
-        let validation_result = call_provider(
-            provider.provider_name.clone(),
-            provider.endpoint.clone(),
-            &arguments,
-            our().node.to_string(),
-        )
-        .await?;
-        
-        info!("Validation result: {}", validation_result);
-        validate_response_status(&validation_result)
-            .map_err(|e| format!("Validation failed, failed to register provider: {}", e))?;
 
-        // Use node identity as provider_id - no need for timestamps or fuzzing
-        let provider_with_id = RegisteredProvider {
-            provider_id: our().node.to_string(),
-            ..provider
-        };
-
-        self.registered_providers.push(provider_with_id.clone());
+        // Provider ID is set by frontend to match node identity
+        self.registered_providers.push(provider.clone());
         info!(
-            "Successfully registered provider after validating the endpoint: {}",
-            provider_with_id.provider_name
+            "Successfully registered provider: {}",
+            provider.provider_name
         );
 
         // Save to VFS
@@ -350,6 +333,44 @@ impl HypergridProviderState {
 
         Ok(provider_with_id)
     }
+
+    #[http]
+    async fn validate_provider(
+        &mut self,
+        provider: RegisteredProvider,
+        arguments: Vec<(String, String)>,
+    ) -> Result<String, String> {
+        info!("Validating provider: {:?}", provider);
+        
+        // Check if already registered
+        if self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == provider.provider_name)
+        {
+            return Err(format!(
+                "Provider with name '{}' already registered.",
+                provider.provider_name
+            ));
+        }
+        
+        // Validate the endpoint by making a test call
+        let validation_result = call_provider(
+            provider.provider_name.clone(),
+            provider.endpoint.clone(),
+            &arguments,
+            our().node.to_string(),
+        )
+        .await?;
+        
+        info!("Validation result: {}", validation_result);
+        validate_response_status(&validation_result)
+            .map_err(|e| format!("Validation failed: {}", e))?;
+
+        info!("Provider validation successful: {}", provider.provider_name);
+        Ok(validation_result)
+    }
+
 
 
     #[http]
@@ -940,4 +961,3 @@ impl HypergridProviderState {
 //        }
 //    }
 //}
-//

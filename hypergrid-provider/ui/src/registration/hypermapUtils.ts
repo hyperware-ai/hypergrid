@@ -2,13 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
 import { encodePacked, stringToHex, decodeEventLog, type Address } from 'viem';
 import { 
-  GRID_BETA_1_ADDRESS, 
+  HYPERGRID_ADDRESS, 
   hyperGridNamespaceMinterAbi,
   generateProviderNotesCallsArray,
   tbaExecuteAbi,
-  erc6551RegistryAbi
 } from './hypermap';
 import { RegisteredProvider } from '../types/hypergrid_provider';
+import React from 'react';
 
 export type ProviderRegistrationStep = 'idle' | 'minting' | 'notes' | 'complete';
 
@@ -128,13 +128,16 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     reset: resetNote
   } = useWriteContract();
 
-  // Transaction receipts
+  // Transaction receipts with callbacks
   const { 
     isLoading: isMintTxLoading, 
     isSuccess: isMintTxSuccess,
     data: mintTxReceipt 
   } = useWaitForTransactionReceipt({
     hash: mintTxHash,
+    query: {
+      enabled: !!mintTxHash,
+    }
   });
 
   const { 
@@ -142,123 +145,120 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     isSuccess: isNotesTxSuccess 
   } = useWaitForTransactionReceipt({
     hash: notesTxHash,
+    query: {
+      enabled: !!notesTxHash,
+    }
   });
 
-  // Handle mint transaction success - extract TBA from logs and move to notes step
-  useEffect(() => {
-    if (isMintTxSuccess && mintTxReceipt && state.pendingProviderData && state.step === 'minting') {
-      console.log('Mint transaction confirmed:', mintTxReceipt.transactionHash);
-      
-      // Extract TBA from transaction logs
-      const extractedTbaAddress = extractTbaAddressFromLogs(
-        mintTxReceipt.logs, 
-        state.pendingProviderData.provider_name
-      );
-      
-      if (extractedTbaAddress) {
-        console.log('TBA address extracted:', extractedTbaAddress);
-        setState(prev => ({
-          ...prev,
-          mintedProviderAddress: extractedTbaAddress,
-          step: 'notes',
-          currentNoteIndex: 0,
-        }));
-        // Reset mint transaction state to prevent re-triggering
-        resetMint();
-      } else {
-        const errorMessage = 'Could not extract TBA address from transaction logs.';
-        setState(prev => ({ 
-          ...prev, 
-          isRegistering: false, 
-          step: 'idle',
-          error: errorMessage,
-          processedTxHashes: new Set(),
-          isProcessingNote: false,
-        }));
-        callbacks.onRegistrationError(errorMessage);
-        resetMint();
-      }
-    }
-  }, [isMintTxSuccess, mintTxReceipt, state.pendingProviderData, state.step, callbacks, resetMint]);
-
-    // Set notes after minting - use multicall with DELEGATECALL
-  useEffect(() => {
-    if (state.step === 'notes' && state.mintedProviderAddress && state.pendingProviderData && !isSettingNotes && !isNotesTxLoading) {
-      console.log('Setting notes via multicall with DELEGATECALL');
-      
-      try {
-        const { tbaAddress, executeArgs } = generateProviderNotesCallsArray({
-          tbaAddress: state.mintedProviderAddress,
-          providerId: state.pendingProviderData.provider_id,
-          wallet: state.pendingProviderData.registered_provider_wallet,
-          description: state.pendingProviderData.description,
-          instructions: state.pendingProviderData.instructions,
-          price: state.pendingProviderData.price.toString(),
-        });
-
-        console.log('TBA execute args for multicall:', {
-          tbaAddress,
-          target: executeArgs[0],
-          value: executeArgs[1].toString(),
-          operation: executeArgs[3], // Should be 1 for DELEGATECALL
-        });
-
-        // Call TBA.execute(MULTICALL, multicallData, 0, 1)
-        setNote({
-          address: tbaAddress,
-          abi: tbaExecuteAbi,
-          functionName: 'execute',
-          args: executeArgs,
-          gas: 1000000n, // Match the example
-        } as any);
-      } catch (error) {
-        console.error('Failed to create notes multicall:', error);
-        const errorMessage = `Failed to set notes: ${(error as Error).message}`;
-        setState(prev => ({ 
-          ...prev, 
-          isRegistering: false, 
-          step: 'idle',
-          error: errorMessage,
-          processedTxHashes: new Set(),
-        }));
-        callbacks.onRegistrationError(errorMessage);
-      }
-    }
-  }, [state.step, state.mintedProviderAddress, state.pendingProviderData, isSettingNotes, isNotesTxLoading, setNote, callbacks]);
-
-  // Handle notes transaction success
-  useEffect(() => {
-    if (isNotesTxSuccess && state.step === 'notes') {
-      console.log('All notes set successfully via multicall');
-      
+  // Handle mint transaction success
+  const handleMintSuccess = useCallback((txReceipt: any, providerData: RegisteredProvider) => {
+    console.log('Mint transaction confirmed:', txReceipt.transactionHash);
+    
+    // Extract TBA from transaction logs
+    const extractedTbaAddress = extractTbaAddressFromLogs(
+      txReceipt.logs, 
+      providerData.provider_name
+    );
+    
+    if (extractedTbaAddress) {
+      console.log('TBA address extracted:', extractedTbaAddress);
       setState(prev => ({
         ...prev,
-        step: 'complete',
-        isRegistering: false,
+        mintedProviderAddress: extractedTbaAddress,
+        step: 'notes',
+        currentNoteIndex: 0,
       }));
-      
-      if (state.mintedProviderAddress) {
-        callbacks.onRegistrationComplete(state.mintedProviderAddress);
-      }
-      
-      // Reset state for next registration
-      setTimeout(() => {
-        setState(prev => ({
-          ...prev,
-          step: 'idle',
-          mintedProviderAddress: null,
-          currentNoteIndex: 0,
-          pendingProviderData: null,
-          error: null,
-          notesToSet: [],
-          processedTxHashes: new Set(),
-          isProcessingNote: false,
-        }));
-      }, 2000);
+      resetMint();
+      // Start notes transaction immediately
+      setProviderNotes(extractedTbaAddress, providerData);
+    } else {
+      const errorMessage = 'Could not extract TBA address from transaction logs.';
+      setState(prev => ({ 
+        ...prev, 
+        isRegistering: false, 
+        step: 'idle',
+        error: errorMessage,
+        processedTxHashes: new Set(),
+        isProcessingNote: false,
+      }));
+      callbacks.onRegistrationError(errorMessage);
+      resetMint();
     }
-  }, [isNotesTxSuccess, state.step, state.mintedProviderAddress, callbacks]);
+  }, [resetMint, callbacks]);
 
-  // Handle mint errors
+  // Function to set notes
+  const setProviderNotes = useCallback(async (tbaAddress: Address, providerData: RegisteredProvider) => {
+    console.log('Setting notes via multicall with DELEGATECALL');
+    
+    try {
+      const { tbaAddress: returnedTbaAddress, executeArgs } = generateProviderNotesCallsArray({
+        tbaAddress,
+        providerId: providerData.provider_id,
+        wallet: providerData.registered_provider_wallet,
+        description: providerData.description,
+        instructions: providerData.instructions,
+        price: providerData.price.toString(),
+      });
+
+      console.log('TBA execute args for multicall:', {
+        tbaAddress: returnedTbaAddress,
+        target: executeArgs[0],
+        value: executeArgs[1].toString(),
+        operation: executeArgs[3], // Should be 1 for DELEGATECALL
+      });
+
+      // Call TBA.execute(MULTICALL, multicallData, 0, 1)
+      await setNote({
+        address: returnedTbaAddress,
+        abi: tbaExecuteAbi,
+        functionName: 'execute',
+        args: executeArgs,
+        gas: 1000000n,
+      } as any);
+    } catch (error) {
+      console.error('Failed to create notes multicall:', error);
+      const errorMessage = `Failed to set notes: ${(error as Error).message}`;
+      setState(prev => ({ 
+        ...prev, 
+        isRegistering: false, 
+        step: 'idle',
+        error: errorMessage,
+        processedTxHashes: new Set(),
+      }));
+      callbacks.onRegistrationError(errorMessage);
+    }
+  }, [setNote, callbacks]);
+
+  // Handle notes transaction success
+  const handleNotesSuccess = useCallback((tbaAddress: Address) => {
+    console.log('All notes set successfully via multicall');
+    
+    setState(prev => ({
+      ...prev,
+      step: 'complete',
+      isRegistering: false,
+    }));
+    
+    callbacks.onRegistrationComplete(tbaAddress);
+  }, [callbacks]);
+
+  // Watch for mint transaction success
+  useEffect(() => {
+    if (isMintTxSuccess && mintTxReceipt && state.pendingProviderData && state.step === 'minting') {
+      handleMintSuccess(mintTxReceipt, state.pendingProviderData);
+    }
+  }, [isMintTxSuccess, mintTxReceipt, state.pendingProviderData, state.step, handleMintSuccess]);
+
+
+
+  // Watch for notes transaction success
+  useEffect(() => {
+    if (isNotesTxSuccess && state.step === 'notes' && state.mintedProviderAddress) {
+      handleNotesSuccess(state.mintedProviderAddress);
+    }
+  }, [isNotesTxSuccess, state.step, state.mintedProviderAddress, handleNotesSuccess]);
+
+  // Handle errors
   useEffect(() => {
     if (mintError) {
       console.error('Mint error:', mintError);
@@ -276,11 +276,10 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     }
   }, [mintError, callbacks, resetMint]);
 
-  // Handle notes errors
   useEffect(() => {
     if (notesError) {
       console.error('Notes error:', notesError);
-      const errorMessage = `Setting note ${state.currentNoteIndex + 1} failed: ${notesError.message}`;
+      const errorMessage = `Setting notes failed: ${notesError.message}`;
       setState(prev => ({ 
         ...prev, 
         isRegistering: false, 
@@ -292,7 +291,7 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
       callbacks.onRegistrationError(errorMessage);
       resetNote();
     }
-  }, [notesError, state.currentNoteIndex, callbacks, resetNote]);
+  }, [notesError, callbacks, resetNote]);
 
   // Start blockchain registration
   const startRegistration = useCallback(async (provider: RegisteredProvider) => {
@@ -313,7 +312,7 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     
     try {
       await mintProvider({
-        address: GRID_BETA_1_ADDRESS,
+        address: HYPERGRID_ADDRESS,
         abi: hyperGridNamespaceMinterAbi,
         functionName: 'mint',
         args: [
@@ -346,4 +345,44 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     notesError,
     startRegistration,
   };
+}
+
+/**
+ * Custom hook for handling animation triggers based on registration state
+ */
+export function useRegistrationAnimations(
+  step: ProviderRegistrationStep,
+  mintedProviderAddress: Address | null,
+  onAnimationComplete?: () => void
+) {
+  const [animationState, setAnimationState] = React.useState<{
+    showSuccessAnimation: boolean;
+    showConfetti: boolean;
+  }>({
+    showSuccessAnimation: false,
+    showConfetti: false,
+  });
+
+  React.useEffect(() => {
+    if (step === 'complete' && mintedProviderAddress) {
+      // Trigger success animation
+      setAnimationState({
+        showSuccessAnimation: true,
+        showConfetti: true,
+      });
+      
+      // Optional callback after animation
+      if (onAnimationComplete) {
+        const timer = setTimeout(onAnimationComplete, 3000);
+        return () => clearTimeout(timer);
+      }
+    } else {
+      setAnimationState({
+        showSuccessAnimation: false,
+        showConfetti: false,
+      });
+    }
+  }, [step, mintedProviderAddress, onAnimationComplete]);
+
+  return animationState;
 } 

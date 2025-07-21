@@ -17,10 +17,8 @@
   --spacing-xl: 2rem;
   --spacing-xxl: 3rem;
 
-  /* Touch target sizes for mobile */
+  /* Touch target sizes for mobile - now using centralized form variables */
   --touch-target-min: 44px;
-  --button-height-mobile: 48px;
-  --input-height-mobile: 48px;
 
   /* Responsive font sizes */
   --font-size-xs: 0.75rem;
@@ -144,7 +142,7 @@ textarea,
   input[type="password"],
   select,
   textarea {
-    min-height: var(--button-height-mobile);
+    min-height: var(--form-input-height);
     font-size: 16px; /* Prevents zoom on iOS */
   }
 }

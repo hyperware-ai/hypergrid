@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 import { HttpMethod, RequestStructureType } from '../types/hypergrid_provider';
-import { registerProviderApi } from '../utils/api';
-import { processRegistrationResponse } from '../utils/providerFormUtils';
-import type { ApiResponseFeedback } from '../utils/providerFormUtils';
+import { validateProviderApi } from '../utils/api';
 
 interface ValidationPanelProps {
   provider: RegisteredProvider;
-  onValidationSuccess: (registeredProvider: RegisteredProvider) => void;
+  onValidationSuccess: (provider: RegisteredProvider) => void; // Pass original provider for blockchain registration
   onValidationError: (error: string) => void;
   onCancel: () => void;
 }
@@ -24,37 +22,23 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 }) => {
   const [validationArgs, setValidationArgs] = useState<ValidationArgs>({});
   const [isValidating, setIsValidating] = useState(false);
-  const [feedback, setFeedback] = useState<ApiResponseFeedback | null>(null);
+  const [validationResponse, setValidationResponse] = useState<string | null>(null);
 
-  useEffect(() => {
-    const initialArgs: ValidationArgs = {};
-    
-    if (provider.endpoint.path_param_keys) {
-      provider.endpoint.path_param_keys.forEach(key => {
-        initialArgs[key] = key === 'id' ? '123' : `sample_${key}`;
-      });
+  // Generate sample values for placeholders
+  const getSampleValue = (key: string, paramType: 'path' | 'query' | 'header' | 'body'): string => {
+    switch (paramType) {
+      case 'path':
+        return key === 'id' ? '123' : `sample_${key}`;
+      case 'query':
+        return key === 'limit' ? '10' : `sample_${key}`;
+      case 'header':
+        return key.toLowerCase().includes('version') ? '1.0' : `sample_${key}`;
+      case 'body':
+        return `sample_${key}`;
+      default:
+        return `sample_${key}`;
     }
-    
-    if (provider.endpoint.query_param_keys) {
-      provider.endpoint.query_param_keys.forEach(key => {
-        initialArgs[key] = key === 'limit' ? '10' : `sample_${key}`;
-      });
-    }
-    
-    if (provider.endpoint.header_keys) {
-      provider.endpoint.header_keys.forEach(key => {
-        initialArgs[key] = key.toLowerCase().includes('version') ? '1.0' : `sample_${key}`;
-      });
-    }
-    
-    if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
-      provider.endpoint.body_param_keys.forEach(key => {
-        initialArgs[key] = `sample_${key}`;
-      });
-    }
-    
-    setValidationArgs(initialArgs);
-  }, [provider]);
+  };
 
   const generateCurlPreview = (): string => {
     let url = provider.endpoint.base_url_template;
@@ -66,7 +50,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       case RequestStructureType.GetWithPath:
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'path');
             url = url.replace(`{${key}}`, value);
           });
         }
@@ -75,7 +59,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       case RequestStructureType.GetWithQuery:
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'query');
             queryParams.push(`${key}=${encodeURIComponent(value)}`);
           });
         }
@@ -84,19 +68,19 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       case RequestStructureType.PostWithJson:
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'path');
             url = url.replace(`{${key}}`, value);
           });
         }
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'query');
             queryParams.push(`${key}=${encodeURIComponent(value)}`);
           });
         }
         if (provider.endpoint.body_param_keys) {
           provider.endpoint.body_param_keys.forEach(key => {
-            bodyData[key] = validationArgs[key] || `{${key}}`;
+            bodyData[key] = validationArgs[key] || getSampleValue(key, 'body');
           });
         }
         break;
@@ -112,7 +96,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     
     if (provider.endpoint.header_keys) {
       provider.endpoint.header_keys.forEach(key => {
-        const value = validationArgs[key] || `{${key}}`;
+        const value = validationArgs[key] || getSampleValue(key, 'header');
         headers.push(`-H "${key}: ${value}"`);
       });
     }
@@ -147,18 +131,22 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
   const handleValidate = async () => {
     setIsValidating(true);
-    setFeedback(null);
+    setValidationResponse(null);
 
     try {
       const validationArguments: [string, string][] = Object.entries(validationArgs);
       
-      const response = await registerProviderApi(provider, validationArguments);
-      const feedback = processRegistrationResponse(response);
+      // Validate and cache the provider in backend
+      const result = await validateProviderApi(provider, validationArguments);
       
-      if (feedback.status === 'success' && response.Ok) {
-        onValidationSuccess(response.Ok);
+      if (result.success) {
+        setValidationResponse(result.response || 'Validation successful');
+        // Wait a moment to show the validation result, then proceed to blockchain
+        setTimeout(() => {
+          onValidationSuccess(provider);
+        }, 1000);
       } else {
-        onValidationError(feedback.message);
+        onValidationError(result.error || 'Validation failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
@@ -168,50 +156,53 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     }
   };
 
-  const getAllParamKeys = (): string[] => {
-    const keys = new Set<string>();
+  const getAllParamKeysWithTypes = (): Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> => {
+    const params: Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> = [];
     
     if (provider.endpoint.path_param_keys) {
-      provider.endpoint.path_param_keys.forEach(key => keys.add(key));
+      provider.endpoint.path_param_keys.forEach(key => params.push({ key, type: 'path' }));
     }
     if (provider.endpoint.query_param_keys) {
-      provider.endpoint.query_param_keys.forEach(key => keys.add(key));
+      provider.endpoint.query_param_keys.forEach(key => params.push({ key, type: 'query' }));
     }
     if (provider.endpoint.header_keys) {
-      provider.endpoint.header_keys.forEach(key => keys.add(key));
+      provider.endpoint.header_keys.forEach(key => params.push({ key, type: 'header' }));
     }
     if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
-      provider.endpoint.body_param_keys.forEach(key => keys.add(key));
+      provider.endpoint.body_param_keys.forEach(key => params.push({ key, type: 'body' }));
     }
     
-    return Array.from(keys);
+    return params;
   };
 
-  const paramKeys = getAllParamKeys();
+  const allParams = getAllParamKeysWithTypes();
 
   return (
     <div className="validation-panel form-section">
       <h3 style={{ marginTop: 0 }}>Validate Your Provider</h3>
-      <p>Before registering, let's test your API endpoint to make sure it works correctly. Fill in sample values for the parameters below:</p>
+      <p>Let's test your API endpoint to make sure it is configured correctly. :</p>
       
       <div className="validation-columns">
-        {paramKeys.length > 0 && (
+        {allParams.length > 0 && (
           <div className="validation-inputs">
             <h4>Test Parameters</h4>
-            {paramKeys.map(key => (
-              <div key={key} className="form-group">
-                <label htmlFor={`validation-${key}`}>
-                  {key}:
-                </label>
-                <input
-                  id={`validation-${key}`}
-                  type="text"
-                  value={validationArgs[key] || ''}
-                  onChange={(e) => handleValidationArgChange(key, e.target.value)}
-                  placeholder={`Enter value for ${key}`}
-                />
-              </div>
-            ))}
+            <div className="validation-params-grid">
+              {allParams.map(({ key, type }) => (
+                <div key={key} className="validation-param-item">
+                  <label htmlFor={`validation-${key}`} className="validation-param-label">
+                    {key} ({type})
+                  </label>
+                  <input
+                    id={`validation-${key}`}
+                    type="text"
+                    value={validationArgs[key] || ''}
+                    onChange={(e) => handleValidationArgChange(key, e.target.value)}
+                    placeholder={getSampleValue(key, type)}
+                    className="validation-param-input"
+                  />
+                </div>
+              ))}
+            </div>
           </div>
         )}
         
@@ -221,15 +212,17 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
             <code>{generateCurlPreview()}</code>
           </pre>
         </div>
-      </div>
-      
-      {feedback && (
-        <div className={`feedback ${feedback.status}`}>
-          {feedback.message}
-        </div>
-      )}
-      
-      <div className="validation-actions">
+              </div>
+        
+        {validationResponse && (
+          <div className="feedback success">
+            <h4>Validation Result:</h4>
+            <p>{validationResponse}</p>
+            <p><em>Starting blockchain registration...</em></p>
+          </div>
+        )}
+        
+        <div className="validation-actions">
         <button
           type="button"
           onClick={handleValidate}

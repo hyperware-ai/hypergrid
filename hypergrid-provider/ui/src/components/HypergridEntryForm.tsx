@@ -35,20 +35,20 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
     position: 'relative',
   };
   const titleStyle: React.CSSProperties = { marginTop: 0, marginBottom: '15px', color: '#ccc', textAlign: 'left' };
-  const hnsNameStyle: React.CSSProperties = { ...sharedBaseStyle, color: '#ccc', marginBottom: '5px', fontSize: '1.1em', fontWeight: 'bold', textAlign: 'left', display: 'flex', alignItems: 'baseline', paddingLeft: '20px' };
+  const hnsNameStyle: React.CSSProperties = { ...sharedBaseStyle, color: '#ccc', marginBottom: '5px', fontSize: '1.1em', fontWeight: 'bold', textAlign: 'left', display: 'flex', alignItems: 'baseline', paddingLeft: '5px' };
 
   const treeLineStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'baseline',
     minHeight: '1.6em',     // Ensures space for inputs
     marginBottom: '1px',    // Minimal space between lines of the tree
-    paddingLeft: '20px',    // Common indent for the entire tree structure
+    paddingLeft: '5px',    // Common indent for the entire tree structure - reduced from 20px
   };
 
   const treeCharSpanStyle: React.CSSProperties = { // For the span holding │ or ├─
     color: '#777',
-    minWidth: '30px',       // Ensures enough space for "├─ " prefix
-    marginRight: '8px',     // Space after the tree character(s) before label
+    minWidth: '20px',       // Ensures enough space for "├─ " prefix - reduced from 30px
+    marginRight: '4px',     // Space after the tree character(s) before label - reduced from 8px
     whiteSpace: 'pre',      // Preserve spaces if used within the char string (e.g., "  │")
     textAlign: 'left',
     flexShrink: 0,
@@ -111,7 +111,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
               width: `${providerName.length || 13}ch`, // Use actual length or placeholder length
             }}
           />
-        <span>.grid-beta.hypr</span>
+        <span>.obfusc-grid123.hypr</span>
       </div>
 
       {/* Trunk line from HNS name down to the first branch */}
@@ -146,7 +146,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
       {/* Price Input */}
       <div style={treeLineStyle}>
         <span style={treeCharSpanStyle}>├─</span>
-        <label htmlFor="pform-price" style={{...fieldLabelStyle, textAlign: 'left'}} className="form-label">~price:</label>
+        <label htmlFor="pform-price" style={{...fieldLabelStyle, textAlign: 'left'}}>~price:</label>
         <input 
           id="pform-price" 
           type="text"

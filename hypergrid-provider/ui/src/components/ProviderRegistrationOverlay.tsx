@@ -16,6 +16,7 @@ interface ProviderRegistrationOverlayProps {
   isNotesTxLoading: boolean;
   mintError: Error | null;
   notesError: Error | null;
+  onClose?: () => void; // Add optional close callback
 }
 
 export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayProps> = ({
@@ -28,7 +29,24 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   isNotesTxLoading,
   mintError,
   notesError,
+  onClose,
 }) => {
+  // Auto-close when registration completes successfully
+  React.useEffect(() => {
+    if (step === 'complete' && mintedProviderAddress) {
+      console.log('🎉 Registration complete! TBA:', mintedProviderAddress);
+      
+      // Auto-close after showing success briefly
+      if (onClose) {
+        const timer = setTimeout(() => {
+          onClose();
+        }, 2000); // Show success for 2 seconds then close
+        
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [step, mintedProviderAddress, onClose]);
+
   if (!isVisible) return null;
 
   const isLoading = isMinting || isSettingNotes || isMintTxLoading || isNotesTxLoading;
@@ -37,17 +55,17 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   return (
     <div style={{
       position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
+      top: '-20px',
+      left: '-25px',
+      right: '-25px',
+      bottom: '-25px',
       backgroundColor: 'rgba(0, 0, 0, 0.9)',
       display: 'flex',
       flexDirection: 'column',
       justifyContent: 'center',
       alignItems: 'center',
       zIndex: 1000,
-      borderRadius: '8px',
+      borderRadius: '12px',
       padding: '20px'
     }}>
       <div style={{
@@ -110,7 +128,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
               border: '3px solid #333',
               borderTopColor: '#4ade80',
               borderRadius: '50%',
-              animation: 'spin 0.8s linear infinite'
+              // Removed animation
             }} />
           </div>
         )}
@@ -132,10 +150,28 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
               wordBreak: 'break-all',
               padding: '10px',
               backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '6px'
+              borderRadius: '6px',
+              marginBottom: '15px'
             }}>
               {mintedProviderAddress}
             </div>
+            {onClose && (
+              <button
+                onClick={onClose}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#4ade80',
+                  color: '#000',
+                  border: 'none',
+                  borderRadius: '6px',
+                  cursor: 'pointer',
+                  fontWeight: '500',
+                  fontSize: '0.9rem'
+                }}
+              >
+                Continue to Dashboard
+              </button>
+            )}
           </div>
         )}
         
@@ -179,18 +215,17 @@ const Step: React.FC<{
     gap: '8px'
   }}>
     <div style={{
-      width: '32px',
-      height: '32px',
+      width: '40px',
+      height: '40px',
       borderRadius: '50%',
       backgroundColor: isComplete ? '#4ade80' : isActive ? '#3b82f6' : '#333',
-      border: `2px solid ${isComplete ? '#4ade80' : isActive ? '#3b82f6' : '#444'}`,
+      color: isComplete || isActive ? '#fff' : '#666',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      fontSize: '0.9rem',
-      fontWeight: '600',
-      color: isComplete || isActive ? '#fff' : '#666',
-      transition: 'all 0.3s ease'
+      fontWeight: 'bold',
+      transition: 'all 0.3s ease',
+      position: 'relative'
     }}>
       {isComplete ? '✓' : number}
     </div>
