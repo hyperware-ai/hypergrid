@@ -34,6 +34,31 @@ export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[
   }
 };
 
+export const getProviderNamehashApi = async (providerName: string): Promise<string> => {
+  const requestData = { GetProviderNamehash: providerName } as any;
+  try {
+    const result = await fetch(`${BASE_URL}/api`, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData),
+    });
+    if (!result.ok) {
+      const errorText = await result.text();
+      console.error(`HTTP request failed: ${result.status} ${result.statusText}. Response:`, errorText);
+      throw new Error(`Failed to get provider namehash: ${result.statusText} - ${errorText}`);
+    }
+    const responseData = await result.json();
+    if (responseData.Ok) {
+      return responseData.Ok;
+    } else {
+      throw new Error(responseData.Err || "Unknown error getting provider namehash");
+    }
+  } catch (error) {
+    console.error("Failed to get provider namehash:", error);
+    throw error;
+  }
+};
+
 export const registerProviderApi = async (
   provider: RegisteredProvider
 ): Promise<RegisterProviderResponse> => {

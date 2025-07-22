@@ -3,7 +3,7 @@ import { TopLevelRequestType, AuthChoice } from '../App'; // Assuming types are 
 
 // Props interface for APIConfigForm
 export interface APIConfigFormProps {
-  // nodeId: string; // Removed, handled by ProviderMetadataForm
+  
   topLevelRequestType: TopLevelRequestType;
   setTopLevelRequestType: (value: TopLevelRequestType) => void;
   
@@ -19,11 +19,6 @@ export interface APIConfigFormProps {
   endpointApiParamKey: string;
   setEndpointApiKey: (value: string) => void;
   
-  providerName: string; // Keep for endpointName logic
-  // setProviderName: (value: string) => void; // Removed setter if not directly changed here
-  
-  // providerDescription: string; // Removed
-  // setProviderDescription: (value: string) => void; // Removed
   
   endpointBaseUrl: string;
   setEndpointBaseUrl: (value: string) => void;
@@ -40,11 +35,6 @@ export interface APIConfigFormProps {
   bodyKeys: string[];
   setBodyKeys: (keys: string[]) => void;
   
-  // registeredProviderWallet: string; // Removed
-  // setRegisteredProviderWallet: (value: string) => void; // Removed
-
-  // price: string; // Removed
-  // setPrice: (value: string) => void; // Removed
 
   apiCallFormatSelected: boolean;
   setApiCallFormatSelected: (value: boolean) => void;
@@ -55,15 +45,12 @@ export interface APIConfigFormProps {
 }
 
 const APIConfigForm: React.FC<APIConfigFormProps> = ({
-  // nodeId, // Removed
+  
   topLevelRequestType, setTopLevelRequestType,
   authChoice, setAuthChoice,
   apiKeyQueryParamName, setApiKeyQueryParamName,
   apiKeyHeaderName, setApiKeyHeaderName,
-  endpointApiParamKey, setEndpointApiKey,
-  providerName, // Kept for endpointName logic
-  // providerDescription, setProviderDescription, // Removed
-  // registeredProviderWallet, setRegisteredProviderWallet, // Removed
+  endpointApiParamKey, setEndpointApiKey, 
   endpointBaseUrl, setEndpointBaseUrl,
   pathParamKeys, setPathParamKeys,
   queryParamKeys, setQueryParamKeys,
@@ -87,83 +74,117 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
   const [currentApiKeyQueryNameInput, setCurrentApiKeyQueryNameInput] = useState('');
   const [currentApiKeyHeaderNameInput, setCurrentApiKeyHeaderNameInput] = useState('');
 
-  // Compact styling adjustments - now using CSS variables
-  const compactFormSectionStyle: React.CSSProperties = { marginBottom: '15px' }; 
-  const compactInputColumnStyle: React.CSSProperties = { marginBottom: '10px' }; 
-  const compactLabelStyle: React.CSSProperties = { fontSize: '0.85em', marginBottom: '2px', textAlign: 'left' }; 
-  const compactInputStyle: React.CSSProperties = { 
-    padding: 'var(--form-input-padding)', 
-    fontSize: 'var(--form-input-font-size)',
-    height: 'var(--form-input-height)',
-    lineHeight: 'var(--form-line-height)',
-    boxSizing: 'border-box',
-    minHeight: 'unset'
+  // Mobile-friendly help icon component
+  const HoverHelpIcon: React.FC<{ helpText: string }> = ({ helpText }) => {
+    const [isVisible, setIsVisible] = React.useState(false);
+    const [isMobile, setIsMobile] = React.useState(false);
+    const iconRef = React.useRef<HTMLDivElement>(null);
+    
+    // Detect if user is on mobile/touch device
+    React.useEffect(() => {
+      setIsMobile('ontouchstart' in window || navigator.maxTouchPoints > 0);
+    }, []);
+    
+    const handleMouseEnter = () => {
+      if (!isMobile) setIsVisible(true);
+    };
+    
+    const handleMouseLeave = () => {
+      if (!isMobile) setIsVisible(false);
+    };
+    
+    const handleClick = (e: React.MouseEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (isMobile) {
+        setIsVisible(!isVisible);
+      }
+    };
+    
+    return (
+      <div 
+        ref={iconRef}
+        style={{ 
+          position: 'relative', 
+          display: 'inline-block',
+          marginLeft: '6px',
+          verticalAlign: 'left'
+        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
+      >
+        <div
+          style={{
+            width: isMobile ? '24px' : '14px',
+            height: isMobile ? '24px' : '14px',
+            borderRadius: '50%',
+            backgroundColor: isVisible ? '#0056b3' : '#007bff',
+            color: 'white',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: isMobile ? '12px' : '10px',
+            fontWeight: 'bold',
+            cursor: isMobile ? 'pointer' : 'help',
+            flexShrink: 0,
+            transition: 'background-color 0.1s ease',
+            border: isMobile ? '2px solid rgba(255,255,255,0.3)' : 'none',
+          }}
+        >
+          ?
+        </div>
+        {isVisible && (
+          <div
+            style={{
+              position: 'fixed',
+              top: iconRef.current ? iconRef.current.getBoundingClientRect().top - 10 : '50%',
+              left: iconRef.current ? iconRef.current.getBoundingClientRect().right + 8 : '10px',
+              right: 'auto',
+              transform: 'none',
+              padding: isMobile ? '16px 20px' : '12px 16px',
+              backgroundColor: '#1a1a1a',
+              color: '#ffffff',
+              fontSize: isMobile ? '14px' : '13px',
+              borderRadius: '8px',
+              width: isMobile ? '250px' : '280px',
+              maxWidth: isMobile ? '250px' : '280px',
+              whiteSpace: 'normal',
+              boxShadow: '0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.1)',
+              zIndex: 10001,
+              pointerEvents: isMobile ? 'auto' : 'none',
+              textAlign: 'left',
+              lineHeight: '1.5',
+              fontWeight: '400',
+            }}
+            onClick={isMobile ? handleClick : undefined}
+          >
+            {helpText}
+            {isMobile && (
+              <div style={{
+                marginTop: '12px',
+                textAlign: 'center',
+                fontSize: '12px',
+                opacity: 0.7
+              }}>
+                Tap to close
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    );
   };
-  const compactButtonStyle: React.CSSProperties = {
-    padding: 'var(--form-button-padding)',
-    fontSize: 'var(--form-button-font-size)', 
-    height: 'var(--form-button-height)',
-    lineHeight: 'var(--form-line-height)',
-    boxSizing: 'border-box',
-    minHeight: 'unset',
-    display: 'inline-flex',
-    alignItems: 'center'
-  };
-  const compactHelperTextStyle: React.CSSProperties = { fontSize: '0.75em', marginTop: '2px', marginBottom: '0px' }; 
-  const compactH5Style: React.CSSProperties = { fontSize: '1em', marginBottom: '12px', marginTop: '0' }; 
 
-  const selectionCardStyle: React.CSSProperties = {
-    backgroundColor: 'var(--card-bg)',
-    border: '1px solid var(--card-border)',
-    borderRadius: '8px',
-    padding: '20px',
-    marginBottom: '15px',
-    cursor: 'pointer',
-    transition: 'box-shadow 0.3s ease-in-out, transform 0.2s ease-in-out, border-color 0.3s ease-in-out',
-    boxShadow: 'var(--card-shadow)',
-  };
+  // All styling now handled by CSS classes 
+
 
   const handleSelectFormat = (format: TopLevelRequestType) => {
     setTopLevelRequestType(format);
     setApiCallFormatSelected(true); // Update state in App.tsx via this prop
   };
 
-  const overallFormContainerStyle: React.CSSProperties = {
-    backgroundColor: 'var(--card-bg)',
-    border: '1px solid var(--card-border)',
-    borderRadius: '8px',
-    padding: '1rem',
-    boxShadow: 'var(--card-shadow)',
-    fontSize: '0.9em',
-    display: 'flex', 
-    flexDirection: 'column',
-    height: '100%' // Make it fill the parent height
-  };
-  const formContentStyle: React.CSSProperties = {
-    flexGrow: 1,
-    display: 'flex',
-    flexDirection: 'column'
-  };
 
-  // Style for API Key Placement options (radio-like buttons)
-  const apiKeyPlacementOptionStyle: React.CSSProperties = {
-    padding: '8px 12px',
-    border: '1px solid var(--input-border)',
-    borderRadius: '4px',
-    cursor: 'pointer',
-    backgroundColor: 'var(--input-bg)',
-    color: 'var(--text-color)',
-    marginRight: '10px',
-    marginBottom: '10px', // For wrapping
-    fontSize: '0.9em',
-    transition: 'background-color 0.2s, border-color 0.2s',
-  };
-
-  const apiKeyPlacementOptionSelectedStyle: React.CSSProperties = {
-    backgroundColor: 'var(--button-primary-bg)',
-    color: 'var(--button-primary-text)',
-    borderColor: 'var(--button-primary-bg)',
-  };
 
   // Generic function to add a key to a list
   const addKeyToList = (key: string, list: string[], setter: (newList: string[]) => void) => {
@@ -177,37 +198,6 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
     setter(list.filter(key => key !== keyToRemove));
   };
 
-  // Style for key tags/chips
-  const keyTagStyle: React.CSSProperties = {
-    display: 'inline-flex',
-    alignItems: 'center',
-    backgroundColor: 'var(--button-secondary-bg)',
-    color: 'var(--button-secondary-text)',
-    padding: '3px 8px',
-    borderRadius: '4px',
-    marginRight: '5px',
-    marginBottom: '5px',
-    fontSize: '0.85em'
-  };
-
-  const removeKeyButtonStyle: React.CSSProperties = {
-    marginLeft: '6px',
-    background: 'transparent',
-    border: 'none',
-    color: 'var(--modal-close-color)',
-    cursor: 'pointer',
-    fontSize: '1.2rem',
-    fontWeight: '400',
-    padding: '0',
-    lineHeight: '1',
-    height: 'auto',
-    minHeight: 'unset',
-    display: 'inline-flex',
-    alignItems: 'center',
-    verticalAlign: 'middle',
-    transition: 'color 0.2s ease',
-    opacity: '0.7'
-  };
   
   // Helper to render a key input section
   const renderKeyInputSection = (
@@ -218,15 +208,15 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
     listSetter: (keys: string[]) => void,
     placeholder: string = "Enter key name"
   ) => (
-    <div style={compactInputColumnStyle}>
-      <label style={{...compactLabelStyle, textAlign: 'left', display: 'block', marginBottom: '8px'}}>{label}</label>
-      <div className="key-input-row" style={{ display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'flex-start' }}>
+    <div className="form-compact-input-column">
+      <label className="form-compact-label">{label}</label>
+      <div className="key-input-row">
         <input 
           type="text" 
           value={currentValue} 
           onChange={(e) => setter(e.target.value)} 
           placeholder={placeholder}
-          style={{...compactInputStyle, flexGrow: 0, width: '70%' }}
+          className="form-compact-input"
           onKeyPress={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -238,17 +228,22 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
         <button 
           type="button" 
           onClick={() => { addKeyToList(currentValue, keyList, listSetter); setter(''); }} 
-          style={{...compactButtonStyle, flexShrink: 0 }}
-          className="button-primary"
+          className="form-compact-button button-primary"
         >
           Add
         </button>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', marginTop: '8px', justifyContent: 'flex-start' }}>
+      <div className="key-list">
         {keyList.map(key => (
-          <span key={key} style={keyTagStyle}>
+          <span key={key} className="key-tag">
             {key}
-            <button onClick={() => removeKeyFromList(key, keyList, listSetter)} style={removeKeyButtonStyle} title={`Remove ${key}`}>&times;</button>
+            <button 
+              onClick={() => removeKeyFromList(key, keyList, listSetter)} 
+              className="key-tag-remove" 
+              title={`Remove ${key}`}
+            >
+              &times;
+            </button>
           </span>
         ))}
       </div>
@@ -257,23 +252,13 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
 
   if (!apiCallFormatSelected) {
     return (
-      <div style={overallFormContainerStyle}>
-        <div className="api-format-selection-pane" style={formContentStyle}>
-          <h5 style={{...compactH5Style, textAlign: 'center', marginBottom: '15px'}}>Select API Call Format</h5>
+      <div className="form-compact">
+        <div className="form-compact-content api-format-selection-pane">
+          <h5 style={{textAlign: 'center', marginBottom: '15px'}}>Select API Call Format</h5>
           
           <div 
-            style={selectionCardStyle} 
-            onClick={() => handleSelectFormat("getWithPath")} 
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.2)';
-              e.currentTarget.style.transform = 'translateY(-3px)';
-              e.currentTarget.style.borderColor = 'var(--link-color)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = 'var(--card-shadow)';
-              e.currentTarget.style.transform = 'translateY(0px)';
-              e.currentTarget.style.borderColor = 'var(--card-border)';
-            }}
+            className="api-selection-card"
+            onClick={() => handleSelectFormat("getWithPath")}
           >
             <h6 style={{marginTop: 0, marginBottom: '10px', fontSize: '1.1em', color: 'var(--heading-color)'}}>🛤️ GET with Path Parameters</h6>
             <p style={{fontSize: '0.85em', margin: '0 0 10px 0', color: 'var(--text-color)', opacity: 0.9}}>Use for APIs where primary identifiers are part of the URL path.</p>
@@ -283,18 +268,8 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           </div>
 
           <div 
-            style={selectionCardStyle} 
-            onClick={() => handleSelectFormat("getWithQuery")} 
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.2)';
-              e.currentTarget.style.transform = 'translateY(-3px)';
-              e.currentTarget.style.borderColor = 'var(--link-color)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = 'var(--card-shadow)';
-              e.currentTarget.style.transform = 'translateY(0px)';
-              e.currentTarget.style.borderColor = 'var(--card-border)';
-            }}
+            className="api-selection-card"
+            onClick={() => handleSelectFormat("getWithQuery")}
           >
             <h6 style={{marginTop: 0, marginBottom: '10px', fontSize: '1.1em', color: 'var(--heading-color)'}}>❓ GET with Query Parameters</h6>
             <p style={{fontSize: '0.85em', margin: '0 0 10px 0', color: 'var(--text-color)', opacity: 0.9}}>Use for APIs that accept filters or options as URL query parameters.</p>
@@ -304,18 +279,8 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           </div>
 
           <div 
-            style={selectionCardStyle} 
-            onClick={() => handleSelectFormat("postWithJson")} 
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 6px 12px rgba(0,0,0,0.2)';
-              e.currentTarget.style.transform = 'translateY(-3px)';
-              e.currentTarget.style.borderColor = 'var(--link-color)';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = 'var(--card-shadow)';
-              e.currentTarget.style.transform = 'translateY(0px)';
-              e.currentTarget.style.borderColor = 'var(--card-border)';
-            }}
+            className="api-selection-card"
+            onClick={() => handleSelectFormat("postWithJson")}
           >
             <h6 style={{marginTop: 0, marginBottom: '10px', fontSize: '1.1em', color: 'var(--heading-color)'}}>📦 POST with JSON Body</h6>
             <p style={{fontSize: '0.85em', margin: '0 0 10px 0', color: 'var(--text-color)', opacity: 0.9}}>Use for APIs that create or update resources using a JSON payload.</p>
@@ -330,8 +295,8 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
   }
 
   return (
-    <div style={overallFormContainerStyle}>
-      <div style={formContentStyle}>
+    <div className="form-compact">
+      <div className="form-compact-content">
         <button 
           type="button" 
           onClick={() => setApiCallFormatSelected(false)} 
@@ -349,7 +314,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           &larr; Change API Call Format
         </button>
 
-        <div style={{ marginBottom: '20px', fontSize: '0.95em', color: 'var(--text-color)' }}>
+        <div className="selected-api-format">
           <strong>Selected API Format:</strong> 
           {
             topLevelRequestType === 'getWithPath' ? 'GET with Path Parameters' :
@@ -358,9 +323,9 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           }
         </div>
 
-        <div style={compactFormSectionStyle}>
-          <h5 style={compactH5Style}>API Key Placement</h5>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px' }}>
+        <div className="form-compact-section">
+          <h5>API Key Placement</h5>
+          <div className="api-key-placement-options">
             {([
               { value: 'query', label: 'Query Param' },
               { value: 'header', label: 'HTTP Header' },
@@ -368,7 +333,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
               <div
                 key={value}
                 onClick={() => setAuthChoice(value)}
-                style={authChoice === value ? { ...apiKeyPlacementOptionStyle, ...apiKeyPlacementOptionSelectedStyle } : apiKeyPlacementOptionStyle}
+                className={`api-key-placement-option ${authChoice === value ? 'selected' : ''}`}
                 title={label}
               >
                 {label}
@@ -378,22 +343,22 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
         </div>
 
         {/* --- MODIFIED: New container for the inline inputs --- */}
-        <div className="form-row-container" style={{ display: 'flex', gap: '20px', alignItems: 'stretch' }}>
+        <div className="form-row-container">
           
           {/* --- Left Side: Conditional Param Name --- */}
-          <div style={{...compactInputColumnStyle, flex: 1, minWidth: 0 }}>
+          <div className="form-compact-input-column">
             {(authChoice === 'query' || authChoice === 'header') && (
               <div>
-                <label htmlFor={authChoice === 'query' ? "apiKeyQueryParamName" : "apiKeyHeaderName"} style={{...compactLabelStyle, display:'block', marginBottom:'4px'}}>API Key Identifier:</label>
+                <label htmlFor={authChoice === 'query' ? "apiKeyQueryParamName" : "apiKeyHeaderName"} className="form-compact-label">API Key Identifier:</label>
                 {!(authChoice === 'query' ? apiKeyQueryParamName : apiKeyHeaderName) ? (
-                  <div className="key-input-row" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div className="key-input-row">
                     <input 
                       id={authChoice === 'query' ? "apiKeyQueryParamNameInput" : "apiKeyHeaderNameInput"} 
                       type="text" 
                       value={authChoice === 'query' ? currentApiKeyQueryNameInput : currentApiKeyHeaderNameInput} 
                       onChange={(e) => authChoice === 'query' ? setCurrentApiKeyQueryNameInput(e.target.value) : setCurrentApiKeyHeaderNameInput(e.target.value)} 
                       placeholder={authChoice === 'query' ? "e.g., api_key" : "e.g., X-API-Key"} 
-                      style={{...compactInputStyle, flexGrow: 1 }}
+                      className="form-compact-input"
                     />
                     <button 
                       type="button" 
@@ -406,19 +371,18 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
                           setCurrentApiKeyHeaderNameInput('');
                         }
                       }} 
-                      className="button-primary" 
-                      style={{...compactButtonStyle, flexShrink: 0 }}
+                      className="form-compact-button button-primary"
                     >
                       Set
                     </button>
                   </div>
                 ) : (
-                   <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                     <span style={keyTagStyle}>
+                   <div className="key-display-row">
+                     <span className="key-tag">
                        {authChoice === 'query' ? apiKeyQueryParamName : apiKeyHeaderName}
                        <button 
                          onClick={() => authChoice === 'query' ? setApiKeyQueryParamName('') : setApiKeyHeaderName('')} 
-                         style={removeKeyButtonStyle} 
+                         className="key-tag-remove" 
                          title={`Remove ${authChoice === 'query' ? apiKeyQueryParamName : apiKeyHeaderName}`}
                        >
                          &times;
@@ -430,36 +394,38 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
             )}
             {/* This empty div acts as a placeholder when no placement is selected, maintaining alignment */}
             {authChoice !== 'query' && authChoice !== 'header' && (
-              <div>
-                <label style={{...compactLabelStyle, display:'block', marginBottom:'4px', visibility: 'hidden'}}>Placeholder</label>
-                <div style={{height: '34px'}}></div> {/* Match height of input+button row */}
+              <div className="form-placeholder">
+                <label className="form-compact-label form-placeholder-label">Placeholder</label>
+                <div className="form-placeholder-spacer"></div>
               </div>
             )}
           </div>
 
           {/* --- Right Side: API Key Value --- */}
-          <div style={{...compactInputColumnStyle, flex: 1, minWidth: 0 }}>
-            <label htmlFor="endpointApiKey" style={{...compactLabelStyle, display: 'block', marginBottom: '4px' }}>API Key Value (Secret)</label>
-            <div className="input-row-for-help" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <input id="endpointApiKey" type="password" value={endpointApiParamKey} onChange={(e) => setEndpointApiKey(e.target.value)} placeholder="Enter secret API Key" style={{...compactInputStyle, flexGrow: 1}}/>
-              <span className="help-icon" title="The actual secret API key. It will be stored securely by the backend." style={{fontSize: '0.8em', marginLeft: '5px'}}>?</span>
+          <div className="form-compact-input-column">
+            <label htmlFor="endpointApiKey" className="form-compact-label">API Key Value (Secret)</label>
+            <div className="input-row-for-help">
+              <input id="endpointApiKey" type="password" value={endpointApiParamKey} onChange={(e) => setEndpointApiKey(e.target.value)} placeholder="Super Secret API Key" className="form-compact-input" />
+                              <HoverHelpIcon helpText="Your secret API key that proves you have permission to access this service. Keep this private!" />
             </div>
           </div>
         </div>
 
-        <div style={compactFormSectionStyle}>
-          <h5 style={compactH5Style}>API Endpoint Details</h5>
-          <div style={compactInputColumnStyle}>
-            <div className="input-row-for-help" style={{ display: 'flex', alignItems: 'center' }}>
-              <label htmlFor="endpointBaseUrl" style={{...compactLabelStyle, marginRight: '5px'}}>Base URL Template</label>
-              <input id="endpointBaseUrl" type="url" value={endpointBaseUrl} onChange={(e) => setEndpointBaseUrl(e.target.value)} placeholder="https://api.example.com/{id}" style={{...compactInputStyle, flexGrow: 1}} />
-              <span className="help-icon" title="The full URL structure, including scheme (http/https). Use {placeholder_name} for dynamic path segments that will be filled at runtime (e.g., https://api.example.com/users/{userId}/posts)." style={{fontSize: '0.8em', marginLeft: '5px'}}>?</span>
+        <div className="form-compact-section">
+          <h5>API Endpoint Details</h5>
+          <div className="form-compact-input-column">
+            <div className="input-row-for-help">
+              <label htmlFor="endpointBaseUrl" className="form-compact-label">Base URL Template</label>
+              <input id="endpointBaseUrl" type="url" value={endpointBaseUrl} onChange={(e) => setEndpointBaseUrl(e.target.value)} placeholder="https://api.example.com/{id}" className="form-compact-input" />
+                              <HoverHelpIcon
+                  helpText="Enter the complete web address for your API. For dynamic parts like user IDs, use placeholders like {userId} and make sure to add 'userId' as a Path Parameter below."
+                />
             </div>
           </div>
         </div>
 
-        <div style={compactFormSectionStyle}>
-          <h5 style={compactH5Style}>Request Parameters Configuration</h5>
+        <div className="form-compact-section">
+          <h5>Request Parameters Configuration</h5>
           
           {/* All parameters in a row */}
           <div className={`parameter-sections-container ${topLevelRequestType === "postWithJson" ? 'with-json-body' : ''}`}>
@@ -490,16 +456,12 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
       </div>
 
       {showSubmitButton && (
-        <div className="form-navigation modal-form-navigation" style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '0', paddingTop: '5px' }}>
+        <div className="form-navigation modal-form-navigation">
           <button 
             type="button" 
             onClick={onRegisterProvider} 
-            className="button-primary submit-button"
+            className={`button-primary submit-button ${!isWalletConnected ? 'disabled' : ''}`}
             disabled={!isWalletConnected}
-            style={{
-              opacity: isWalletConnected ? 1 : 0.5,
-              cursor: isWalletConnected ? 'pointer' : 'not-allowed',
-            }}
             title={!isWalletConnected ? 'Connect your wallet to register provider' : ''}
           >
             {isWalletConnected ? submitButtonText : 'Connect Wallet to Register'}

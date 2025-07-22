@@ -22,7 +22,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 }) => {
   const [validationArgs, setValidationArgs] = useState<ValidationArgs>({});
   const [isValidating, setIsValidating] = useState(false);
-  const [validationResponse, setValidationResponse] = useState<string | null>(null);
 
   // Generate sample values for placeholders
   const getSampleValue = (key: string, paramType: 'path' | 'query' | 'header' | 'body'): string => {
@@ -131,7 +130,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
   const handleValidate = async () => {
     setIsValidating(true);
-    setValidationResponse(null);
 
     try {
       const validationArguments: [string, string][] = Object.entries(validationArgs);
@@ -140,11 +138,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       const result = await validateProviderApi(provider, validationArguments);
       
       if (result.success) {
-        setValidationResponse(result.response || 'Validation successful');
-        // Wait a moment to show the validation result, then proceed to blockchain
-        setTimeout(() => {
-          onValidationSuccess(provider);
-        }, 1000);
+        onValidationSuccess(provider);
       } else {
         onValidationError(result.error || 'Validation failed');
       }
@@ -180,7 +174,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   return (
     <div className="validation-panel form-section">
       <h3 style={{ marginTop: 0 }}>Validate Your Provider</h3>
-      <p>Let's test your API endpoint to make sure it is configured correctly. :</p>
+      <p>Let's test your API endpoint to make sure it is configured correctly:</p>
       
       <div className="validation-columns">
         {allParams.length > 0 && (
@@ -213,14 +207,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
           </pre>
         </div>
               </div>
-        
-        {validationResponse && (
-          <div className="feedback success">
-            <h4>Validation Result:</h4>
-            <p>{validationResponse}</p>
-            <p><em>Starting blockchain registration...</em></p>
-          </div>
-        )}
         
         <div className="validation-actions">
         <button

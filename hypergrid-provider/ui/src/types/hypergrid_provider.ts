@@ -79,5 +79,11 @@ export interface HypergridProviderState {
   registeredProviders: RegisteredProvider[];
 }
 
+// New API type for namehash lookup
+export interface GetProviderNamehashResponse {
+  Ok?: string;
+  Err?: string;
+}
+
 
 

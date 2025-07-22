@@ -1,11 +1,15 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { encodePacked, stringToHex, decodeEventLog, type Address } from 'viem';
+import { encodePacked, stringToHex, decodeEventLog, encodeFunctionData, type Address } from 'viem';
 import { 
   HYPERGRID_ADDRESS, 
   hyperGridNamespaceMinterAbi,
   generateProviderNotesCallsArray,
+  generateNoteCall,
   tbaExecuteAbi,
+  HYPERMAP_ADDRESS, 
+  MULTICALL_ADDRESS,
+  multicallAbi
 } from './hypermap';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 import React from 'react';
@@ -27,6 +31,21 @@ export interface ProviderRegistrationState {
 export interface ProviderRegistrationCallbacks {
   onRegistrationComplete: (providerAddress: Address) => void;
   onRegistrationError: (error: string) => void;
+}
+
+// New type for provider update operations
+export type ProviderUpdateStep = 'idle' | 'updating' | 'complete';
+
+export interface ProviderUpdateState {
+  isUpdating: boolean;
+  step: ProviderUpdateStep;
+  error: string | null;
+  isProcessingUpdate: boolean;
+}
+
+export interface ProviderUpdateCallbacks {
+  onUpdateComplete: (success: boolean) => void;
+  onUpdateError: (error: string) => void;
 }
 
 /**
@@ -344,6 +363,323 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     mintError,
     notesError,
     startRegistration,
+  };
+}
+
+/**
+ * Hook for updating provider notes on-chain
+ * Handles both single note updates and multicall for multiple notes
+ */
+export function useProviderUpdate(callbacks: ProviderUpdateCallbacks) {
+  const { address: walletAddress, isConnected: isWalletConnected } = useAccount();
+  
+  const [state, setState] = useState<ProviderUpdateState>({
+    isUpdating: false,
+    step: 'idle',
+    error: null,
+    isProcessingUpdate: false,
+  });
+
+  // Contract write hook for updates
+  const { 
+    writeContract: updateNotes,
+    data: updateTxHash,
+    error: updateError,
+    isPending: isUpdating,
+    reset: resetUpdate
+  } = useWriteContract();
+
+  // Transaction receipt
+  const { 
+    isLoading: isUpdateTxLoading, 
+    isSuccess: isUpdateTxSuccess 
+  } = useWaitForTransactionReceipt({
+    hash: updateTxHash,
+    query: {
+      enabled: !!updateTxHash,
+    }
+  });
+
+  // Handle update transaction success
+  const handleUpdateSuccess = useCallback(() => {
+    console.log('Provider notes updated successfully');
+    
+    setState(prev => ({
+      ...prev,
+      step: 'complete',
+      isUpdating: false,
+      isProcessingUpdate: false,
+    }));
+    
+    callbacks.onUpdateComplete(true);
+    resetUpdate();
+  }, [callbacks, resetUpdate]);
+
+  // Watch for update transaction success
+  useEffect(() => {
+    if (isUpdateTxSuccess && state.step === 'updating') {
+      console.log('✅ Update transaction confirmed as successful');
+      handleUpdateSuccess();
+    }
+  }, [isUpdateTxSuccess, state.step, handleUpdateSuccess]);
+
+  // Watch for transaction hash changes
+  useEffect(() => {
+    if (updateTxHash) {
+      console.log('📄 Update transaction hash received:', updateTxHash);
+      console.log('⏳ Waiting for transaction confirmation...');
+    }
+  }, [updateTxHash]);
+
+  // Watch for transaction loading state changes
+  useEffect(() => {
+    console.log('🔄 Transaction loading state:', { 
+      isUpdateTxLoading, 
+      isUpdateTxSuccess, 
+      hasError: !!updateError,
+      step: state.step 
+    });
+    
+    // Check for the case where transaction finished loading but failed
+    if (!isUpdateTxLoading && !isUpdateTxSuccess && !updateError && updateTxHash && state.step === 'updating') {
+      console.error('❌ Transaction was mined but failed on-chain (reverted)');
+      console.error('Transaction hash:', updateTxHash);
+      console.error('This usually means the contract call reverted during execution');
+      
+      const errorMessage = 'Transaction failed on-chain - the contract call reverted';
+      setState(prev => ({ 
+        ...prev, 
+        isUpdating: false, 
+        step: 'idle',
+        error: errorMessage,
+        isProcessingUpdate: false,
+      }));
+      callbacks.onUpdateError(errorMessage);
+      resetUpdate();
+    }
+  }, [isUpdateTxLoading, isUpdateTxSuccess, updateError, state.step, updateTxHash, callbacks, resetUpdate]);
+
+  // Handle errors
+  useEffect(() => {
+    if (updateError) {
+      console.error('Update error:', updateError);
+      const errorMessage = `Update failed: ${updateError.message}`;
+      setState(prev => ({ 
+        ...prev, 
+        isUpdating: false, 
+        step: 'idle',
+        error: errorMessage,
+        isProcessingUpdate: false,
+      }));
+      callbacks.onUpdateError(errorMessage);
+      resetUpdate();
+    }
+  }, [updateError, callbacks, resetUpdate]);
+
+  /**
+   * Update a single note on the provider's TBA
+   */
+  const updateSingleNote = useCallback(async (
+    tbaAddress: Address,
+    noteKey: string,
+    noteValue: string
+  ) => {
+    if (!isWalletConnected || !walletAddress) {
+      callbacks.onUpdateError('Wallet not connected');
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      isUpdating: true,
+      step: 'updating',
+      error: null,
+      isProcessingUpdate: true,
+    }));
+
+         try {
+       // Use the EXACT pattern from the working example
+       console.log('Updating single note with working pattern:', { 
+         tbaAddress, 
+         noteKey, 
+         noteValue
+       });
+
+       // Generate note call exactly like the working example
+       const noteCalldata = generateNoteCall({ noteKey, noteValue });
+
+       // Log the exact call we're making with full details
+       console.log('Making TBA execute call with:', {
+         tba: tbaAddress,
+         hypermap: HYPERMAP_ADDRESS,
+         calldata: noteCalldata,
+         calldataFull: noteCalldata, // Force full logging
+         decodedNote: {
+           key: noteKey,
+           value: noteValue
+         },
+         executeArgs: {
+           to: HYPERMAP_ADDRESS,
+           value: '0',
+           data: noteCalldata,
+           operation: 0
+         }
+       });
+       
+       // Also log what the working example would send
+       console.log('Compare with working example format:', {
+         address: tbaAddress,
+         abi: 'mechAbi',
+         functionName: 'execute',
+         args: [
+           HYPERMAP_ADDRESS,
+           BigInt(0),
+           noteCalldata,
+           0,
+         ]
+       });
+
+       // Direct call to TBA.execute - EXACTLY like the working example
+       await updateNotes({
+         address: tbaAddress,
+         abi: tbaExecuteAbi,
+         functionName: 'execute',
+         args: [
+           HYPERMAP_ADDRESS,  // target: HYPERMAP directly
+           0n,                // value: 0n (try different syntax)
+           noteCalldata,      // data: the note function call
+           0,                 // operation: 0 for CALL (not DELEGATECALL)
+         ],
+         // Remove explicit gas limit to let wagmi estimate
+       } as any);
+       
+       console.log('Single note update transaction sent (not yet confirmed)');
+       console.log('Transaction will be monitored for success/failure...');
+    } catch (error: any) {
+      console.error('Failed to update single note:', error);
+      
+      // Log detailed error information
+      if (error?.cause) {
+        console.error('Error cause:', error.cause);
+      }
+      if (error?.data) {
+        console.error('Error data:', error.data);
+      }
+      if (error?.shortMessage) {
+        console.error('Short message:', error.shortMessage);
+      }
+      
+      // Check if it's an authorization issue
+      if (error?.message?.includes('execute') && error?.message?.includes('reverted')) {
+        console.error('TBA execute reverted - possible causes:');
+        console.error('1. Caller is not authorized (not the TBA owner)');
+        console.error('2. TBA implementation doesn\'t support this operation');
+        console.error('3. Target contract call failed');
+        console.error('Current wallet address:', walletAddress);
+        console.error('TBA address:', tbaAddress);
+      }
+      
+      const errorMessage = `Failed to update note: ${(error as Error).message}`;
+      setState(prev => ({ 
+        ...prev, 
+        isUpdating: false, 
+        step: 'idle',
+        error: errorMessage,
+        isProcessingUpdate: false,
+      }));
+      callbacks.onUpdateError(errorMessage);
+    }
+  }, [isWalletConnected, walletAddress, updateNotes, callbacks]);
+
+  /**
+   * Update multiple notes on the provider's TBA using multicall
+   */
+  const updateMultipleNotes = useCallback(async (
+    tbaAddress: Address,
+    notes: Array<{ key: string; value: string }>
+  ) => {
+    if (!isWalletConnected || !walletAddress) {
+      callbacks.onUpdateError('Wallet not connected');
+      return;
+    }
+
+    setState(prev => ({
+      ...prev,
+      isUpdating: true,
+      step: 'updating',
+      error: null,
+      isProcessingUpdate: true,
+    }));
+
+    try {
+      // Generate multicall for all notes
+      const noteCalls = notes.map(note => 
+        generateNoteCall({ noteKey: note.key, noteValue: note.value })
+      );
+
+      const calls = noteCalls.map(calldata => ({
+        target: HYPERMAP_ADDRESS,
+        callData: calldata,
+      }));
+
+      const multicallData = encodeFunctionData({
+        abi: multicallAbi,
+        functionName: 'aggregate',
+        args: [calls]
+      });
+
+      console.log('Updating multiple notes with multicall via DELEGATECALL');
+
+      // Call TBA.execute(MULTICALL_ADDRESS, multicallData, 0, 1) for multicall - using DELEGATECALL like registration
+      await updateNotes({
+        address: tbaAddress,
+        abi: tbaExecuteAbi,
+        functionName: 'execute',
+        args: [
+          MULTICALL_ADDRESS, // target: Multicall contract
+          0n,               // value: 0 ETH
+          multicallData,    // data: the multicall
+          1,                // operation: 1 for DELEGATECALL (matching registration pattern)
+        ],
+        gas: 1500000n, // Increased gas limit for safety
+      } as any);
+    } catch (error) {
+      console.error('Failed to update multiple notes:', error);
+      const errorMessage = `Failed to update notes: ${(error as Error).message}`;
+      setState(prev => ({ 
+        ...prev, 
+        isUpdating: false, 
+        step: 'idle',
+        error: errorMessage,
+        isProcessingUpdate: false,
+      }));
+      callbacks.onUpdateError(errorMessage);
+    }
+  }, [isWalletConnected, walletAddress, updateNotes, callbacks]);
+
+  /**
+   * Smart update that chooses single or multicall based on number of notes
+   */
+  const updateProviderNotes = useCallback(async (
+    tbaAddress: Address,
+    notes: Array<{ key: string; value: string }>
+  ) => {
+    if (notes.length === 0) {
+      console.log('No notes to update');
+      callbacks.onUpdateComplete(true);
+      return;
+    }
+
+    // Always use multicall approach since registration works with multicall
+    await updateMultipleNotes(tbaAddress, notes);
+  }, [updateSingleNote, updateMultipleNotes, callbacks]);
+
+  return {
+    ...state,
+    isUpdating,
+    isUpdateTxLoading,
+    updateError,
+    updateProviderNotes,
   };
 }
 

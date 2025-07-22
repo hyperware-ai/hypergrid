@@ -33,7 +33,8 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 }) => {
   // Auto-close when registration completes successfully
   React.useEffect(() => {
-    if (step === 'complete' && mintedProviderAddress) {
+    // Only trigger auto-close if the overlay is visible AND registration is complete
+    if (isVisible && step === 'complete' && mintedProviderAddress) {
       console.log('🎉 Registration complete! TBA:', mintedProviderAddress);
       
       // Auto-close after showing success briefly
@@ -45,7 +46,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
         return () => clearTimeout(timer);
       }
     }
-  }, [step, mintedProviderAddress, onClose]);
+  }, [isVisible, step, mintedProviderAddress, onClose]);
 
   if (!isVisible) return null;
 
@@ -53,46 +54,14 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   const hasError = !!(mintError || notesError);
 
   return (
-    <div style={{
-      position: 'absolute',
-      top: '-20px',
-      left: '-25px',
-      right: '-25px',
-      bottom: '-25px',
-      backgroundColor: 'rgba(0, 0, 0, 0.9)',
-      display: 'flex',
-      flexDirection: 'column',
-      justifyContent: 'center',
-      alignItems: 'center',
-      zIndex: 1000,
-      borderRadius: '12px',
-      padding: '20px'
-    }}>
-      <div style={{
-        backgroundColor: '#1a1a1a',
-        padding: '40px',
-        borderRadius: '12px',
-        boxShadow: '0 4px 20px rgba(0, 0, 0, 0.5)',
-        maxWidth: '400px',
-        width: '100%',
-        textAlign: 'center'
-      }}>
-        <h3 style={{ 
-          color: '#fff', 
-          marginBottom: '30px',
-          fontSize: '1.5rem',
-          fontWeight: '500'
-        }}>
+    <div className="provider-registration-overlay">
+      <div className="provider-registration-content">
+        <h3 className="provider-registration-title">
           Blockchain Registration
         </h3>
         
         {/* Progress Steps */}
-        <div style={{ 
-          marginBottom: '30px',
-          display: 'flex',
-          justifyContent: 'center',
-          gap: '40px'
-        }}>
+        <div className="provider-registration-steps">
           <Step 
             number={1} 
             label="Mint" 
@@ -108,11 +77,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
         </div>
 
         {/* Status Message */}
-        <div style={{ 
-          color: '#888', 
-          marginBottom: '20px',
-          fontSize: '0.9rem'
-        }}>
+        <div className="provider-registration-status">
           {step === 'minting' && 'Creating provider entry on blockchain...'}
           {step === 'notes' && 'Setting provider metadata...'}
           {step === 'complete' && 'Registration complete!'}
@@ -120,54 +85,24 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 
         {/* Loading Indicator */}
         {isLoading && !hasError && (
-          <div style={{ marginBottom: '20px' }}>
-            <div style={{
-              width: '40px',
-              height: '40px',
-              margin: '0 auto',
-              border: '3px solid #333',
-              borderTopColor: '#4ade80',
-              borderRadius: '50%',
-              // Removed animation
-            }} />
+          <div className="provider-registration-loader-container">
+            <div className="provider-registration-loader" />
           </div>
         )}
 
         {/* Success State */}
         {step === 'complete' && mintedProviderAddress && (
-          <div style={{ marginTop: '20px' }}>
-            <div style={{ 
-              color: '#4ade80',
-              marginBottom: '10px',
-              fontSize: '1.1rem'
-            }}>
+          <div className="provider-registration-success">
+            <div className="provider-registration-success-message">
               ✓ Provider registered successfully
             </div>
-            <div style={{ 
-              fontFamily: 'monospace', 
-              fontSize: '0.8rem',
-              color: '#666',
-              wordBreak: 'break-all',
-              padding: '10px',
-              backgroundColor: 'rgba(255, 255, 255, 0.05)',
-              borderRadius: '6px',
-              marginBottom: '15px'
-            }}>
+            <div className="provider-registration-address">
               {mintedProviderAddress}
             </div>
             {onClose && (
               <button
                 onClick={onClose}
-                style={{
-                  padding: '10px 20px',
-                  backgroundColor: '#4ade80',
-                  color: '#000',
-                  border: 'none',
-                  borderRadius: '6px',
-                  cursor: 'pointer',
-                  fontWeight: '500',
-                  fontSize: '0.9rem'
-                }}
+                className="provider-registration-continue-btn"
               >
                 Continue to Dashboard
               </button>
@@ -177,26 +112,12 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
         
         {/* Error Display */}
         {hasError && (
-          <div style={{ 
-            color: '#ef4444', 
-            marginTop: '20px',
-            padding: '15px',
-            backgroundColor: 'rgba(239, 68, 68, 0.1)',
-            borderRadius: '6px',
-            fontSize: '0.9rem'
-          }}>
+          <div className="provider-registration-error">
             {(mintError || notesError)?.message}
           </div>
         )}
       </div>
       
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}
-      </style>
     </div>
   );
 };
@@ -208,32 +129,11 @@ const Step: React.FC<{
   isActive: boolean;
   isComplete: boolean;
 }> = ({ number, label, isActive, isComplete }) => (
-  <div style={{
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: '8px'
-  }}>
-    <div style={{
-      width: '40px',
-      height: '40px',
-      borderRadius: '50%',
-      backgroundColor: isComplete ? '#4ade80' : isActive ? '#3b82f6' : '#333',
-      color: isComplete || isActive ? '#fff' : '#666',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontWeight: 'bold',
-      transition: 'all 0.3s ease',
-      position: 'relative'
-    }}>
+  <div className="registration-step">
+    <div className={`registration-step-circle ${isComplete ? 'complete' : isActive ? 'active' : 'inactive'}`}>
       {isComplete ? '✓' : number}
     </div>
-    <span style={{ 
-      fontSize: '0.8rem', 
-      color: isComplete ? '#4ade80' : isActive ? '#fff' : '#666',
-      transition: 'color 0.3s ease'
-    }}>
+    <span className={`registration-step-label ${isComplete ? 'complete' : isActive ? 'active' : 'inactive'}`}>
       {label}
     </span>
   </div>

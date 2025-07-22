@@ -1,11 +1,4 @@
-import {
-    encodeFunctionData,
-    encodePacked,
-    stringToHex,
-    parseAbi,
-    type Hex,
-    type Address,
-} from 'viem';
+import { parseAbi, Address, encodeFunctionData, keccak256, stringToHex, encodePacked, Hex, toHex } from 'viem';
 
 // Contract addresses
 export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda';
@@ -22,10 +15,15 @@ export const PROVIDER_NOTE_KEYS = {
     PRICE: '~price',
 } as const;
 
+// Default parent namehash - can be overridden when calling functions
+export const DEFAULT_PARENT_NAMEHASH = (import.meta.env.VITE_PARENT_NAMEHASH || '0x0000000000000000000000000000000000000000000000000000000000000000') as `0x${string}`; // Replace with your actual parent namehash
+
 // ABIs - Using the same pattern as operator code
 export const hypermapAbi = parseAbi([
     'function mint(address owner, bytes calldata node, bytes calldata data, address implementation) external returns (address tba)',
     'function note(bytes calldata noteKey, bytes calldata noteValue) external returns (bytes32 labelhash)',
+    'function tbaOf(bytes32 entry) external view returns (address)',
+    'function leaf(bytes32 parenthash, bytes calldata label) external pure returns (bytes32 namehash, bytes32 labelhash)',
 ]);
 
 export const hyperGridNamespaceMinterAbi = parseAbi([
@@ -46,10 +44,77 @@ export const multicallAbi = parseAbi([
     'struct Call { address target; bytes callData; }',
 ]);
 
-// TBA (Token Bound Account) ABI for execute function
+// TBA (Token Bound Account) ABI for execute function - matching the working mechAbi exactly
 export const tbaExecuteAbi = parseAbi([
-    'function execute(address target, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory)',
+    'function execute(address to, uint256 value, bytes calldata data, uint8 operation) returns (bytes memory returnData)',
 ]);
+
+/**
+ * Calculates the namehash for a provider name under the grid-beta.hypr namespace
+ */
+export function calculateProviderNamehash(providerName: string, parentNamehash: `0x${string}` = DEFAULT_PARENT_NAMEHASH): `0x${string}` {
+  // Convert provider name to bytes
+  const labelBytes = stringToHex(providerName);
+  
+  // Calculate labelhash = keccak256(label)
+  const labelHash = keccak256(labelBytes);
+  
+  // Calculate namehash = keccak256(parenthash + labelhash)
+  const namehash = keccak256(encodePacked(['bytes32', 'bytes32'], [parentNamehash, labelHash]));
+  
+  return namehash;
+}
+
+/**
+ * Simplified TBA lookup that gets namehash from backend:
+ * This ensures consistency and enforces that provider exists in both systems
+ */
+export async function lookupProviderTbaAddressFromBackend(
+  providerName: string,
+  publicClient: any // viem PublicClient
+): Promise<Address | null> {
+  try {
+    // Step 1: Get namehash from backend (this also validates provider exists)
+    const { getProviderNamehashApi } = await import('../utils/api');
+    const namehash = await getProviderNamehashApi(providerName);
+    
+    console.log('Got namehash from backend for provider:', {
+      providerName,
+      namehash
+    });
+    
+    // Step 2: Query the Hypermap contract for the TBA address
+    const tbaAddress = await publicClient.readContract({
+      address: HYPERMAP_ADDRESS,
+      abi: hypermapAbi,
+      functionName: 'tbaOf',
+      args: [namehash],
+    }) as Address;
+    
+    // Step 3: Check if TBA exists (non-zero address)
+    if (tbaAddress === '0x0000000000000000000000000000000000000000') {
+      console.log('No TBA found for provider:', providerName);
+      return null;
+    }
+    
+    console.log('Found TBA address:', tbaAddress, 'for provider:', providerName);
+    return tbaAddress;
+  } catch (error) {
+    console.error('Error looking up TBA address from backend:', error);
+    return null;
+  }
+}
+
+/**
+ * Verifies if a provider has been registered on-chain by checking if their TBA exists
+ */
+export async function verifyProviderOnChain(
+  providerName: string,
+  publicClient: any
+): Promise<boolean> {
+  const tbaAddress = await lookupProviderTbaAddressFromBackend(providerName, publicClient);
+  return tbaAddress !== null;
+}
 
 // Helper functions
 

@@ -331,7 +331,7 @@ impl HypergridProviderState {
             }
         }
 
-        Ok(provider_with_id)
+        Ok(provider)
     }
 
     #[http]
@@ -519,6 +519,28 @@ impl HypergridProviderState {
     async fn export_providers(&self) -> Result<String, String> {
         info!("Exporting providers as JSON");
         self.export_providers_json()
+    }
+
+    #[http]
+    async fn get_provider_namehash(&self, provider_name: String) -> Result<String, String> {
+        info!("Getting namehash for provider: {}", provider_name);
+        
+        // Verify provider exists in our registry
+        let provider = self
+            .registered_providers
+            .iter()
+            .find(|p| p.provider_name == provider_name)
+            .ok_or(format!("Provider '{}' not found in registry", provider_name))?;
+
+        // Use the hypermap library to calculate the correct namehash
+        // This ensures consistency with the on-chain registration
+        // TODO: Make this configurable via environment variable or config
+        let namespace = "obfusc-grid123.hypr"; // Replace with your actual namespace
+        let full_name = format!("{}.{}", provider.provider_name, namespace);
+        let namehash = hypermap::namehash(&full_name);
+        
+        info!("Calculated namehash for '{}': {}", full_name, namehash);
+        Ok(namehash)
     }
 
     #[local]

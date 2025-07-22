@@ -34,12 +34,14 @@ import {
   processRegistrationResponse,
   populateFormFromProvider,
   buildUpdateProviderPayload,
-  processUpdateResponse
+  processUpdateResponse,
+  createSmartUpdatePlan
 } from "./utils/providerFormUtils";
-import { useAccount } from 'wagmi';
+import { useAccount, usePublicClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { updateProviderApi } from "./utils/api";
-import { useProviderRegistration } from "./registration/hypermapUtils";
+import { useProviderRegistration, useProviderUpdate } from "./registration/hypermapUtils";
+import { lookupProviderTbaAddressFromBackend } from "./registration/hypermap";
 import ProviderRegistrationOverlay from "./components/ProviderRegistrationOverlay";
 
 // Import logos
@@ -77,6 +79,7 @@ function AppContent() {
   
   // Blockchain integration
   const { isConnected: isWalletConnected } = useAccount();
+  const publicClient = usePublicClient();
   
   // Blockchain registration
   const providerRegistration = useProviderRegistration({
@@ -102,6 +105,23 @@ function AppContent() {
     },
     onRegistrationError: (error) => {
       alert(`Blockchain registration failed: ${error}`);
+    }
+  });
+
+  // Blockchain provider updates
+  const providerUpdate = useProviderUpdate({
+    onUpdateComplete: (success) => {
+      if (success) {
+        console.log('Provider notes updated successfully on blockchain');
+        // Reload providers to reflect changes
+        loadAndSetProviders();
+        resetFormFields();
+        handleCloseAddNewModal();
+        alert('Provider updated successfully!');
+      }
+    },
+    onUpdateError: (error) => {
+      alert(`Blockchain update failed: ${error}`);
     }
   });
 
@@ -342,19 +362,73 @@ function AppContent() {
     }
 
     if (isEditMode && editingProvider) {
-      // Handle update for existing provider
+      // Smart update system - handles both on-chain and off-chain updates automatically
       try {
-        const updatedProvider = buildUpdateProviderPayload(formData);
-        const response = await updateProviderApi(editingProvider.provider_name, updatedProvider);
-        const feedback = processUpdateResponse(response);
+        const updatePlan = createSmartUpdatePlan(editingProvider, formData);
         
-        if (response.Ok) {
+        // Warn about instructions if config changed but instructions weren't updated
+        if (updatePlan.shouldWarnAboutInstructions) {
+          const confirmUpdate = confirm(
+            'You\'ve made changes to the API configuration but haven\'t updated the instructions. ' +
+            'This might create a mismatch between your actual API and the instructions users see. ' +
+            'Do you want to continue with the update anyway?'
+          );
+          if (!confirmUpdate) {
+            return; // User cancelled the update
+          }
+        }
+
+        // Check if wallet is needed for on-chain updates
+        if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
+          alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
+          return;
+        }
+
+        console.log('Update plan:', updatePlan);
+
+        // Step 1: Update off-chain data (backend) if needed
+        if (updatePlan.needsOffChainUpdate) {
+          console.log('Updating off-chain data...');
+          const response = await updateProviderApi(editingProvider.provider_name, updatePlan.updatedProvider);
+          const feedback = processUpdateResponse(response);
+          
+          if (!response.Ok) {
+            alert(feedback.message);
+            return;
+          }
+          
+          // Update local state
           handleProviderUpdated(response.Ok);
+        }
+
+        // Step 2: Update on-chain data (blockchain notes) if needed
+        if (updatePlan.needsOnChainUpdate) {
+          console.log('Updating on-chain notes...', updatePlan.onChainNotes);
+          
+          try {
+            // Look up the actual TBA address for this provider from backend
+            const tbaAddress = await lookupProviderTbaAddressFromBackend(editingProvider.provider_name, publicClient);
+            
+            if (!tbaAddress) {
+              alert(`No blockchain entry found for provider "${editingProvider.provider_name}". Please register on the hypergrid first.`);
+              return;
+            }
+            
+            console.log(`Found TBA address: ${tbaAddress} for provider: ${editingProvider.provider_name}`);
+            
+            // Execute the blockchain update
+            await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
+            
+            // Success will be handled by the providerUpdate.onUpdateComplete callback
+          } catch (error) {
+            console.error('Error during blockchain update:', error);
+            alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
+          }
+        } else {
+          // Only off-chain updates needed
           resetFormFields();
           handleCloseAddNewModal();
-          alert(`Provider "${response.Ok.provider_name}" successfully updated!`);
-        } else {
-          alert(feedback.message);
+          alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
         }
       } catch (err) {
         console.error('Failed to update provider: ', err);
@@ -583,7 +657,7 @@ function AppContent() {
           isOpen={showForm} 
           onClose={handleCloseAddNewModal} 
           title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
-          maxWidth={showValidation ? "min(500px, 95vw)" : "min(1200px, 95vw)"}
+          maxWidth={showValidation ? "min(500px, 95vw)" : "min(1050px, 95vw)"}
         >
           <div style={{ position: 'relative' }}>
             {showValidation && providerToValidate ? (
@@ -595,8 +669,8 @@ function AppContent() {
               />
             ) : (
             <>              
-              <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
-                <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
+              <div className="modal-content-columns">
+                <div className="modal-left-column">
                   <HypergridEntryForm
                     nodeId={window.our?.node || "N/A"}
                     providerName={providerName}
@@ -624,9 +698,9 @@ function AppContent() {
                   />
                 </div>
 
-                <div className="modal-right-column" style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                <div className="modal-right-column">
                   <APIConfigForm
-                    providerName={providerName}
+                    // providerName={providerName}
                     topLevelRequestType={topLevelRequestType}
                     setTopLevelRequestType={setTopLevelRequestType}
                     authChoice={authChoice}
@@ -678,6 +752,23 @@ function AppContent() {
               handleCloseAddNewModal();
             }}
           />
+
+          {/* Simple Provider Update Progress Overlay */}
+          {providerUpdate.isUpdating && (
+            <div className="provider-registration-overlay">
+              <div className="provider-registration-content">
+                <h3 className="provider-registration-title">
+                  Updating Provider
+                </h3>
+                <div className="provider-registration-status">
+                  Updating provider metadata on blockchain...
+                </div>
+                <div className="provider-registration-loader-container">
+                  <div className="provider-registration-loader" />
+                </div>
+              </div>
+            </div>
+          )}
         </div>
         </SelectionModal>
       </main>
