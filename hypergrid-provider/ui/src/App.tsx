@@ -1,6 +1,19 @@
 import { useState, useEffect, useCallback } from "react";
 import HyperwareClientApi from "@hyperware-ai/client-api";
 import "./App.css";
+
+// RainbowKit and wagmi imports
+import '@rainbow-me/rainbowkit/styles.css';
+import {
+  getDefaultConfig,
+  RainbowKitProvider,
+} from '@rainbow-me/rainbowkit';
+import { WagmiProvider } from 'wagmi';
+import {
+  base,
+} from 'wagmi/chains';
+import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
+
 import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
   HttpMethod,
@@ -8,14 +21,12 @@ import {
   RegisteredProvider
 } from "./types/hypergrid_provider";
 import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
-import { ApiCallScaffold } from "./components/curlVisualizer";
-import { ValidationPanel } from "./components/ValidationPanel";
+import CurlVisualizer from "./components/curlVisualizer";
+import ValidationPanel from "./components/ValidationPanel";
 import SelectionModal from "./components/SelectionModal";
-import ProviderConfigForm from "./components/ProviderAPIConfigForm";
-import ProviderMetadataForm from "./components/ProviderMetadataForm";
-// import ProviderInfoDisplay from './components/ProviderInfoDisplay'; // Full display - kept for reference
-import MinimalProviderDisplay from './components/MinimalProviderDisplay'; // Minimal display for list view
-import FloatingProviderCard from './components/FloatingProviderCard'; // Card view - temporarily disabled
+import APIConfigForm from "./components/APIConfigForm";
+import HypergridEntryForm from "./components/HypergridEntryForm";
+import RegisteredProviderView from './components/RegisteredProviderView';
 import { 
   validateProviderConfig, 
   buildProviderPayload, 
@@ -23,9 +34,15 @@ import {
   processRegistrationResponse,
   populateFormFromProvider,
   buildUpdateProviderPayload,
-  processUpdateResponse
+  processUpdateResponse,
+  createSmartUpdatePlan
 } from "./utils/providerFormUtils";
+import { useAccount, usePublicClient } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { updateProviderApi } from "./utils/api";
+import { useProviderRegistration, useProviderUpdate } from "./registration/hypermapUtils";
+import { lookupProviderTbaAddressFromBackend } from "./registration/hypermap";
+import ProviderRegistrationOverlay from "./components/ProviderRegistrationOverlay";
 
 // Import logos
 import logoGlow from './assets/logo_glow.png';
@@ -45,10 +62,68 @@ const WEBSOCKET_URL = import.meta.env.DEV
 export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
 export type AuthChoice = "none" | "query" | "header";
 
-function App() {
+// RainbowKit configuration
+const config = getDefaultConfig({
+  appName: 'Hypergrid Provider',
+  projectId: 'YOUR_PROJECT_ID', // Get from https://cloud.walletconnect.com
+  chains: [base],
+  ssr: false,
+});
+
+const queryClient = new QueryClient();
+
+function AppContent() {
   const { registeredProviders, setRegisteredProviders } = useHypergridProviderStore();
   const [nodeConnected, setNodeConnected] = useState(true);
   const [_wsApiInstance, setWsApiInstance] = useState<HyperwareClientApi | undefined>();
+  
+  // Blockchain integration
+  const { isConnected: isWalletConnected } = useAccount();
+  const publicClient = usePublicClient();
+  
+  // Blockchain registration
+  const providerRegistration = useProviderRegistration({
+    onRegistrationComplete: async (providerAddress) => {
+      // Blockchain registration succeeded, now register in backend
+      if (providerRegistration.pendingProviderData) {
+        try {
+          const response = await registerProviderApi(providerRegistration.pendingProviderData);
+          const feedback = processRegistrationResponse(response);
+          
+          if (response.Ok) {
+            console.log('Provider registered in backend after hypergrid registration success:', response.Ok);
+            loadAndSetProviders();
+          } else {
+            console.error('Failed to register in backend after hypergrid registration success:', feedback.message);
+            alert(`Blockchain registration succeeded but backend registration failed: ${feedback.message}`);
+          }
+        } catch (error) {
+          console.error('Error registering in backend after hypergrid registration success:', error);
+          alert('Blockchain registration succeeded but backend registration failed.');
+        }
+      }
+    },
+    onRegistrationError: (error) => {
+      alert(`Blockchain registration failed: ${error}`);
+    }
+  });
+
+  // Blockchain provider updates
+  const providerUpdate = useProviderUpdate({
+    onUpdateComplete: (success) => {
+      if (success) {
+        console.log('Provider notes updated successfully on blockchain');
+        // Reload providers to reflect changes
+        loadAndSetProviders();
+        resetFormFields();
+        handleCloseAddNewModal();
+        alert('Provider updated successfully!');
+      }
+    },
+    onUpdateError: (error) => {
+      alert(`Blockchain update failed: ${error}`);
+    }
+  });
 
   // New Form State
   const [showForm, setShowForm] = useState(false);
@@ -57,6 +132,8 @@ function App() {
   // Validation state
   const [showValidation, setShowValidation] = useState(false);
   const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
   
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -88,33 +165,48 @@ function App() {
     const storedTheme = localStorage.getItem('theme');
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
-
-  // View mode state
-  // TEMPORARILY DISABLED: Card view is hidden from users but code is preserved
-  // To re-enable: uncomment the View toggle button in header and set default to stored value
-  const [viewMode, setViewMode] = useState<'list' | 'cards'>('list'); // Force list view only
-  // const [viewMode, setViewMode] = useState<'list' | 'cards'>(() => {
-  //   const storedViewMode = localStorage.getItem('viewMode');
-  //   return (storedViewMode as 'list' | 'cards') || 'list'; // Default to list view
-  // });
-
+  
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
     localStorage.setItem('theme', theme);
     document.documentElement.setAttribute('data-theme', theme); // Or apply to app-container
   }, [theme]);
-
-  // Effect to update localStorage when view mode changes
+  
+  // Close menus on escape key and click outside
   useEffect(() => {
-    localStorage.setItem('viewMode', viewMode);
-  }, [viewMode]);
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        if (mobileMenuOpen) setMobileMenuOpen(false);
+        if (desktopMenuOpen) setDesktopMenuOpen(false);
+      }
+    };
+    
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Check if click is outside desktop menu
+      if (desktopMenuOpen && !target.closest('.desktop-menu-container')) {
+        setDesktopMenuOpen(false);
+      }
+      // Check if click is outside mobile menu
+      if (mobileMenuOpen && 
+          !target.closest('.mobile-menu-overlay') &&
+          !target.closest('.mobile-action-button')) {
+        setMobileMenuOpen(false);
+      }
+    };
+    
+    if (mobileMenuOpen || desktopMenuOpen) {
+      document.addEventListener('keydown', handleEscape);
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => {
+        document.removeEventListener('keydown', handleEscape);
+        document.removeEventListener('mousedown', handleClickOutside);
+      };
+    }
+  }, [mobileMenuOpen, desktopMenuOpen]);
 
   const toggleTheme = () => {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-  };
-
-  const toggleViewMode = () => {
-    setViewMode(prevMode => (prevMode === 'list' ? 'cards' : 'list'));
   };
 
   const resetFormFields = () => {
@@ -166,44 +258,14 @@ function App() {
     setRegisteredProviderWallet(formData.registeredProviderWallet || "");
     setPrice(formData.price || "");
   };
-  
-  const handleCopyFormData = useCallback(async () => {
-    // Validation check
-    if (!providerName.trim() || 
-        !registeredProviderWallet.trim() || 
-        !price.trim() || 
-        !providerDescription.trim()) {
-      alert("Please fill all required metadata fields (Provider Name, Wallet, Price, Description) before copying.");
-      return;
-    }
-
-    const hnsName = (providerName.trim() || "[YourProviderName]") + ".grid-beta.hypr";
-
-    const metadataFields = {
-      "~provider-id": window.our?.node || "N/A",
-      "~wallet": registeredProviderWallet,
-      "~price": price,
-      "~description": providerDescription,
-      "~instructions": instructions,
-    };
-
-    const structuredDataToCopy = {
-      [hnsName]: metadataFields,
-    };
-
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(structuredDataToCopy, null, 2));
-      alert('Provider metadata (HNS structure) copied to clipboard!');
-    } catch (err) {
-      console.error('Failed to copy structured metadata: ', err);
-      alert('Failed to copy structured metadata. See console for details.');
-    }
-  }, [
-    providerName, providerDescription, registeredProviderWallet, price, instructions
-  ]);
 
   const handleOpenAddNewModal = () => {
-    resetFormFields();
+    // Don't reset form fields here - preserve state for better UX
+    // Only reset when starting fresh (not when re-opening)
+    // If we're transitioning from edit mode to add mode, reset the form
+    if (isEditMode) {
+      resetFormFields();
+    }
     setShowForm(true);
   };
 
@@ -270,7 +332,7 @@ function App() {
     const formData: ProviderFormData = {
       providerName,
       providerDescription,
-      providerId: isEditMode ? editingProvider?.provider_id || "" : "", // Use existing ID when editing
+      providerId: isEditMode ? editingProvider?.provider_id || "" : (window.our?.node || ""), // Use node ID for new providers
       instructions, // Add instructions field
       registeredProviderWallet,
       price,
@@ -292,21 +354,81 @@ function App() {
       alert(validationResult.error); // Display error from validation util
       return;
     }
+    
+    // Check if wallet is connected for new registrations
+    if (!isEditMode && !isWalletConnected) {
+      alert('Please connect your wallet to register on the hypergrid');
+      return;
+    }
 
     if (isEditMode && editingProvider) {
-      // Handle update for existing provider
+      // Smart update system - handles both on-chain and off-chain updates automatically
       try {
-        const updatedProvider = buildUpdateProviderPayload(formData);
-        const response = await updateProviderApi(editingProvider.provider_name, updatedProvider);
-        const feedback = processUpdateResponse(response);
+        const updatePlan = createSmartUpdatePlan(editingProvider, formData);
         
-        if (response.Ok) {
+        // Warn about instructions if config changed but instructions weren't updated
+        if (updatePlan.shouldWarnAboutInstructions) {
+          const confirmUpdate = confirm(
+            'You\'ve made changes to the API configuration but haven\'t updated the instructions. ' +
+            'This might create a mismatch between your actual API and the instructions users see. ' +
+            'Do you want to continue with the update anyway?'
+          );
+          if (!confirmUpdate) {
+            return; // User cancelled the update
+          }
+        }
+
+        // Check if wallet is needed for on-chain updates
+        if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
+          alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
+          return;
+        }
+
+        console.log('Update plan:', updatePlan);
+
+        // Step 1: Update off-chain data (backend) if needed
+        if (updatePlan.needsOffChainUpdate) {
+          console.log('Updating off-chain data...');
+          const response = await updateProviderApi(editingProvider.provider_name, updatePlan.updatedProvider);
+          const feedback = processUpdateResponse(response);
+          
+          if (!response.Ok) {
+            alert(feedback.message);
+            return;
+          }
+          
+          // Update local state
           handleProviderUpdated(response.Ok);
+        }
+
+        // Step 2: Update on-chain data (blockchain notes) if needed
+        if (updatePlan.needsOnChainUpdate) {
+          console.log('Updating on-chain notes...', updatePlan.onChainNotes);
+          
+          try {
+            // Look up the actual TBA address for this provider from backend
+            const tbaAddress = await lookupProviderTbaAddressFromBackend(editingProvider.provider_name, publicClient);
+            
+            if (!tbaAddress) {
+              alert(`No blockchain entry found for provider "${editingProvider.provider_name}". Please register on the hypergrid first.`);
+              return;
+            }
+            
+            console.log(`Found TBA address: ${tbaAddress} for provider: ${editingProvider.provider_name}`);
+            
+            // Execute the blockchain update
+            await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
+            
+            // Success will be handled by the providerUpdate.onUpdateComplete callback
+          } catch (error) {
+            console.error('Error during blockchain update:', error);
+            alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
+          }
+        } else {
+          // Only off-chain updates needed
           resetFormFields();
           handleCloseAddNewModal();
-          alert(`Provider "${response.Ok.provider_name}" successfully updated!`);
-        } else {
-          alert(feedback.message);
+          alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
         }
       } catch (err) {
         console.error('Failed to update provider: ', err);
@@ -325,18 +447,24 @@ function App() {
     providerName, providerDescription, instructions, topLevelRequestType,
     endpointBaseUrl, pathParamKeys, queryParamKeys, headerKeys, bodyKeys,
     endpointApiParamKey, authChoice, apiKeyQueryParamName, apiKeyHeaderName,
-    registeredProviderWallet, price, isEditMode, editingProvider, handleProviderUpdated
+    registeredProviderWallet, price, isEditMode, editingProvider, handleProviderUpdated,
+    isWalletConnected
   ]);
 
-  const handleValidationSuccess = useCallback((registeredProvider: RegisteredProvider) => {
-    console.log("Provider validated and registered successfully:", registeredProvider);
+  const handleValidationSuccess = useCallback(async (providerToRegister: RegisteredProvider) => {
+    console.log("Starting registration for provider:", providerToRegister);
     
-    resetFormFields();
-    handleCloseAddNewModal();
-    loadAndSetProviders();
-    
-    alert(`Provider "${registeredProvider.provider_name}" successfully validated and registered!`);
-  }, [loadAndSetProviders]);
+    // Start hypergrid registration if wallet is connected
+    if (isWalletConnected) {
+      providerRegistration.startRegistration(providerToRegister);
+    } else {
+      // No wallet connected - show message and don't proceed
+      alert('Please connect your wallet to complete provider registration on the hypergrid.');
+      // Reset back to config form so user can connect wallet and try again
+      setShowValidation(false);
+      setProviderToValidate(null);
+    }
+  }, [isWalletConnected, providerRegistration]);
 
   const handleValidationError = useCallback((error: string) => {
     console.error("Validation failed:", error);
@@ -347,6 +475,8 @@ function App() {
     setShowValidation(false);
     setProviderToValidate(null);
   }, []);
+  
+
 
   useEffect(() => {
     loadAndSetProviders();
@@ -372,44 +502,83 @@ function App() {
   return (
     <div className={`app-container ${theme}`}>
       <header className="app-header" style={{ position: 'fixed', top: 0, left: 0, right: 0, zIndex: 1000 }}>
-        <div>
+        <div className="header-left">
           <img 
             src={theme === 'dark' ? logoGlow : logoIris} 
             alt="App Logo" 
-            className="app-logo" 
+            className="app-logo desktop-only" 
+          />
+          <img 
+            src={theme === 'dark' ? logoGlow : logoIris} 
+            alt="App Logo" 
+            className="app-logo mobile-only" 
           />
         </div>
+        {/* Desktop controls */}
         <div className="header-controls">
-            <div className="node-info">
+            <div className="node-info desktop-only">
               {nodeConnected 
-                ? <>Node ID: <strong>{window.our?.node || "N/A"}</strong></>
+                ? <>Node ID: <strong className="text-truncate" style={{ maxWidth: '200px', display: 'inline-block', verticalAlign: 'bottom' }}>{window.our?.node || "N/A"}</strong></>
                 : <div className="node-not-connected-banner"><p><strong>Node not connected.</strong></p></div>
               }
             </div>
-            {/* TEMPORARILY DISABLED: Card view toggle - uncomment to re-enable floating cards
-            <button onClick={toggleViewMode} className="theme-toggle-button" style={{ marginRight: '10px' }}>
-                View: {viewMode === 'list' ? '🃏 Cards' : '📋 List'}
-            </button>
-            */}
-            <button onClick={toggleTheme} className="theme-toggle-button">
-                Theme: {theme === 'light' ? 'Dark' : 'Light'}
-            </button>
+            <div className="wallet-connect-wrapper desktop-only">
+              <ConnectButton />
+            </div>
+            <div className="desktop-menu-container desktop-only">
+              <button 
+                onClick={() => setDesktopMenuOpen(!desktopMenuOpen)}
+                className="desktop-menu-button"
+                aria-label="Toggle menu"
+              >
+                ☰
+              </button>
+              {/* Desktop dropdown menu */}
+              {desktopMenuOpen && (
+                <div className="desktop-menu-dropdown">
+                  <button 
+                    className="menu-item menu-button"
+                    onClick={() => {
+                      toggleTheme();
+                      // Don't close the menu after theme change
+                    }}
+                  >
+                    <span className="menu-label">Theme</span>
+                    <span className="menu-value">
+                      {theme === 'light' ? (
+                        <>☀️ Light Mode</>
+                      ) : (
+                        <>🌙 Dark Mode</>
+                      )}
+                    </span>
+                  </button>
+                </div>
+              )}
+            </div>
+        </div>
+        
+        {/* Mobile node info */}
+        <div className="node-info mobile-only">
+          {nodeConnected 
+            ? <strong className="text-truncate" style={{ maxWidth: '150px', display: 'inline-block' }}>{window.our?.node || "N/A"}</strong>
+            : <strong style={{ color: '#ff6b6b' }}>Offline</strong>
+          }
         </div>
       </header>
       <main className="main-content">
-        {viewMode === 'list' ? (
-          <section className="card providers-display-section">
+        <section className="card providers-display-section">
             <div className="providers-header">
               <h2>Hypergrid Provider Registry</h2>
-              <button onClick={handleOpenAddNewModal} className="toggle-form-button">
+              <button onClick={handleOpenAddNewModal} className="toggle-form-button desktop-only">
                 Add New Provider Configuration
               </button>
             </div>
+
             {registeredProviders.length > 0 ? (
               <ul className="provider-list">
                 {registeredProviders.map((provider) => (
                   <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '0'}}>
-                    <MinimalProviderDisplay provider={provider} onEdit={handleEditProvider} />
+                    <RegisteredProviderView provider={provider} onEdit={handleEditProvider} />
                   </li>
                 ))}
               </ul>
@@ -418,180 +587,206 @@ function App() {
             )}
             <button onClick={loadAndSetProviders} style={{ marginTop: '1em' }}>Refresh List</button>
           </section>
-        ) : (
-          <section className="floating-cards-section" style={{ 
-            position: 'relative', 
-            height: 'calc(100vh - 120px)', 
-            overflow: 'hidden',
-            background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.05) 0%, rgba(147, 51, 234, 0.05) 100%)',
-            borderRadius: '12px',
-            border: '1px solid var(--card-border)'
-          }}>
-            <div className="floating-cards-header" style={{
-              position: 'absolute',
-              top: '20px',
-              left: '20px',
-              right: '20px',
-              zIndex: 100,
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              backgroundColor: 'rgba(255, 255, 255, 0.1)',
-              backdropFilter: 'blur(10px)',
-              borderRadius: '12px',
-              padding: '12px 20px',
-              border: '1px solid var(--card-border)',
-            }}>
-              <h2 style={{ margin: 0, color: 'var(--heading-color)' }}>Hypergrid Provider Registry</h2>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <button onClick={handleOpenAddNewModal} className="toggle-form-button">
-                  Add New Provider
-                </button>
-                <button onClick={loadAndSetProviders} className="toggle-form-button">
-                  Refresh
-                </button>
+          
+          {/* Mobile bottom action bar */}
+          <div className="mobile-bottom-action-bar mobile-only">
+            <button onClick={handleOpenAddNewModal} className="mobile-action-button primary">
+              <span className="button-icon">➕</span>
+              <span className="button-text">Add Provider</span>
+            </button>
+            <button 
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="mobile-action-button secondary"
+              aria-label="Toggle menu"
+            >
+              <span className="button-icon">☰</span>
+              <span className="button-text">Menu</span>
+            </button>
+          </div>
+          
+          {/* Mobile menu dropdown - now appears from bottom */}
+          {mobileMenuOpen && (
+            <div className="mobile-menu-overlay mobile-only" onClick={() => setMobileMenuOpen(false)}>
+              <div className="mobile-menu-bottom" onClick={(e) => e.stopPropagation()}>
+                <div className="mobile-menu-header">
+                  <h3>Settings</h3>
+                  <button className="close-menu-button" onClick={() => setMobileMenuOpen(false)}>✕</button>
+                </div>
+                <div className="mobile-menu-content">
+                  <div className="menu-item">
+                    <span className="menu-label">Wallet</span>
+                    <ConnectButton />
+                  </div>
+                  <div className="menu-divider"></div>
+                  <div className="menu-item">
+                    <span className="menu-label">Node Status</span>
+                    <div className="node-info-detailed">
+                      {nodeConnected 
+                        ? <><span className="status-indicator online"></span>Connected: <strong className="text-wrap-mobile">{window.our?.node || "N/A"}</strong></>
+                        : <><span className="status-indicator offline"></span><strong>Node not connected</strong></>
+                      }
+                    </div>
+                  </div>
+                  <div className="menu-item">
+                    <span className="menu-label">App Version</span>
+                    <span className="menu-value">1.0.0</span>
+                  </div>
+                  <div className="menu-divider"></div>
+                  <button 
+                    className="menu-item menu-button"
+                    onClick={() => {
+                      toggleTheme();
+                      // Don't close the menu after theme change
+                    }}
+                  >
+                    <span className="menu-label">Theme</span>
+                    <span className="menu-value">
+                      {theme === 'light' ? (
+                        <>☀️ Light Mode</>
+                      ) : (
+                        <>🌙 Dark Mode</>
+                      )}
+                    </span>
+                  </button>
+                </div>
               </div>
             </div>
-            
-            {registeredProviders.length > 0 ? (
-              <div className="floating-cards-container" style={{ position: 'relative', width: '100%', height: '100%', paddingTop: '100px' }}>
-                {registeredProviders.map((provider, index) => (
-                  <FloatingProviderCard
-                    key={provider.provider_id || provider.provider_name}
-                    provider={provider}
-                    onEdit={handleEditProvider}
-                    onCopyMetadata={handleCopyProviderMetadata}
-                    initialPosition={{
-                      x: 50 + (index % 3) * 420, // Arrange in a grid-like pattern with more spacing
-                      y: 120 + Math.floor(index / 3) * 520
-                    }}
-                  />
-                ))}
-              </div>
-            ) : (
-              <div style={{
-                position: 'absolute',
-                top: '50%',
-                left: '50%',
-                transform: 'translate(-50%, -50%)',
-                textAlign: 'center',
-                color: 'var(--text-color)',
-                fontSize: '1.2em',
-              }}>
-                <p>No API providers registered.</p>
-                <p>Click "Add New Provider" to create your first floating card! 🃏</p>
-              </div>
-            )}
-          </section>
-        )}
+          )}
 
         <SelectionModal 
           isOpen={showForm} 
           onClose={handleCloseAddNewModal} 
           title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
-          maxWidth={showValidation ? "500px" : "1200px"}
+          maxWidth={showValidation ? "min(500px, 95vw)" : "min(1050px, 95vw)"}
         >
-          {showValidation && providerToValidate ? (
-            <ValidationPanel
-              provider={providerToValidate}
-              onValidationSuccess={handleValidationSuccess}
-              onValidationError={handleValidationError}
-              onCancel={handleValidationCancel}
-            />
-          ) : (
-            <div className="modal-content-columns" style={{ display: 'flex', flexDirection: 'row', gap: '20px' }}>
-              <div className="modal-left-column" style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '20px' }}>
-                <ProviderMetadataForm
-                  nodeId={window.our?.node || "N/A"}
-                  providerName={providerName}
-                  setProviderName={setProviderName}
-                  providerDescription={providerDescription}
-                  setProviderDescription={setProviderDescription}
-                  instructions={instructions}
-                  setInstructions={setInstructions}
-                  registeredProviderWallet={registeredProviderWallet}
-                  setRegisteredProviderWallet={setRegisteredProviderWallet}
-                  price={price}
-                  setPrice={setPrice}
-                  onCopyMetadata={handleCopyFormData}
-                />
-                <ApiCallScaffold
-                  providerName={providerName}
-                  endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
-                  endpointBaseUrl={endpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  headerKeys={headerKeys}
-                  bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
-                  apiKey={endpointApiParamKey}
-                  apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
-                  apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
-                />
-              </div>
+          <div style={{ position: 'relative' }}>
+            {showValidation && providerToValidate ? (
+              <ValidationPanel
+                provider={providerToValidate}
+                onValidationSuccess={handleValidationSuccess}
+                onValidationError={handleValidationError}
+                onCancel={handleValidationCancel}
+              />
+            ) : (
+            <>              
+              <div className="modal-content-columns">
+                <div className="modal-left-column">
+                  <HypergridEntryForm
+                    nodeId={window.our?.node || "N/A"}
+                    providerName={providerName}
+                    setProviderName={setProviderName}
+                    providerDescription={providerDescription}
+                    setProviderDescription={setProviderDescription}
+                    instructions={instructions}
+                    setInstructions={setInstructions}
+                    registeredProviderWallet={registeredProviderWallet}
+                    setRegisteredProviderWallet={setRegisteredProviderWallet}
+                    price={price}
+                    setPrice={setPrice}
+                  />
+                  <CurlVisualizer
+                    providerName={providerName}
+                    endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
+                    endpointBaseUrl={endpointBaseUrl}
+                    pathParamKeys={pathParamKeys}
+                    queryParamKeys={queryParamKeys}
+                    headerKeys={headerKeys}
+                    bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
+                    apiKey={endpointApiParamKey}
+                    apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
+                    apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
+                  />
+                </div>
 
-              <div className="modal-right-column" style={{ flex: 1, overflowY: 'auto' }}>
-                <ProviderConfigForm
-                  providerName={providerName}
-                  topLevelRequestType={topLevelRequestType}
-                  setTopLevelRequestType={setTopLevelRequestType}
-                  authChoice={authChoice}
-                  setAuthChoice={setAuthChoice}
-                  apiKeyQueryParamName={apiKeyQueryParamName}
-                  setApiKeyQueryParamName={setApiKeyQueryParamName}
-                  apiKeyHeaderName={apiKeyHeaderName}
-                  setApiKeyHeaderName={setApiKeyHeaderName}
-                  endpointApiParamKey={endpointApiParamKey}
-                  setEndpointApiKey={setEndpointApiKey}
-                  endpointBaseUrl={endpointBaseUrl}
-                  setEndpointBaseUrl={setEndpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  setPathParamKeys={setPathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  setQueryParamKeys={setQueryParamKeys}
-                  headerKeys={headerKeys}
-                  setHeaderKeys={setHeaderKeys}
-                  bodyKeys={bodyKeys}
-                  setBodyKeys={setBodyKeys}
-                  apiCallFormatSelected={apiCallFormatSelected}
-                  setApiCallFormatSelected={setApiCallFormatSelected}
-                  onRegisterProvider={handleProviderRegistration}
-                  submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
-                />
+                <div className="modal-right-column">
+                  <APIConfigForm
+                    // providerName={providerName}
+                    topLevelRequestType={topLevelRequestType}
+                    setTopLevelRequestType={setTopLevelRequestType}
+                    authChoice={authChoice}
+                    setAuthChoice={setAuthChoice}
+                    apiKeyQueryParamName={apiKeyQueryParamName}
+                    setApiKeyQueryParamName={setApiKeyQueryParamName}
+                    apiKeyHeaderName={apiKeyHeaderName}
+                    setApiKeyHeaderName={setApiKeyHeaderName}
+                    endpointApiParamKey={endpointApiParamKey}
+                    setEndpointApiKey={setEndpointApiKey}
+                    endpointBaseUrl={endpointBaseUrl}
+                    setEndpointBaseUrl={setEndpointBaseUrl}
+                    pathParamKeys={pathParamKeys}
+                    setPathParamKeys={setPathParamKeys}
+                    queryParamKeys={queryParamKeys}
+                    setQueryParamKeys={setQueryParamKeys}
+                    headerKeys={headerKeys}
+                    setHeaderKeys={setHeaderKeys}
+                    bodyKeys={bodyKeys}
+                    setBodyKeys={setBodyKeys}
+                    apiCallFormatSelected={apiCallFormatSelected}
+                    setApiCallFormatSelected={setApiCallFormatSelected}
+                    onRegisterProvider={handleProviderRegistration}
+                    submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
+                    isWalletConnected={isWalletConnected}
+                  />
+                </div>
+              </div>
+            </>
+          )}
+          
+          {/* Hypergrid Registration Progress Overlay - Outside conditional so it persists */}
+          <ProviderRegistrationOverlay
+            isVisible={providerRegistration.isRegistering}
+            step={providerRegistration.step}
+            currentNoteIndex={providerRegistration.currentNoteIndex}
+            mintedProviderAddress={providerRegistration.mintedProviderAddress}
+            isMinting={providerRegistration.isMinting}
+            isSettingNotes={providerRegistration.isSettingNotes}
+            isMintTxLoading={providerRegistration.isMintTxLoading}
+            isNotesTxLoading={providerRegistration.isNotesTxLoading}
+            mintError={providerRegistration.mintError}
+            notesError={providerRegistration.notesError}
+            onClose={() => {
+              // Close validation panel when registration overlay closes
+              setShowValidation(false);
+              setProviderToValidate(null);
+              resetFormFields();
+              handleCloseAddNewModal();
+            }}
+          />
+
+          {/* Simple Provider Update Progress Overlay */}
+          {providerUpdate.isUpdating && (
+            <div className="provider-registration-overlay">
+              <div className="provider-registration-content">
+                <h3 className="provider-registration-title">
+                  Updating Provider
+                </h3>
+                <div className="provider-registration-status">
+                  Updating provider metadata on blockchain...
+                </div>
+                <div className="provider-registration-loader-container">
+                  <div className="provider-registration-loader" />
+                </div>
               </div>
             </div>
           )}
+        </div>
         </SelectionModal>
       </main>
     </div>
   );
 }
 
-export default App;
+function App() {
+  return (
+    <WagmiProvider config={config}>
+      <QueryClientProvider client={queryClient}>
+        <RainbowKitProvider>
+          <AppContent />
+        </RainbowKitProvider>
+      </QueryClientProvider>
+    </WagmiProvider>
+  );
+}
 
-/* 
- * CARD VIEW RE-INTEGRATION GUIDE
- * ==============================
- * 
- * The floating card view is temporarily disabled but all code is preserved.
- * To re-enable the card view feature:
- * 
- * 1. In the view mode state section (around line 90):
- *    - Comment out: const [viewMode, setViewMode] = useState<'list' | 'cards'>('list');
- *    - Uncomment the original localStorage-based initialization
- * 
- * 2. In the header controls (around line 385):
- *    - Uncomment the View toggle button
- * 
- * 3. The card view rendering code (lines 433-475) is fully functional and ready to use
- * 
- * 4. The FloatingProviderCard component is complete with:
- *    - Draggable cards with proper drag handling
- *    - Flip animation between basic/technical info
- *    - Edit and Copy functionality
- *    - Beautiful gradients and hover effects
- * 
- * 5. All styles in App.css for .floating-cards-section are preserved
- * 
- * No other changes needed - the card view will work immediately upon re-enabling!
- */
+export default App;
 

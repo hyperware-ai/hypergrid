@@ -1,5 +1,4 @@
 import React, { useEffect } from 'react';
-import './SelectionModal.css'; // Corrected path to go up one directory
 
 interface SelectionModalProps {
   isOpen: boolean;

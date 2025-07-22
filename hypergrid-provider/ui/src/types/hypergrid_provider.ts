@@ -49,7 +49,7 @@ export interface RegisteredProvider {
 
 // Request body for the register_provider endpoint
 export interface RegisterProviderRequest {
-  RegisterProvider: [RegisteredProvider, [string, string][]]; // Tuple variant format
+  RegisterProvider: RegisteredProvider; // Just the provider, no validation arguments
 }
 
 
@@ -77,6 +77,12 @@ export type UpdateProviderResponse = RustResponse<RegisteredProvider>;
 // --- HypergridProviderState (matches Rust struct, using JS naming convention for store) ---
 export interface HypergridProviderState {
   registeredProviders: RegisteredProvider[];
+}
+
+// New API type for namehash lookup
+export interface GetProviderNamehashResponse {
+  Ok?: string;
+  Err?: string;
 }
 
 

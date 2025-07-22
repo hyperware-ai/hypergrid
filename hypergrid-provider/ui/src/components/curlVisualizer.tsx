@@ -4,8 +4,8 @@ import {HttpMethod} from '../types/hypergrid_provider'; // Updated imports
 // Reinstating API Patterns
 // REMOVE apiPatterns array
 
-// Reverted ApiCallScaffoldProps
-interface ApiCallScaffoldProps {
+// Reverted CurlVisualizerProps
+interface CurlVisualizerProps {
   providerName: string; // Used for placeholder if endpointName is empty
   endpointMethod: HttpMethod;
   endpointBaseUrl: string;
@@ -23,7 +23,7 @@ interface ApiCallScaffoldProps {
   exampleDynamicArgs?: { [key: string]: string };
 }
 
-export const ApiCallScaffold: React.FC<ApiCallScaffoldProps> = ({
+const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   providerName,
   endpointMethod,
   endpointBaseUrl,
@@ -102,11 +102,15 @@ export const ApiCallScaffold: React.FC<ApiCallScaffoldProps> = ({
   return (
     <div className="api-scaffold-container form-section">
       <h3>API Structure Preview</h3>
-      <pre className="api-scaffold-content">
-        <code>
-          {curlCommand}
-        </code>
-      </pre>
+      <div className="horizontal-scroll">
+        <pre className="api-scaffold-content">
+          <code>
+            {curlCommand}
+          </code>
+        </pre>
+      </div>
     </div>
   );
-}; 
+};
+
+export default CurlVisualizer; 

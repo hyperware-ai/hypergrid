@@ -144,6 +144,7 @@ impl HypergridProviderState {
         }
     }
 
+
     /// Initialize VFS drive for storing provider data
     pub fn init_vfs_drive(&mut self) -> Result<(), String> {
         match create_drive(our().package_id(), "providers", None) {
@@ -294,7 +295,6 @@ impl HypergridProviderState {
     async fn register_provider(
         &mut self,
         provider: RegisteredProvider,
-        arguments: Vec<(String, String)>,
     ) -> Result<RegisteredProvider, String> {
         info!("Registering provider: {:?}", provider);
         if self
@@ -307,38 +307,12 @@ impl HypergridProviderState {
                 provider.provider_name
             ));
         }
-        // Step 1: Validate the endpoint by making a test call
-        let validation_result = call_provider(
-            provider.provider_name.clone(),
-            provider.endpoint.clone(),
-            &arguments,
-            our().node.to_string(),
-        )
-        .await?;
-        
-        info!("Validation result: {}", validation_result);
-        validate_response_status(&validation_result)
-            .map_err(|e| format!("Validation failed, failed to register provider: {}", e))?;
 
-        let unique_id = format!(
-            "{}_{}_{}", // TODO: This is not a good way to generate a unique ID, we should use a better one
-            our().node.to_string(),
-            provider.provider_name,
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-        );
-        
-        let provider_with_id = RegisteredProvider {
-            provider_id: unique_id,
-            ..provider
-        };
-
-        self.registered_providers.push(provider_with_id.clone());
+        // Provider ID is set by frontend to match node identity
+        self.registered_providers.push(provider.clone());
         info!(
-            "Successfully registered provider after validating the endpoint: {}",
-            provider_with_id.provider_name
+            "Successfully registered provider: {}",
+            provider.provider_name
         );
 
         // Save to VFS
@@ -357,8 +331,46 @@ impl HypergridProviderState {
             }
         }
 
-        Ok(provider_with_id)
+        Ok(provider)
     }
+
+    #[http]
+    async fn validate_provider(
+        &mut self,
+        provider: RegisteredProvider,
+        arguments: Vec<(String, String)>,
+    ) -> Result<String, String> {
+        info!("Validating provider: {:?}", provider);
+        
+        // Check if already registered
+        if self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == provider.provider_name)
+        {
+            return Err(format!(
+                "Provider with name '{}' already registered.",
+                provider.provider_name
+            ));
+        }
+        
+        // Validate the endpoint by making a test call
+        let validation_result = call_provider(
+            provider.provider_name.clone(),
+            provider.endpoint.clone(),
+            &arguments,
+            our().node.to_string(),
+        )
+        .await?;
+        
+        info!("Validation result: {}", validation_result);
+        validate_response_status(&validation_result)
+            .map_err(|e| format!("Validation failed: {}", e))?;
+
+        info!("Provider validation successful: {}", provider.provider_name);
+        Ok(validation_result)
+    }
+
 
 
     #[http]
@@ -394,29 +406,10 @@ impl HypergridProviderState {
                     }
                 }
 
-                let updated_provider_with_id = if name_changed {
-                    // If name changed, create new provider with new ID (essentially a new registration)
-                    let unique_id = format!(
-                        "{}_{}_{}",
-                        our().node.to_string(),
-                        updated_provider.provider_name,
-                        std::time::SystemTime::now()
-                            .duration_since(std::time::UNIX_EPOCH)
-                            .unwrap_or_default()
-                            .as_secs()
-                    );
-                    RegisteredProvider {
-                        provider_id: unique_id, // Generate truly unique ID
-                        ..updated_provider
-                    }
-                } else {
-                    // If name unchanged, keep the original provider_id
-                    let original_provider_id = self.registered_providers[index].provider_id.clone();
-                    RegisteredProvider {
-                        provider_name: provider_name.clone(), // Keep original name
-                        provider_id: original_provider_id,    // Keep original ID
-                        ..updated_provider
-                    }
+                // Always use node identity as provider_id
+                let updated_provider_with_id = RegisteredProvider {
+                    provider_id: our().node.to_string(),
+                    ..updated_provider
                 };
 
                 // Update the provider
@@ -526,6 +519,28 @@ impl HypergridProviderState {
     async fn export_providers(&self) -> Result<String, String> {
         info!("Exporting providers as JSON");
         self.export_providers_json()
+    }
+
+    #[http]
+    async fn get_provider_namehash(&self, provider_name: String) -> Result<String, String> {
+        info!("Getting namehash for provider: {}", provider_name);
+        
+        // Verify provider exists in our registry
+        let provider = self
+            .registered_providers
+            .iter()
+            .find(|p| p.provider_name == provider_name)
+            .ok_or(format!("Provider '{}' not found in registry", provider_name))?;
+
+        // Use the hypermap library to calculate the correct namehash
+        // This ensures consistency with the on-chain registration
+        // TODO: Make this configurable via environment variable or config
+        let namespace = "obfusc-grid123.hypr"; // Replace with your actual namespace
+        let full_name = format!("{}.{}", provider.provider_name, namespace);
+        let namehash = hypermap::namehash(&full_name);
+        
+        info!("Calculated namehash for '{}': {}", full_name, namehash);
+        Ok(namehash)
     }
 
     #[local]
@@ -968,4 +983,3 @@ impl HypergridProviderState {
 //        }
 //    }
 //}
-//

@@ -1,13 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 import { HttpMethod, RequestStructureType } from '../types/hypergrid_provider';
-import { registerProviderApi } from '../utils/api';
-import { processRegistrationResponse } from '../utils/providerFormUtils';
-import type { ApiResponseFeedback } from '../utils/providerFormUtils';
+import { validateProviderApi } from '../utils/api';
 
 interface ValidationPanelProps {
   provider: RegisteredProvider;
-  onValidationSuccess: (registeredProvider: RegisteredProvider) => void;
+  onValidationSuccess: (provider: RegisteredProvider) => void; // Pass original provider for blockchain registration
   onValidationError: (error: string) => void;
   onCancel: () => void;
 }
@@ -16,7 +14,7 @@ interface ValidationArgs {
   [key: string]: string;
 }
 
-export const ValidationPanel: React.FC<ValidationPanelProps> = ({
+const ValidationPanel: React.FC<ValidationPanelProps> = ({
   provider,
   onValidationSuccess,
   onValidationError,
@@ -24,109 +22,80 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
 }) => {
   const [validationArgs, setValidationArgs] = useState<ValidationArgs>({});
   const [isValidating, setIsValidating] = useState(false);
-  const [feedback, setFeedback] = useState<ApiResponseFeedback | null>(null);
 
-  // Initialize validation args with sample values
-  useEffect(() => {
-    const initialArgs: ValidationArgs = {};
-    
-    // Add path params
-    if (provider.endpoint.path_param_keys) {
-      provider.endpoint.path_param_keys.forEach(key => {
-        initialArgs[key] = key === 'id' ? '123' : `sample_${key}`;
-      });
+  // Generate sample values for placeholders
+  const getSampleValue = (key: string, paramType: 'path' | 'query' | 'header' | 'body'): string => {
+    switch (paramType) {
+      case 'path':
+        return key === 'id' ? '123' : `sample_${key}`;
+      case 'query':
+        return key === 'limit' ? '10' : `sample_${key}`;
+      case 'header':
+        return key.toLowerCase().includes('version') ? '1.0' : `sample_${key}`;
+      case 'body':
+        return `sample_${key}`;
+      default:
+        return `sample_${key}`;
     }
-    
-    // Add query params
-    if (provider.endpoint.query_param_keys) {
-      provider.endpoint.query_param_keys.forEach(key => {
-        initialArgs[key] = key === 'limit' ? '10' : `sample_${key}`;
-      });
-    }
-    
-    // Add headers
-    if (provider.endpoint.header_keys) {
-      provider.endpoint.header_keys.forEach(key => {
-        initialArgs[key] = key.toLowerCase().includes('version') ? '1.0' : `sample_${key}`;
-      });
-    }
-    
-    // Add body params for POST
-    if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
-      provider.endpoint.body_param_keys.forEach(key => {
-        initialArgs[key] = `sample_${key}`;
-      });
-    }
-    
-    setValidationArgs(initialArgs);
-  }, [provider]);
+  };
 
-  // Generate curl preview
   const generateCurlPreview = (): string => {
     let url = provider.endpoint.base_url_template;
     const queryParams: string[] = [];
     const headers: string[] = [];
     let bodyData: { [key: string]: string } = {};
 
-    // Process based on request structure
     switch (provider.endpoint.request_structure) {
       case RequestStructureType.GetWithPath:
-        // Replace path parameters
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'path');
             url = url.replace(`{${key}}`, value);
           });
         }
         break;
       
       case RequestStructureType.GetWithQuery:
-        // Add query parameters
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'query');
             queryParams.push(`${key}=${encodeURIComponent(value)}`);
           });
         }
         break;
       
       case RequestStructureType.PostWithJson:
-        // Replace path parameters
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'path');
             url = url.replace(`{${key}}`, value);
           });
         }
-        // Add query parameters
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
-            const value = validationArgs[key] || `{${key}}`;
+            const value = validationArgs[key] || getSampleValue(key, 'query');
             queryParams.push(`${key}=${encodeURIComponent(value)}`);
           });
         }
-        // Add body parameters
         if (provider.endpoint.body_param_keys) {
           provider.endpoint.body_param_keys.forEach(key => {
-            bodyData[key] = validationArgs[key] || `{${key}}`;
+            bodyData[key] = validationArgs[key] || getSampleValue(key, 'body');
           });
         }
         break;
     }
 
-    // Add API key to query if configured
     if (provider.endpoint.api_key && provider.endpoint.api_key_query_param_name) {
       queryParams.push(`${provider.endpoint.api_key_query_param_name}=${provider.endpoint.api_key.substring(0, 3)}...`);
     }
 
-    // Add headers
     if (provider.endpoint.method === HttpMethod.POST) {
       headers.push('-H "Content-Type: application/json"');
     }
     
     if (provider.endpoint.header_keys) {
       provider.endpoint.header_keys.forEach(key => {
-        const value = validationArgs[key] || `{${key}}`;
+        const value = validationArgs[key] || getSampleValue(key, 'header');
         headers.push(`-H "${key}: ${value}"`);
       });
     }
@@ -135,10 +104,8 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
       headers.push(`-H "${provider.endpoint.api_key_header_name}: ${provider.endpoint.api_key.substring(0, 3)}..."`);
     }
 
-    // Build final URL
     const finalUrl = queryParams.length > 0 ? `${url}?${queryParams.join('&')}` : url;
     
-    // Build curl command
     let curlCommand = `curl -X ${provider.endpoint.method}`;
     
     if (headers.length > 0) {
@@ -163,19 +130,17 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
   const handleValidate = async () => {
     setIsValidating(true);
-    setFeedback(null);
 
     try {
-      // Convert validationArgs to the format expected by the API
       const validationArguments: [string, string][] = Object.entries(validationArgs);
       
-      const response = await registerProviderApi(provider, validationArguments);
-      const feedback = processRegistrationResponse(response);
+      // Validate and cache the provider in backend
+      const result = await validateProviderApi(provider, validationArguments);
       
-      if (feedback.status === 'success' && response.Ok) {
-        onValidationSuccess(response.Ok);
+      if (result.success) {
+        onValidationSuccess(provider);
       } else {
-        onValidationError(feedback.message);
+        onValidationError(result.error || 'Validation failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
@@ -185,71 +150,65 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
     }
   };
 
-  // Get all parameter keys that need values
-  const getAllParamKeys = (): string[] => {
-    const keys = new Set<string>();
+  const getAllParamKeysWithTypes = (): Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> => {
+    const params: Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> = [];
     
     if (provider.endpoint.path_param_keys) {
-      provider.endpoint.path_param_keys.forEach(key => keys.add(key));
+      provider.endpoint.path_param_keys.forEach(key => params.push({ key, type: 'path' }));
     }
     if (provider.endpoint.query_param_keys) {
-      provider.endpoint.query_param_keys.forEach(key => keys.add(key));
+      provider.endpoint.query_param_keys.forEach(key => params.push({ key, type: 'query' }));
     }
     if (provider.endpoint.header_keys) {
-      provider.endpoint.header_keys.forEach(key => keys.add(key));
+      provider.endpoint.header_keys.forEach(key => params.push({ key, type: 'header' }));
     }
     if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
-      provider.endpoint.body_param_keys.forEach(key => keys.add(key));
+      provider.endpoint.body_param_keys.forEach(key => params.push({ key, type: 'body' }));
     }
     
-    return Array.from(keys);
+    return params;
   };
 
-  const paramKeys = getAllParamKeys();
+  const allParams = getAllParamKeysWithTypes();
 
   return (
     <div className="validation-panel form-section">
       <h3 style={{ marginTop: 0 }}>Validate Your Provider</h3>
-      <p>Before registering, let's test your API endpoint to make sure it works correctly. Fill in sample values for the parameters below:</p>
+      <p>Let's test your API endpoint to make sure it is configured correctly:</p>
       
-      {/* Parameter inputs */}
-      {paramKeys.length > 0 && (
-        <div className="validation-inputs">
-          <h4>Test Parameters</h4>
-          {paramKeys.map(key => (
-            <div key={key} className="form-group">
-              <label htmlFor={`validation-${key}`}>
-                {key}:
-              </label>
-              <input
-                id={`validation-${key}`}
-                type="text"
-                value={validationArgs[key] || ''}
-                onChange={(e) => handleValidationArgChange(key, e.target.value)}
-                placeholder={`Enter value for ${key}`}
-              />
+      <div className="validation-columns">
+        {allParams.length > 0 && (
+          <div className="validation-inputs">
+            <h4>Test Parameters</h4>
+            <div className="validation-params-grid">
+              {allParams.map(({ key, type }) => (
+                <div key={key} className="validation-param-item">
+                  <label htmlFor={`validation-${key}`} className="validation-param-label">
+                    {key} ({type})
+                  </label>
+                  <input
+                    id={`validation-${key}`}
+                    type="text"
+                    value={validationArgs[key] || ''}
+                    onChange={(e) => handleValidationArgChange(key, e.target.value)}
+                    placeholder={getSampleValue(key, type)}
+                    className="validation-param-input"
+                  />
+                </div>
+              ))}
             </div>
-          ))}
+          </div>
+        )}
+        
+        <div className="curl-preview">
+          <h4>Preview API Call</h4>
+          <pre className="api-scaffold-content">
+            <code>{generateCurlPreview()}</code>
+          </pre>
         </div>
-      )}
-      
-      {/* Curl preview */}
-      <div className="curl-preview">
-        <h4>Preview API Call</h4>
-        <pre className="api-scaffold-content">
-          <code>{generateCurlPreview()}</code>
-        </pre>
-      </div>
-      
-      {/* Feedback display */}
-      {feedback && (
-        <div className={`feedback ${feedback.status}`}>
-          {feedback.message}
-        </div>
-      )}
-      
-      {/* Action buttons */}
-      <div className="validation-actions" style={{ display: 'flex', justifyContent: 'space-between' }}>
+              </div>
+        
+        <div className="validation-actions">
         <button
           type="button"
           onClick={handleValidate}
@@ -269,4 +228,6 @@ export const ValidationPanel: React.FC<ValidationPanelProps> = ({
       </div>
     </div>
   );
-}; 
+};
+
+export default ValidationPanel; 

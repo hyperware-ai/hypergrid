@@ -22,6 +22,158 @@ export interface ProviderFormData {
   apiKeyHeaderName: string;
 }
 
+// New types for smart update system
+export interface UpdateDetectionResult {
+  hasOnChainChanges: boolean;
+  hasOffChainChanges: boolean;
+  hasConfigChanges: boolean;
+  onChainChanges: Array<{ key: string; oldValue: string; newValue: string }>;
+  offChainChanges: Array<{ field: string; oldValue: any; newValue: any }>;
+  configChanges: Array<{ field: string; oldValue: any; newValue: any }>;
+}
+
+export interface SmartUpdatePlan {
+  needsOnChainUpdate: boolean;
+  needsOffChainUpdate: boolean;
+  shouldWarnAboutInstructions: boolean;
+  onChainNotes: Array<{ key: string; value: string }>;
+  updatedProvider: RegisteredProvider;
+}
+
+// On-chain note keys (must match the ones in hypermap.ts)
+export const ON_CHAIN_NOTE_KEYS = {
+  PROVIDER_ID: '~provider-id',
+  WALLET: '~wallet', 
+  DESCRIPTION: '~description',
+  INSTRUCTIONS: '~instructions',
+  PRICE: '~price',
+} as const;
+
+// Fields that affect API configuration and might require instruction updates
+const CONFIG_FIELDS = [
+  'topLevelRequestType',
+  'endpointBaseUrl', 
+  'pathParamKeys',
+  'queryParamKeys',
+  'headerKeys',
+  'bodyKeys',
+  'endpointApiParamKey',
+  'authChoice',
+  'apiKeyQueryParamName',
+  'apiKeyHeaderName'
+] as const;
+
+/**
+ * Analyzes what changed between original and updated provider data
+ */
+export function detectProviderChanges(
+  originalProvider: RegisteredProvider,
+  formData: ProviderFormData
+): UpdateDetectionResult {
+  const onChainChanges: Array<{ key: string; oldValue: string; newValue: string }> = [];
+  const offChainChanges: Array<{ field: string; oldValue: any; newValue: any }> = [];
+  const configChanges: Array<{ field: string; oldValue: any; newValue: any }> = [];
+
+  // Check on-chain fields
+  if (originalProvider.provider_id !== formData.providerId) {
+    onChainChanges.push({
+      key: ON_CHAIN_NOTE_KEYS.PROVIDER_ID,
+      oldValue: originalProvider.provider_id,
+      newValue: formData.providerId
+    });
+  }
+
+  if (originalProvider.registered_provider_wallet !== formData.registeredProviderWallet.trim()) {
+    onChainChanges.push({
+      key: ON_CHAIN_NOTE_KEYS.WALLET,
+      oldValue: originalProvider.registered_provider_wallet,
+      newValue: formData.registeredProviderWallet.trim()
+    });
+  }
+
+  if (originalProvider.description !== formData.providerDescription) {
+    onChainChanges.push({
+      key: ON_CHAIN_NOTE_KEYS.DESCRIPTION,
+      oldValue: originalProvider.description,
+      newValue: formData.providerDescription
+    });
+  }
+
+  if (originalProvider.instructions !== formData.instructions) {
+    onChainChanges.push({
+      key: ON_CHAIN_NOTE_KEYS.INSTRUCTIONS,
+      oldValue: originalProvider.instructions,
+      newValue: formData.instructions
+    });
+  }
+
+  const newPrice = parseFloat(formData.price) || 0;
+  if (originalProvider.price !== newPrice) {
+    onChainChanges.push({
+      key: ON_CHAIN_NOTE_KEYS.PRICE,
+      oldValue: originalProvider.price.toString(),
+      newValue: newPrice.toString()
+    });
+  }
+
+  // Check off-chain fields (provider name)
+  if (originalProvider.provider_name !== formData.providerName) {
+    offChainChanges.push({
+      field: 'provider_name',
+      oldValue: originalProvider.provider_name,
+      newValue: formData.providerName
+    });
+  }
+
+  // Check endpoint configuration fields
+  const originalFormData = populateFormFromProvider(originalProvider);
+  
+  CONFIG_FIELDS.forEach(field => {
+    const oldValue = originalFormData[field];
+    const newValue = formData[field];
+    
+    // Handle array comparison
+    if (Array.isArray(oldValue) && Array.isArray(newValue)) {
+      if (JSON.stringify(oldValue.sort()) !== JSON.stringify(newValue.sort())) {
+        configChanges.push({ field, oldValue, newValue });
+      }
+    } else if (oldValue !== newValue) {
+      configChanges.push({ field, oldValue, newValue });
+    }
+  });
+
+  return {
+    hasOnChainChanges: onChainChanges.length > 0,
+    hasOffChainChanges: offChainChanges.length > 0,
+    hasConfigChanges: configChanges.length > 0,
+    onChainChanges,
+    offChainChanges,
+    configChanges
+  };
+}
+
+/**
+ * Creates a smart update plan based on detected changes
+ */
+export function createSmartUpdatePlan(
+  originalProvider: RegisteredProvider,
+  formData: ProviderFormData
+): SmartUpdatePlan {
+  const changes = detectProviderChanges(originalProvider, formData);
+  const updatedProvider = buildUpdateProviderPayload(formData);
+
+  return {
+    needsOnChainUpdate: changes.hasOnChainChanges,
+    needsOffChainUpdate: changes.hasOffChainChanges || changes.hasConfigChanges || changes.hasOnChainChanges, // Also update backend when on-chain data changes
+    shouldWarnAboutInstructions: changes.hasConfigChanges && !changes.onChainChanges.some(c => c.key === ON_CHAIN_NOTE_KEYS.INSTRUCTIONS),
+    onChainNotes: changes.onChainChanges.map(change => ({
+      key: change.key,
+      value: change.newValue
+    })),
+    updatedProvider
+  };
+}
+
 interface ValidationResult {
   isValid: boolean;
   error?: string;
@@ -96,7 +248,7 @@ export function buildProviderPayload(data: ProviderFormData): { RegisterProvider
 
   const providerToRegister: RegisteredProvider = {
     provider_name: data.providerName,
-    provider_id: "",
+    provider_id: data.providerId,
     description: data.providerDescription,
     instructions: data.instructions || "",
     registered_provider_wallet: data.registeredProviderWallet.trim(),
