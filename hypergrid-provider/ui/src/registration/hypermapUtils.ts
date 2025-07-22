@@ -433,12 +433,6 @@ export function useProviderUpdate(callbacks: ProviderUpdateCallbacks) {
 
   // Watch for transaction loading state changes
   useEffect(() => {
-    console.log('🔄 Transaction loading state:', { 
-      isUpdateTxLoading, 
-      isUpdateTxSuccess, 
-      hasError: !!updateError,
-      step: state.step 
-    });
     
     // Check for the case where transaction finished loading but failed
     if (!isUpdateTxLoading && !isUpdateTxSuccess && !updateError && updateTxHash && state.step === 'updating') {
