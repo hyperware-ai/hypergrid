@@ -75,9 +75,6 @@ fn init(our: Address) {
         //state.operator_tba_address = None;
     }
 
-    // Initialize Wallet Manager
-    //wallet_service::initialize_wallet(&mut state);
-
     // Initialize hyperwallet connection
     if !hyperwallet_client::init_with_hyperwallet() {
         error!("Failed to initialize with hyperwallet service!");
@@ -85,9 +82,6 @@ fn init(our: Address) {
         error!("Please ensure hyperwallet:hyperwallet:hallman.hypr is installed and running.");
     }
     info!("Successfully initialized with hyperwallet service");
-
-    // Initialize wallet management (migrate existing wallets if any)
-    //wallet::service::initialize_wallet(&mut state);
 
     // Initialize DB as local variable
     info!("Loading database..");
