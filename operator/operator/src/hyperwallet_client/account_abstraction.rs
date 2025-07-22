@@ -320,7 +320,7 @@ pub fn prepare_gasless_payment(
     Ok((signed_user_op, entry_point.to_string()))
 } 
 
-/// Build and sign a UserOperation with EIP-2612 permit in one step
+/// TODO: remove every trace of EIP2612, doesn't work with TBAs
 pub fn build_and_sign_user_operation_with_metadata(
     wallet_id: &str,
     target: &str,
@@ -345,16 +345,14 @@ pub fn build_and_sign_user_operation_with_metadata(
         params["password"] = serde_json::Value::String(pwd);
     }
     
-    // Note: metadata is not directly supported in BuildAndSignUserOpParams
-    // but we can add gas parameters if they exist in metadata
+    // Pass metadata through to hyperwallet
     if let Some(meta) = metadata {
-        if let Some(gas_params) = meta.get("gas_params") {
-            params["gas_params"] = gas_params.clone();
-        }
+        // Add the entire metadata object
+        params["metadata"] = serde_json::Value::Object(meta);
     }
     
     let operation_request = json!({
-        "operation": "BuildAndSignUserOperation",
+        "operation": "BuildAndSignUserOperationForPayment",
         "params": params,
         "auth": {
             "process_address": hyperware_process_lib::our().to_string(),

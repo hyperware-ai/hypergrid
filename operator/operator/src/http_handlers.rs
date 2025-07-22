@@ -983,8 +983,8 @@ fn authenticate_shim_client<'a>(
     }
 }
 
-// Helper function to determine which wallet to use for payment based on request context
-fn determine_payment_wallet(
+// Helper function to determine which wallet to sign the userOp with
+fn determine_signer_wallet(
     state: &State,
     client_config_opt: Option<&HotWalletAuthorizedClient>
 ) -> Result<String, PaymentAttemptResult> {
@@ -1449,21 +1449,21 @@ fn handle_payment(
     }
 
     // Determine which wallet to use for payment
-    let wallet_id = match determine_payment_wallet(state, client_config_opt) {
+    let signer_wallet_id = match determine_signer_wallet(state, client_config_opt) {
         Ok(id) => id,
         Err(payment_result) => return PaymentResult::Failed(payment_result),
     };
     
     info!("Attempting payment of {} to {} for provider {} using wallet {}", 
           provider_details.price_str, provider_details.wallet_address, 
-          provider_details.provider_id, wallet_id);
+          provider_details.provider_id, signer_wallet_id);
     
     let payment_result = wallet_payments::execute_payment_if_needed(
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,
         provider_details.provider_id.clone(),
-        &wallet_id
+        &signer_wallet_id
     );
     
     match payment_result {

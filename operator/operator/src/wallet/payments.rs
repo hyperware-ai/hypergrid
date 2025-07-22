@@ -85,6 +85,7 @@ pub fn execute_payment_if_needed(
     provider_id: String,
     associated_hot_wallet_id: &str,
 ) -> Option<PaymentAttemptResult> {
+    info!("Is this mf used?");
     info!("Attempting payment for provider {} using hot wallet {}. Provider Wallet: {}, Price: {}", 
         provider_id, associated_hot_wallet_id, provider_wallet_str, provider_price_str);
 

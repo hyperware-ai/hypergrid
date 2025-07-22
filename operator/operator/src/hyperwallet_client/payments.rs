@@ -13,6 +13,11 @@ use super::account_abstraction;
 // Hyperwallet service address
 const HYPERWALLET_ADDRESS: (&str, &str, &str, &str) = ("our", "hyperwallet", "hyperwallet", "hallman.hypr");
 
+// Circle Paymaster configuration for Base chain
+const CIRCLE_PAYMASTER_ADDRESS: &str = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec";
+const CIRCLE_PAYMASTER_VERIFICATION_GAS: u64 = 500_000; // 0x7a120 - Gas for paymaster validation
+const CIRCLE_PAYMASTER_POST_OP_GAS: u64 = 300_000;     // 0x493e0 - Gas for paymaster post-operation
+
 /// Asset types for withdrawals
 #[derive(Debug, Clone, Copy)]
 pub enum AssetType {
@@ -113,7 +118,7 @@ pub fn execute_payment_with_metadata(
     // Get USDC contract address for the chain
     let usdc_contract = match crate::structs::CHAIN_ID {
         8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
-        1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
+        //1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
         _ => {
             error!("Unsupported chain ID for USDC: {}", crate::structs::CHAIN_ID);
             return Some(PaymentAttemptResult::Failed {
@@ -198,14 +203,30 @@ pub fn execute_payment_with_metadata(
                 
                 let tba_calldata = format!("0x{}", hex::encode(execute_call.abi_encode()));
                 
-                // Use the new build_and_sign function that includes permit signing
+                // Add Circle paymaster info to metadata if using paymaster
+                let mut final_metadata = metadata.unwrap_or_else(|| serde_json::Map::new());
+                if use_paymaster {
+                    // Circle Paymaster on Base - add all required metadata
+                    final_metadata.insert("paymaster_address".to_string(), 
+                        serde_json::json!(CIRCLE_PAYMASTER_ADDRESS));
+                    final_metadata.insert("is_circle_paymaster".to_string(), serde_json::json!(true));
+                    final_metadata.insert("paymaster_verification_gas".to_string(), 
+                        serde_json::json!(format!("0x{:x}", CIRCLE_PAYMASTER_VERIFICATION_GAS)));
+                    final_metadata.insert("paymaster_post_op_gas".to_string(), 
+                        serde_json::json!(format!("0x{:x}", CIRCLE_PAYMASTER_POST_OP_GAS)));
+                }
+                
+                // ✅ ADD TBA ADDRESS TO METADATA - This tells hyperwallet to use TBA as sender
+                final_metadata.insert("tba_address".to_string(), 
+                    serde_json::json!(operator_tba));
+                
                 match account_abstraction::build_and_sign_user_operation_with_metadata(
                     operator_wallet_id, // Hot wallet that will sign
                     &operator_tba, // Target is the TBA (self-call)
                     &tba_calldata,
                     Some("0"),
                     use_paymaster, // Pass the use_paymaster flag
-                    metadata, // Pass the metadata through
+                    Some(final_metadata), // Pass the metadata with Circle info
                     None, // No password needed if wallet is already unlocked
                     Some(crate::structs::CHAIN_ID as u64),
                 ) {

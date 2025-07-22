@@ -92,10 +92,7 @@ fn init(our: Address) {
     // Initialize DB as local variable
     info!("Loading database..");
     let db = match db::load_db(&our) {
-        Ok(db_conn) => {
-            info!("Database loaded successfully.");
-            db_conn 
-        }
+        Ok(db_conn) => db_conn,
         Err(e) => {
             error!("FATAL: Failed to load database: {:?}", e);
             panic!("DB Load Failed!"); 
@@ -127,8 +124,8 @@ fn init(our: Address) {
 fn main(
     our: &Address, 
     state: &mut State, 
-    db: &Sqlite, // Pass db
-    pending_logs: &mut PendingLogs // Pass pending_logs
+    db: &Sqlite,
+    pending_logs: &mut PendingLogs
 ) -> anyhow::Result<()> {
     let message = await_message()?;
     match message {

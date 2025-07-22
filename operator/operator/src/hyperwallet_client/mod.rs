@@ -42,6 +42,7 @@ pub fn init_with_hyperwallet() -> bool {
                 "RenameWallet",
                 "BuildUserOperation",
                 "BuildAndSignUserOperation",
+                "BuildAndSignUserOperationForPayment",
                 "SignUserOperation",
                 "SubmitUserOperation",
                 "EstimateUserOperationGas",
