@@ -1,15 +1,16 @@
 use hyperprocess_macro::hyperprocess;
+use hyperware_app_common::get_server;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_process_lib::eth::Address as EthAddress;
 use hyperware_process_lib::vfs::{create_drive, create_file, open_file};
 use hyperware_process_lib::{
     eth::Provider,
     get_state,
-    homepage::add_to_homepage,
     hypermap,
     logging::{error, info},
     our,
 };
+use hyperware_app_common::{source, SaveOptions};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -254,7 +255,7 @@ impl Default for HypergridProviderState {
 // --- Hyperware Process ---
 #[hyperprocess(
     name = "provider",
-    ui = Some(HttpBindingConfig::default()),
+    ui = None,
     endpoints = vec![
         Binding::Http {
             path: "/api",
@@ -275,12 +276,14 @@ impl HypergridProviderState {
     async fn initialize(&mut self) {
         println!("Initializing provider registry");
         *self = HypergridProviderState::load();
+        let server = get_server().expect("HTTP server should be initialized");
+        
+        server.serve_ui("ui", vec!["/"], HttpBindingConfig::default()).unwrap();
 
         // Initialize VFS drive for provider storage
         if let Err(e) = self.init_vfs_drive() {
             error!("Failed to initialize VFS drive: {}", e);
         }
-
         // add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
     }
 

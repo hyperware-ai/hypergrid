@@ -21,7 +21,7 @@
   {
     "process_name": "provider",
     "process_wasm_path": "/provider.wasm",
-    "on_exit": "Restart",
+    "on_exit": "None",
     "request_networking": true,
     "request_capabilities": [
       "homepage:homepage:sys",
