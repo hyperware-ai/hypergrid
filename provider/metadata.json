@@ -1,0 +1,19 @@
+{
+  "name": "Provider",
+  "description": "Monetize your API keys and sell them to LLMs.",
+  "image": "",
+  "properties": {
+    "package_name": "hypergrid-provider",
+    "current_version": "0.1.0",
+    "publisher": "grid-beta.hypr",
+    "mirrors": [],
+    "code_hashes": {
+      "0.1.0": ""
+    },
+    "wit_version": 1,
+    "dependencies": [  
+    ]
+  },
+  "external_url": "https://hyperware.ai",
+  "animation_url": ""
+}

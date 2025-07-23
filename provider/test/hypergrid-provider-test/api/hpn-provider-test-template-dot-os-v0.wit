@@ -1,0 +1,5 @@
+world hpn-provider-test-template-dot-os-v0 {
+    import hpn-provider;
+    import tester;
+    include process-v1;
+}
