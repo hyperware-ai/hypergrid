@@ -67,12 +67,14 @@ use standard.{address};
     }
 
     // Function signature for: export-providers (http)
+    // HTTP: POST /api/export-providers
     record export-providers-signature-http {
         target: string,
         returning: result<string, string>
     }
 
     // Function signature for: get-provider-namehash (http)
+    // HTTP: POST /api/get-provider-namehash
     record get-provider-namehash-signature-http {
         target: string,
         provider-name: string,
@@ -80,6 +82,7 @@ use standard.{address};
     }
 
     // Function signature for: get-registered-providers (http)
+    // HTTP: POST /api/get-registered-providers
     record get-registered-providers-signature-http {
         target: string,
         returning: result<list<registered-provider>, string>
@@ -100,6 +103,7 @@ use standard.{address};
     }
 
     // Function signature for: register-provider (http)
+    // HTTP: POST /api/register-provider
     record register-provider-signature-http {
         target: string,
         provider: registered-provider,
@@ -114,6 +118,7 @@ use standard.{address};
     }
 
     // Function signature for: update-provider (http)
+    // HTTP: POST /api/update-provider
     record update-provider-signature-http {
         target: string,
         provider-name: string,
@@ -122,6 +127,7 @@ use standard.{address};
     }
 
     // Function signature for: validate-provider (http)
+    // HTTP: POST /api/validate-provider
     record validate-provider-signature-http {
         target: string,
         provider: registered-provider,

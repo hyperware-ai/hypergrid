@@ -2,6 +2,7 @@ import  { useState, useEffect, useRef, useCallback, useMemo } from "react";
 // SearchPage is no longer directly rendered here by default, but keep import if used elsewhere or if needed later.
 import BackendDrivenHypergridVisualizerWrapper from "./components/BackendDrivenHypergridVisualizer.tsx";
 import HeaderSearch from "./components/HeaderSearch.tsx";
+import AppSwitcher from "./components/AppSwitcher.tsx";
 
 // Import required types
 import { ActiveAccountDetails, OnboardingStatusResponse } from "./logic/types.ts";
@@ -75,9 +76,12 @@ function App() {
   return (
     <div className="app-container">
       <header className="app-header">
-        <h1 className="app-title">
-            Hypergrid Operator
-        </h1>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <AppSwitcher currentApp="operator" />
+          <h1 className="app-title" style={{ margin: 0 }}>
+              Hypergrid Operator
+          </h1>
+        </div>
         <div className="account-header-section" style={{ flexGrow: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
           <HeaderSearch /> 
         </div>

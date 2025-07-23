@@ -1,7 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
-    "hypergrid-provider/hypergrid-provider",
+    "provider/provider",
     "operator/operator",
 ]
 

@@ -48,11 +48,11 @@ cd provider
 kit build --hyperapp
 cd ..
 
-# Copy operator pkg contents (except manifest.json and scripts.json)
+# Copy operator pkg contents (except manifest.json, scripts.json, and api)
 echo -e "${BLUE}Copying operator build artifacts...${NC}"
 for item in operator/pkg/*; do
     basename=$(basename "$item")
-    if [[ "$basename" != "manifest.json" && "$basename" != "scripts.json" ]]; then
+    if [[ "$basename" != "manifest.json" && "$basename" != "scripts.json" && "$basename" != "api" ]]; then
         if [ -d "$item" ]; then
             # If it's the ui directory, rename it to just "ui"
             if [ "$basename" = "ui" ]; then
@@ -66,11 +66,11 @@ for item in operator/pkg/*; do
     fi
 done
 
-# Copy provider pkg contents (except manifest.json)
+# Copy provider pkg contents (except manifest.json and api)
 echo -e "${BLUE}Copying provider build artifacts...${NC}"
 for item in provider/pkg/*; do
     basename=$(basename "$item")
-    if [ "$basename" != "manifest.json" ]; then
+    if [[ "$basename" != "manifest.json" && "$basename" != "api" ]]; then
         if [ -d "$item" ]; then
             # If it's the ui directory, rename it to "provider-ui"
             if [ "$basename" = "ui" ]; then
@@ -87,51 +87,38 @@ for item in provider/pkg/*; do
     fi
 done
 
-# Handle API zip files
-echo -e "${BLUE}Merging API zip files...${NC}"
+# Handle API files and create merged api directory
+echo -e "${BLUE}Merging API files...${NC}"
 
-# Create a temporary directory for API processing
-TEMP_API_DIR=$(mktemp -d)
-mkdir -p "$TEMP_API_DIR/merged"
+# Create the api directory in pkg
+mkdir -p pkg/api
 
-# Check if operator has api.zip after build
-if [ -f "operator/pkg/api.zip" ]; then
-    echo "Extracting operator api.zip..."
-    unzip -q "operator/pkg/api.zip" -d "$TEMP_API_DIR/operator"
-fi
-
-# Extract provider api.zip
-if [ -f "provider/pkg/api.zip" ]; then
-    echo "Extracting provider api.zip..."
-    unzip -q "provider/pkg/api.zip" -d "$TEMP_API_DIR/provider"
-fi
-
-# Copy all WIT files to merged directory
-if [ -d "$TEMP_API_DIR/operator" ]; then
-    find "$TEMP_API_DIR/operator" -name "*.wit" -o -name "*.wt" | while read -r file; do
-        cp "$file" "$TEMP_API_DIR/merged/"
+# Copy WIT files from operator api directory if it exists
+if [ -d "operator/pkg/api" ]; then
+    echo "Copying operator API files..."
+    find "operator/pkg/api" -name "*.wit" -o -name "*.wt" | while read -r file; do
+        cp "$file" "pkg/api/"
     done
 fi
 
-if [ -d "$TEMP_API_DIR/provider" ]; then
-    find "$TEMP_API_DIR/provider" -name "*.wit" -o -name "*.wt" | while read -r file; do
-        cp "$file" "$TEMP_API_DIR/merged/"
+# Copy WIT files from provider api directory if it exists
+if [ -d "provider/pkg/api" ]; then
+    echo "Copying provider API files..."
+    find "provider/pkg/api" -name "*.wit" -o -name "*.wt" | while read -r file; do
+        cp "$file" "pkg/api/"
     done
 fi
 
-# Create the merged api.zip if there are any WIT files
-if [ -n "$(ls -A "$TEMP_API_DIR/merged" 2>/dev/null)" ]; then
-    echo "Creating merged api.zip..."
-    cd "$TEMP_API_DIR/merged"
+# Create api.zip from the merged api directory
+if [ -n "$(ls -A pkg/api 2>/dev/null)" ]; then
+    echo "Creating api.zip..."
+    cd pkg/api
     zip -q ../api.zip *
-    cd - > /dev/null
-    cp "$TEMP_API_DIR/api.zip" pkg/api.zip
+    cd ../..
+    echo -e "${GREEN}API files merged successfully${NC}"
 else
-    echo -e "${RED}Warning: No WIT files found to merge${NC}"
+    echo -e "${RED}Warning: No WIT files found in api directories${NC}"
 fi
-
-# Clean up temp directory
-rm -rf "$TEMP_API_DIR"
 
 # Verify manifest.json and scripts.json are present
 if [ -f "pkg/manifest.json" ] && [ -f "pkg/scripts.json" ]; then
