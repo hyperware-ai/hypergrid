@@ -15,9 +15,22 @@
 }
 
 .header {
-    font-size: 1.1em;
+    margin-bottom: 8px;
+    text-align: center;
+}
+
+.nodeTitle {
+    font-size: 1.0em;
     font-weight: bold;
     color: #00ff00; /* Green to match border */
+    margin-bottom: 2px;
+}
+
+.nodeSubtitle {
+    font-size: 0.85em;
+    color: #ccc;
+    word-wrap: break-word;
+    line-height: 1.2;
 }
 
 .addressRow {

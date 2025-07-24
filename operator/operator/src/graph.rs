@@ -5,6 +5,7 @@ use hyperware_process_lib::{
     logging::{info, warn, error},
     sqlite::Sqlite,
     eth, hypermap,
+    wallet,
 };
 use alloy_primitives::Address as EthAddress;
 use std::str::FromStr;
@@ -118,6 +119,8 @@ pub fn build_hypergrid_graph_data(
         IdentityStatus::Verified { entry_name, .. } => Some(entry_name.clone()),
         _ => None,
     };
+
+
 
     if let IdentityStatus::Verified { entry_name, tba_address, .. } = &operator_identity_details {
         let current_op_wallet_node_id = format!("operator-wallet-{}", tba_address);
@@ -294,6 +297,20 @@ pub fn build_hypergrid_graph_data(
             action_id: Some("trigger_set_access_list_note".to_string()),
         };
 
+        // Check if paymaster has been approved (only if gasless is enabled)
+        let paymaster_approved = if state.gasless_enabled.unwrap_or(false) {
+            let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
+            let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+            let paymaster = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec"; // Circle paymaster
+            
+            match wallet::erc20_allowance(usdc_addr, &tba_address, paymaster, &provider) {
+                Ok(allowance) => allowance > alloy_primitives::U256::ZERO,
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+
         nodes.push(GraphNode {
             id: current_op_wallet_node_id.clone(),
             node_type: "operatorWalletNode".to_string(),
@@ -304,6 +321,7 @@ pub fn build_hypergrid_graph_data(
                 signers_note: signers_note_info,
                 access_list_note: access_list_note_info,
                 gasless_enabled: state.gasless_enabled.unwrap_or(false),
+                paymaster_approved,
             },
             position: None,
         });
@@ -314,11 +332,23 @@ pub fn build_hypergrid_graph_data(
             style_type: None, animated: None,
         });
 
+        // Determine if there are any linked hot wallets to provide better labeling
+        let has_linked_wallets = match get_all_onchain_linked_hot_wallet_addresses(Some(entry_name)) {
+            Ok(linked_hw_addresses) => !linked_hw_addresses.is_empty(),
+            Err(_) => false,
+        };
+        
+        let action_label = if has_linked_wallets {
+            "Manage Hot Wallets".to_string()
+        } else {
+            "Create Your First Wallet!".to_string()
+        };
+
         nodes.push(GraphNode {
             id: "action-add-hot-wallet".to_string(),
             node_type: "addHotWalletActionNode".to_string(),
             data: GraphNodeData::AddHotWalletActionNode {
-                label: "Manage Hot Wallets".to_string(),
+                label: action_label,
                 operator_tba_address: Some(tba_address.clone()),
                 action_id: "trigger_manage_wallets_modal".to_string(),
             },
@@ -393,9 +423,12 @@ pub fn build_hypergrid_graph_data(
                             }
                         }
 
-                        // Get spending limits if it's a managed wallet
-                        let spending_limits = state.managed_wallets.get(&summary.id)
-                            .map(|wallet| wallet.spending_limits.clone());
+                        // Get spending limits from hyperwallet (works for both managed and external wallets)
+                        let spending_limits = crate::hyperwallet_client::service::get_wallet_spending_limits(hw_address_str.clone())
+                            .unwrap_or_else(|e| {
+                                info!("Could not fetch spending limits for {}: {}", hw_address_str, e);
+                                None
+                            });
 
                         nodes.push(GraphNode {
                             id: hot_wallet_node_id.clone(),
@@ -415,6 +448,13 @@ pub fn build_hypergrid_graph_data(
                         });
                     } else {
                         // No summary found - create a minimal node for external wallet
+                        // Still try to get spending limits from hyperwallet
+                        let spending_limits = crate::hyperwallet_client::service::get_wallet_spending_limits(hw_address_str.clone())
+                            .unwrap_or_else(|e| {
+                                info!("Could not fetch spending limits for external wallet {}: {}", hw_address_str, e);
+                                None
+                            });
+                        
                         nodes.push(GraphNode {
                             id: hot_wallet_node_id.clone(),
                             node_type: "hotWalletNode".to_string(),
@@ -427,7 +467,7 @@ pub fn build_hypergrid_graph_data(
                                 is_unlocked: false,
                                 funding_info: hw_funding_info,
                                 authorized_clients: Vec::new(),
-                                limits: None,
+                                limits: spending_limits,
                             },
                             position: None,
                         });
@@ -504,9 +544,15 @@ pub fn build_hypergrid_graph_data(
 
 pub fn handle_get_hypergrid_graph_layout(
     our: &Address,
-    state: &State,
+    state: &mut State,
 ) -> anyhow::Result<()> {
     info!("Handling GET /api/hypergrid-graph for node {}...", our.node);
+    
+    // Re-check operator identity to ensure state is up-to-date (especially after TBA minting)
+    if let Err(e) = crate::identity::initialize_operator_identity(our, state) {
+        warn!("Failed to re-initialize operator identity during graph build: {:?}", e);
+    }
+    
     match build_hypergrid_graph_data(our, state) {
         Ok(graph_response) => {
             // Log the serialized JSON before sending

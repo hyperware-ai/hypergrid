@@ -31,6 +31,7 @@ pub struct SpendingLimits {
     pub max_per_call: Option<String>,
     pub max_total: Option<String>,
     pub currency: Option<String>,      // Currency (e.g., "USDC") - Default to USDC
+    pub total_spent: Option<String>,   // Total amount spent so far (from hyperwallet)
 }
 
 // Struct to return combined details for the active account
@@ -591,6 +592,8 @@ pub enum GraphNodeData {
         access_list_note: NoteInfo,
         #[serde(rename = "gaslessEnabled")]
         gasless_enabled: bool,
+        #[serde(rename = "paymasterApproved")]
+        paymaster_approved: bool,
     },
     HotWalletNode {
         address: String,

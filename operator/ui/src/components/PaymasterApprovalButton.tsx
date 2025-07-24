@@ -44,10 +44,13 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
 
     useEffect(() => {
         if (isConfirmed && onApprovalComplete) {
-            console.log("Paymaster approval confirmed, calling onApprovalComplete");
-            onApprovalComplete();
-            reset();
+            console.log("Paymaster approval confirmed, calling onApprovalComplete with delay");
             setShowConfirmation(false);
+            // Add delay to allow backend to sync with blockchain state
+            setTimeout(() => {
+                onApprovalComplete();
+                reset();
+            }, 2000);
         }
     }, [isConfirmed, onApprovalComplete, reset]);
 
@@ -105,7 +108,7 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
                         width: '100%',
                     }}
                 >
-                    {isProcessing ? 'Processing...' : 'Enable Gasless Transactions'}
+                    {isProcessing ? 'Processing...' : 'Enable USDC Gas Transactions'}
                 </button>
             ) : (
                 <div style={{ 
@@ -118,10 +121,13 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
                         <strong>Approve Paymaster?</strong>
                     </p>
                     <p style={{ margin: '0 0 8px 0', fontSize: '12px', color: '#666' }}>
-                        This will allow Circle's paymaster to spend up to {approvalAmountDisplay} from this TBA for gas fees.
+                        This will allow Circle's paymaster to spend up to {approvalAmountDisplay} from this TBA for gas fees, enabling gasless transactions.
                     </p>
-                    <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#888' }}>
+                    <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: '#888' }}>
                         Paymaster: {CIRCLE_PAYMASTER_ADDRESS.slice(0, 6)}...{CIRCLE_PAYMASTER_ADDRESS.slice(-4)}
+                    </p>
+                    <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#888', fontStyle: 'italic' }}>
+                        ⚠️ Important: This is a one-time setup required for gasless functionality. Once approved, you can sign transactions without needing ETH for gas.
                     </p>
                     <div style={{ display: 'flex', gap: '8px' }}>
                         <button

@@ -3,7 +3,9 @@
 //! but delegates all operations to the hyperwallet service.
 
 use hyperware_process_lib::{Address, Request};
-use hyperware_process_lib::logging::{info, error};
+use hyperware_process_lib::{
+    logging::{info, error}, 
+    wallet};
 use serde::{Deserialize, Serialize};
 use alloy_primitives::U256;
 
@@ -408,14 +410,65 @@ pub fn handle_operator_tba_withdrawal(
 pub fn check_operator_tba_funding_detailed(
     tba_address: Option<&String>,
 ) -> crate::structs::TbaFundingDetails {
-    // This would need to query hyperwallet or the chain directly
-    // For now, return dummy values
+    use hyperware_process_lib::{eth, logging::info};
+    
+    let tba_addr = match tba_address {
+        Some(addr) => addr,
+        None => {
+            return crate::structs::TbaFundingDetails {
+                tba_needs_eth: false,
+                tba_needs_usdc: false,
+                tba_eth_balance_str: None,
+                tba_usdc_balance_str: None,
+                check_error: Some("No TBA address provided".to_string()),
+            };
+        }
+    };
+
+    let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
+    let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+    
+    // Check USDC balance
+    let (usdc_balance_str, usdc_error) = match wallet::erc20_balance_of(usdc_addr, tba_addr, &provider) {
+        Ok(balance) => {
+            info!("TBA USDC Balance: {} USDC", balance);
+            (Some(format!("{:.6}", balance)), None)
+        }
+        Err(e) => {
+            info!("Failed to get TBA USDC balance: {:?}", e);
+            (None, Some(format!("USDC balance check failed: {}", e)))
+        }
+    };
+    
+    // Check ETH balance (optional, since we removed ETH from UI)
+    let (eth_balance_str, eth_error) = match provider.get_balance(
+        tba_addr.parse().unwrap_or_default(), 
+        None
+    ) {
+        Ok(balance) => {
+            let eth_balance = balance.to::<u128>() as f64 / 1e18;
+            info!("TBA ETH Balance: {:.6} ETH", eth_balance);
+            (Some(format!("{:.6}", eth_balance)), None)
+        }
+        Err(e) => {
+            info!("Failed to get TBA ETH balance: {:?}", e);
+            (None, Some(format!("ETH balance check failed: {}", e)))
+        }
+    };
+    
+    // Combine errors if any
+    let combined_error = match (usdc_error, eth_error) {
+        (Some(usdc_err), Some(eth_err)) => Some(format!("{}, {}", usdc_err, eth_err)),
+        (Some(err), None) | (None, Some(err)) => Some(err),
+        (None, None) => None,
+    };
+
     crate::structs::TbaFundingDetails {
-        tba_needs_eth: false,
-        tba_needs_usdc: false,
-        tba_eth_balance_str: Some("0.0".to_string()),
-        tba_usdc_balance_str: Some("0.0".to_string()),
-        check_error: None,
+        tba_needs_eth: false, // We don't really need ETH anymore for gasless
+        tba_needs_usdc: usdc_balance_str.as_ref().map_or(true, |s| s.parse::<f64>().unwrap_or(0.0) < 1.0),
+        tba_eth_balance_str: eth_balance_str,
+        tba_usdc_balance_str: usdc_balance_str,
+        check_error: combined_error,
     }
 }
 

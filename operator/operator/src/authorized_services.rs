@@ -1,3 +1,5 @@
+// intended to use for the spawned EOAs-to-client-management interface
+
 use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Eq, PartialEq)]

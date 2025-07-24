@@ -429,7 +429,7 @@ fn handle_get(
     our: &Address,
     path_str: &str,
     params: &HashMap<String, String>,
-    state: &State,
+    state: &mut State,
     db: &Sqlite,
 ) -> anyhow::Result<()> {
     info!("GET {} with params: {:?}", path_str, params);
@@ -789,8 +789,13 @@ fn handle_set_wallet_limits(state: &mut State, limits: SpendingLimits) -> anyhow
     info!("Setting wallet spending limits");
     let wallet_id = get_selected_wallet_id(state)?;
     
-    match hyperwallet_service::set_wallet_spending_limits(state, wallet_id, limits) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+    // Convert SpendingLimits to hyperwallet format
+    let max_per_call = limits.max_per_call;
+    let max_total = limits.max_total;
+    let currency = limits.currency.or_else(|| Some("USDC".to_string()));
+    
+    match hyperwallet_service::set_wallet_spending_limits(state, wallet_id, max_per_call, max_total, currency) {
+        Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
             "success": false, 
             "error": e 

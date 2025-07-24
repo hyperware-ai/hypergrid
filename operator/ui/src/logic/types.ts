@@ -36,6 +36,7 @@ export interface SpendingLimits {
     maxPerCall: string | null;
     maxTotal: string | null;
     currency: string | null;
+    totalSpent?: string; // Total amount spent so far (optional field from hyperwallet)
 }
 
 // Exported for use in App.tsx and AccountManager.tsx
@@ -229,6 +230,7 @@ export interface IOperatorWalletNodeData {
     signersNote: INoteInfo;
     accessListNote: INoteInfo;
     gaslessEnabled?: boolean;
+    paymasterApproved?: boolean;
 }
 
 export interface IHotWalletNodeData {

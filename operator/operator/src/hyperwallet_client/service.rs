@@ -39,13 +39,17 @@ enum HyperwalletRequest {
         wallet_id: String, 
         new_name: String 
     },
+    SetWalletLimits {
+        wallet_id: String,
+        max_per_call: Option<String>,
+        max_total: Option<String>,
+        currency: String,
+    },
     ExportWallet { 
         wallet_id: String,
         password: Option<String>
     },
-    SelectWallet { 
-        wallet_id: String 
-    },
+
 }
 
 /// Response types from hyperwallet service
@@ -93,14 +97,19 @@ pub fn call_hyperwallet(request: HyperwalletRequest) -> Result<serde_json::Value
                 "new_name": new_name
             }))
         },
+        HyperwalletRequest::SetWalletLimits { wallet_id: _, max_per_call, max_total, currency } => {
+            ("SetWalletLimits", json!({
+                "max_per_call": max_per_call,
+                "max_total": max_total,
+                "currency": currency
+            }))
+        },
         HyperwalletRequest::ExportWallet { wallet_id: _, password } => {
             ("ExportWallet", json!({
                 "password": password
             }))
         },
-        HyperwalletRequest::SelectWallet { wallet_id: _ } => {
-            ("SelectWallet", json!({}))
-        },
+
     };
     
     // Get wallet_id for operations that need it
@@ -108,8 +117,8 @@ pub fn call_hyperwallet(request: HyperwalletRequest) -> Result<serde_json::Value
         HyperwalletRequest::GetWalletInfo { wallet_id } |
         HyperwalletRequest::DeleteWallet { wallet_id } |
         HyperwalletRequest::RenameWallet { wallet_id, .. } |
-        HyperwalletRequest::ExportWallet { wallet_id, .. } |
-        HyperwalletRequest::SelectWallet { wallet_id } => Some(wallet_id.clone()),
+        HyperwalletRequest::SetWalletLimits { wallet_id, .. } |
+        HyperwalletRequest::ExportWallet { wallet_id, .. } => Some(wallet_id.clone()),
         _ => None,
     };
     
@@ -228,7 +237,8 @@ pub fn import_new_wallet(
     password: Option<String>,
     name: Option<String>,
 ) -> Result<String, String> {
-    info!("Importing wallet via hyperwallet");
+    info!("Importing wallet via hyperwallet (password: {})", 
+        if password.is_some() { "provided" } else { "none - will store unencrypted" });
     
     let data = call_hyperwallet(HyperwalletRequest::ImportWallet {
         private_key,
@@ -236,16 +246,29 @@ pub fn import_new_wallet(
         name,
     })?;
     
-    let wallet: ManagedWallet = serde_json::from_value(data.get("wallet")
-        .ok_or("Missing wallet in response")?
-        .clone())
-        .map_err(|e| format!("Failed to parse wallet: {}", e))?;
+    info!("Hyperwallet import response: {:?}", data);
     
-    let address = wallet.storage.get_address();
-    state.managed_wallets.insert(wallet.id.clone(), wallet);
+    // Try different possible response formats
+    let wallet_address = if let Some(wallet_obj) = data.get("wallet") {
+        // Format: { "wallet": { ... } }
+        let wallet: ManagedWallet = serde_json::from_value(wallet_obj.clone())
+            .map_err(|e| format!("Failed to parse wallet object: {}", e))?;
+        let address = wallet.storage.get_address();
+        state.managed_wallets.insert(wallet.id.clone(), wallet);
+        address
+    } else if let Some(address) = data.get("address").and_then(|a| a.as_str()) {
+        // Format: { "address": "0x..." }
+        address.to_string()
+    } else if let Some(wallet_id) = data.get("wallet_id").and_then(|w| w.as_str()) {
+        // Format: { "wallet_id": "0x..." }
+        wallet_id.to_string()
+    } else {
+        // Try to parse the entire data object as address string
+        data.as_str().unwrap_or("unknown").to_string()
+    };
+    
     state.save();
-    
-    Ok(address)
+    Ok(wallet_address)
 }
 
 pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSummary>) {
@@ -254,29 +277,38 @@ pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSumm
     // Query hyperwallet for the list of wallets
     match call_hyperwallet(HyperwalletRequest::ListWallets) {
         Ok(data) => {
-            // Parse the wallet list from hyperwallet response
-            let wallets = data.get("wallets")
-                .and_then(|w| w.as_array())
-                .map(|arr| {
-                    arr.iter()
-                        .filter_map(|wallet_json| {
-                            // Extract wallet info from each wallet entry
-                            let address = wallet_json.get("address")?.as_str()?;
-                            let name = wallet_json.get("name").and_then(|n| n.as_str()).map(|s| s.to_string());
-                            let is_encrypted = wallet_json.get("encrypted").and_then(|e| e.as_bool()).unwrap_or(false);
-                            
-                            Some(WalletSummary {
-                                id: address.to_string(), // Use address as ID for now
-                                address: address.to_string(),
-                                name,
-                                is_encrypted,
-                                is_unlocked: !is_encrypted, // For now, assume unencrypted = unlocked
-                                is_selected: Some(address) == state.selected_wallet_id.as_deref(),
-                            })
-                        })
-                        .collect::<Vec<_>>()
+            info!("Hyperwallet list response: {:?}", data);
+            
+            // Try different possible response formats
+            let wallets_array = if let Some(wallets) = data.get("wallets").and_then(|w| w.as_array()) {
+                wallets
+            } else if data.is_array() {
+                data.as_array().unwrap()
+            } else {
+                &Vec::new()
+            };
+            
+            let wallets = wallets_array
+                .iter()
+                .filter_map(|wallet_json| {
+                    // Extract wallet info from each wallet entry
+                    let address = wallet_json.get("address")?.as_str()?;
+                    let name = wallet_json.get("name").and_then(|n| n.as_str()).map(|s| s.to_string());
+                    let is_encrypted = wallet_json.get("encrypted")
+                        .or_else(|| wallet_json.get("is_encrypted"))
+                        .and_then(|e| e.as_bool())
+                        .unwrap_or(false);
+                    
+                    Some(WalletSummary {
+                        id: address.to_string(), // Use address as ID for now
+                        address: address.to_string(),
+                        name,
+                        is_encrypted,
+                        is_unlocked: !is_encrypted, // For now, assume unencrypted = unlocked
+                        is_selected: Some(address) == state.selected_wallet_id.as_deref(),
+                    })
                 })
-                .unwrap_or_default();
+                .collect::<Vec<_>>();
             
             (state.selected_wallet_id.clone(), wallets)
         }
@@ -289,38 +321,49 @@ pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSumm
 }
 
 pub fn select_wallet(state: &mut State, wallet_id: String) -> Result<(), String> {
-    if !state.managed_wallets.contains_key(&wallet_id) {
-        return Err("Wallet not found".to_string());
-    }
+    info!("Selecting wallet {} (validating with hyperwallet)", wallet_id);
     
-    // Tell hyperwallet about the selection
-    let _ = call_hyperwallet(HyperwalletRequest::SelectWallet { 
+    // Validate wallet exists in hyperwallet by calling GetWalletInfo
+    match call_hyperwallet(HyperwalletRequest::GetWalletInfo { 
         wallet_id: wallet_id.clone() 
-    });
-    
-    state.selected_wallet_id = Some(wallet_id);
-    state.active_signer_cache = None; // Clear cache when switching
-    state.cached_active_details = None;
-    state.save();
-    
-    Ok(())
+    }) {
+        Ok(_) => {
+            // Wallet exists in hyperwallet, so update local state
+            state.selected_wallet_id = Some(wallet_id.clone());
+            state.active_signer_cache = None; // Clear cache when switching
+            state.cached_active_details = None;
+            state.save();
+            info!("Successfully selected wallet {}", wallet_id);
+            Ok(())
+        }
+        Err(e) => {
+            info!("Wallet validation failed for {}: {}", wallet_id, e);
+            Err(format!("Wallet not found in hyperwallet: {}", e))
+        }
+    }
 }
 
 pub fn rename_wallet(state: &mut State, wallet_id: String, new_name: String) -> Result<(), String> {
-    // Update hyperwallet
-    call_hyperwallet(HyperwalletRequest::RenameWallet {
+    info!("Renaming wallet {} to '{}'", wallet_id, new_name);
+    
+    // Update hyperwallet - this is the source of truth now
+    let data = call_hyperwallet(HyperwalletRequest::RenameWallet {
         wallet_id: wallet_id.clone(),
         new_name: new_name.clone(),
     })?;
     
-    // Update local state
+    info!("Hyperwallet rename response: {:?}", data);
+    
+    // Update local state if wallet exists there (for transition period)
     if let Some(wallet) = state.managed_wallets.get_mut(&wallet_id) {
         wallet.name = Some(new_name);
         state.save();
-        Ok(())
-    } else {
-        Err("Wallet not found".to_string())
     }
+    
+    // Clear any cached details to force refresh
+    state.cached_active_details = None;
+    
+    Ok(())
 }
 
 pub fn delete_wallet(state: &mut State, wallet_id: String) -> Result<(), String> {
@@ -490,18 +533,7 @@ pub fn remove_wallet_password(
     Ok(())
 }
 
-pub fn set_wallet_spending_limits(
-    state: &mut State,
-    wallet_id: String,
-    limits: SpendingLimits,
-) -> Result<(), String> {
-    let wallet = state.managed_wallets.get_mut(&wallet_id)
-        .ok_or("Wallet not found")?;
-    
-    wallet.spending_limits = limits;
-    state.save();
-    Ok(())
-}
+
 
 // ===== Helper Functions =====
 
@@ -696,4 +728,78 @@ pub fn verify_single_hot_wallet_delegation_detailed(
     } else {
         DelegationStatus::HotWalletNotInList
     }
-} 
+}
+
+pub fn set_wallet_spending_limits(
+    state: &mut State,
+    wallet_id: String,
+    max_per_call: Option<String>,
+    max_total: Option<String>,
+    currency: Option<String>,
+) -> Result<(), String> {
+    info!("Setting wallet spending limits for {}: max_per_call={:?}, max_total={:?}, currency={:?}", 
+          wallet_id, max_per_call, max_total, currency);
+    
+    let data = call_hyperwallet(HyperwalletRequest::SetWalletLimits {
+        wallet_id: wallet_id.clone(),
+        max_per_call,
+        max_total,
+        currency: currency.unwrap_or_else(|| "USDC".to_string()),
+    })?;
+    
+    info!("Hyperwallet set wallet limits response: {:?}", data);
+    
+    // Clear any cached details to force refresh
+    state.cached_active_details = None;
+    
+    Ok(())
+}
+
+/// Get wallet spending limits from hyperwallet
+pub fn get_wallet_spending_limits(wallet_id: String) -> Result<Option<SpendingLimits>, String> {
+    info!("Getting wallet spending limits for {} from hyperwallet", wallet_id);
+    
+    match call_hyperwallet(HyperwalletRequest::GetWalletInfo { 
+        wallet_id: wallet_id.clone() 
+    }) {
+        Ok(data) => {
+            info!("Raw hyperwallet response for {}: {}", wallet_id, serde_json::to_string_pretty(&data).unwrap_or_else(|_| "unparseable".to_string()));
+            
+            // Try to extract spending limits from the wallet info response
+            // Check multiple possible locations for limits
+            let limits_data = data.get("spending_limits")
+                .or_else(|| data.get("limits"))
+                .or_else(|| data.get("wallet").and_then(|w| w.get("spending_limits")))
+                .or_else(|| data.get("data").and_then(|d| d.get("spending_limits")))
+                .or_else(|| data.get("data").and_then(|d| d.get("limits")));
+            
+            if let Some(limits_data) = limits_data {
+                info!("Found limits data for {}: {}", wallet_id, serde_json::to_string_pretty(limits_data).unwrap_or_else(|_| "unparseable".to_string()));
+                
+                // Manually map hyperwallet's snake_case to operator's camelCase
+                let max_per_call = limits_data.get("max_per_call").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let max_total = limits_data.get("max_total").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let currency = limits_data.get("currency").and_then(|v| v.as_str()).map(|s| s.to_string());
+                let total_spent = limits_data.get("total_spent").and_then(|v| v.as_str()).map(|s| s.to_string());
+                
+                let limits = SpendingLimits {
+                    max_per_call,
+                    max_total,
+                    currency,
+                    total_spent,
+                };
+                
+                info!("Successfully mapped spending limits for {}: {:?}", wallet_id, limits);
+                Ok(Some(limits))
+            } else {
+                info!("No spending limits found for {} in any expected location", wallet_id);
+                Ok(None)
+            }
+        }
+        Err(e) => {
+            warn!("Failed to get wallet info for {}: {}", wallet_id, e);
+            // Don't fail the whole operation, just return None for limits
+            Ok(None)
+        }
+    }
+}

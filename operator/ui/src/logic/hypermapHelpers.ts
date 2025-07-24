@@ -473,15 +473,62 @@ export function useApprovePaymaster(props?: UseWriteHypermapContractProps) {
         });
     }, [writeContract, onError]);
 
+    const revokePaymasterInternal = useCallback(({
+        operatorTbaAddress,
+        paymasterAddress = CIRCLE_PAYMASTER_ADDRESS,
+        usdcAddress = USDC_ADDRESS_BASE,
+    }: {
+        operatorTbaAddress: Address;
+        paymasterAddress?: Address;
+        usdcAddress?: Address;
+    }) => {
+        if (!operatorTbaAddress) {
+            console.error("Missing operatorTbaAddress for paymaster revocation.");
+            if (onError) onError(new Error("Missing operatorTbaAddress"));
+            return;
+        }
+
+        console.log(`useApprovePaymaster: Revoking paymaster approval for Operator TBA ${operatorTbaAddress}`);
+        console.log(`  Paymaster: ${paymasterAddress}`);
+        console.log(`  USDC Contract: ${usdcAddress}`);
+        console.log(`  Approval Amount: 0 (revoke)`);
+
+        // Step 1: Encode the ERC20 approve call with amount = 0 to revoke
+        const revokeCallData = encodeERC20Approve({
+            spender: paymasterAddress,
+            amount: 0n, // Setting amount to 0 revokes the approval
+        });
+
+        // Step 2: Prepare arguments for operatorTBA.execute()
+        const executeArgs = prepareTbaExecuteArgs({
+            targetContract: usdcAddress,
+            callData: revokeCallData,
+            value: 0n,
+            operation: 0, // Standard CALL
+        });
+        
+        console.log(`  executeArgs for TBA: [\n    target: ${executeArgs[0]},\n    value: ${executeArgs[1]},\n    data: ${executeArgs[2]},\n    operation: ${executeArgs[3]}\n   ]`);
+
+        // Step 3: Call execute() on the operatorTbaAddress
+        writeContract({
+            address: operatorTbaAddress,
+            abi: tbaExecuteAbi,
+            functionName: 'execute',
+            args: executeArgs,
+            chainId: BASE_CHAIN_ID,
+        });
+    }, [writeContract, onError]);
+
     return useMemo(() => ({
         approvePaymaster: approvePaymasterInternal,
+        revokePaymaster: revokePaymasterInternal,
         transactionHash,
         isSending: isPending,
         isConfirming,
         isConfirmed,
         error: error || receiptError,
         reset,
-    }), [approvePaymasterInternal, transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset]);
+    }), [approvePaymasterInternal, revokePaymasterInternal, transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset]);
 }
 
 // Example usage 

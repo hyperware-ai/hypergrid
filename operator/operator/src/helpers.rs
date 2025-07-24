@@ -23,43 +23,43 @@ use crate::wallet::service;
 use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
-/// Decodes a hex string into a UTF-8 string.
-/// Returns an error if the hex string is invalid or the decoded bytes aren't valid ASCII printable characters.
-pub fn _decode_datakey(hex_string: &str) -> Result<String> {
-    // Remove 0x prefix if present
-    let clean_hex = if hex_string.starts_with("0x") {
-        &hex_string[2..]
-    } else {
-        hex_string
-    };
-
-    // Validate hex string length
-    if clean_hex.len() % 2 != 0 {
-        return Err(anyhow!("datakey decoding failed: odd number of hex digits"));
-    }
-
-    // Decode hex to bytes
-    let bytes = (0..clean_hex.len())
-        .step_by(2)
-        .map(|i| {
-            u8::from_str_radix(&clean_hex[i..i + 2], 16)
-                .map_err(|_| anyhow!("datakey decoding failed: invalid hex digit"))
-        })
-        .collect::<Result<Vec<u8>, _>>()?;
-
-    // Decode bytes to UTF-8 string
-    let decoded = String::from_utf8(bytes)
-        .map_err(|_| anyhow!("datakey decoding failed: invalid UTF-8 sequence"))?;
-
-    // Check if all characters are printable ASCII (range 0x20 to 0x7E)
-    if decoded.chars().all(|c| c >= ' ' && c <= '~') {
-        Ok(decoded)
-    } else {
-        Err(anyhow!(
-            "datakey decoding failed: contains non-printable characters"
-        ))
-    }
-}
+///// Decodes a hex string into a UTF-8 string.
+///// Returns an error if the hex string is invalid or the decoded bytes aren't valid ASCII printable characters.
+//pub fn _decode_datakey(hex_string: &str) -> Result<String> {
+//    // Remove 0x prefix if present
+//    let clean_hex = if hex_string.starts_with("0x") {
+//        &hex_string[2..]
+//    } else {
+//        hex_string
+//    };
+//
+//    // Validate hex string length
+//    if clean_hex.len() % 2 != 0 {
+//        return Err(anyhow!("datakey decoding failed: odd number of hex digits"));
+//    }
+//
+//    // Decode hex to bytes
+//    let bytes = (0..clean_hex.len())
+//        .step_by(2)
+//        .map(|i| {
+//            u8::from_str_radix(&clean_hex[i..i + 2], 16)
+//                .map_err(|_| anyhow!("datakey decoding failed: invalid hex digit"))
+//        })
+//        .collect::<Result<Vec<u8>, _>>()?;
+//
+//    // Decode bytes to UTF-8 string
+//    let decoded = String::from_utf8(bytes)
+//        .map_err(|_| anyhow!("datakey decoding failed: invalid UTF-8 sequence"))?;
+//
+//    // Check if all characters are printable ASCII (range 0x20 to 0x7E)
+//    if decoded.chars().all(|c| c >= ' ' && c <= '~') {
+//        Ok(decoded)
+//    } else {
+//        Err(anyhow!(
+//            "datakey decoding failed: contains non-printable characters"
+//        ))
+//    }
+//}
 
 pub fn make_json_timestamp() -> serde_json::Number {
     let systemtime = SystemTime::now();
@@ -108,6 +108,710 @@ pub fn authenticate_shim_client<'a>(
     }
 } 
 
+
+// --- Hypermap Helper Functions for Delegation --- 
+
+/// Reads an access list note and extracts the B256 hash of the signers note it points to.
+/// 
+/// # Arguments
+/// * `hypermap_reader` - An initialized instance of `hypermap::Hypermap`.
+/// * `access_list_full_path` - The full Hypermap path to the access list note
+///
+/// # Returns
+/// * `Ok(B256)` - The hash of the signers note.
+/// * `Err(String)` - An error message detailing what went wrong (note not found, invalid data format, etc.).
+pub fn get_signers_note_hash_from_access_list(
+    hypermap_reader: &hypermap::Hypermap,
+    access_list_full_path: &str,
+) -> Result<B256, String> {
+    info!("Helper: Reading access list note: {}", access_list_full_path);
+
+    match hypermap_reader.get(access_list_full_path) {
+        Ok((_tba, _owner, Some(data))) => {
+            // Expecting raw 32-byte hash directly
+            info!("  Helper: Found access list data ({} bytes). Expecting raw 32-byte hash.", data.len());
+            if data.len() == 32 { // Expect raw 32 bytes for the hash
+                let hash = B256::from_slice(&data);
+                info!("  Helper: Successfully interpreted raw data as 32-byte namehash for signers note: {}", hash);
+                Ok(hash)
+            } else {
+                let reason = format!(
+                    "Data in access list note '{}' is not 32 bytes long (expected raw hash), length is {}. Data (hex): 0x{}", 
+                    access_list_full_path, data.len(), hex::encode(&data) // Log as hex for debugging
+                );
+                error!("  Helper: Error - {}", reason);
+                Err(reason)
+            }
+        }
+        Ok((_tba, _owner, None)) => {
+            let reason = format!("Access list note '{}' exists but has no data.", access_list_full_path);
+            error!("  Helper: Error - {}", reason);
+            Err(reason)
+        }
+        Err(e) => {
+            let err_msg = format!("{:?}", e);
+            let reason = format!("Error reading access list note '{}': {}", access_list_full_path, err_msg);
+            error!("  Helper: Error - {}", reason);
+            if err_msg.contains("note not found") { 
+                 Err(format!("AccessListNoteMissing: {}", reason)) // More specific error type if needed
+            } else {
+                 Err(format!("HypermapReadError: {}", reason))
+            }
+        }
+    }
+}
+
+/// Reads a signers note (given its hash) and ABI-decodes its content as a Vec<Address>.
+///
+/// # Arguments
+/// * `hypermap_reader` - An initialized instance of `hypermap::Hypermap`.
+/// * `signers_note_hash_b256` - The B256 hash of the signers note.
+///
+/// # Returns
+/// * `Ok(Vec<EthAddress>)` - A vector of delegate Ethereum addresses.
+/// * `Err(String)` - An error message detailing what went wrong (note not found, invalid data format, etc.).
+pub fn get_signers_note_from_hash(
+    hypermap_reader: &hypermap::Hypermap,
+    signers_note_hash_b256: &B256,
+) -> Result<Vec<EthAddress>, String> {
+    info!("Helper: Reading signers note: {}", signers_note_hash_b256);
+
+    let note_hash_hex = format!("{:x}", signers_note_hash_b256);
+
+    match hypermap_reader.get(&note_hash_hex) {
+        Ok((_tba, _owner, Some(data))) => {
+            // Expecting raw 32-byte hash directly
+            info!("  Helper: Found signers note data ({} bytes). Expecting raw 32-byte hash.", data.len());
+            if data.len() == 32 { // Expect raw 32 bytes for the hash
+                let hash = B256::from_slice(&data);
+                info!("  Helper: Successfully interpreted raw data as 32-byte namehash for signers note: {}", hash);
+                Ok(vec![EthAddress::from_slice(&data)])
+            } else {
+                let reason = format!(
+                    "Data in signers note '{}' is not 32 bytes long (expected raw hash), length is {}. Data (hex): 0x{}", 
+                    signers_note_hash_b256, data.len(), hex::encode(&data) // Log as hex for debugging
+                );
+                error!("  Helper: Error - {}", reason);
+                Err(reason)
+            }
+        }
+        Ok((_tba, _owner, None)) => {
+            let reason = format!("Signers note '{}' exists but has no data.", signers_note_hash_b256);
+            error!("  Helper: Error - {}", reason);
+            Err(reason)
+        }
+        Err(e) => {
+            let err_msg = format!("{:?}", e);
+            let reason = format!("Error reading signers note '{}': {}", signers_note_hash_b256, err_msg);
+            error!("  Helper: Error - {}", reason);
+            if err_msg.contains("note not found") { 
+                 Err(format!("SignersNoteMissing: {}", reason)) // More specific error type if needed
+            } else {
+                 Err(format!("HypermapReadError: {}", reason))
+            }
+        }
+    }
+}
+
+/// * `Err(String)` - An error message detailing what went wrong (note not found, invalid data format, etc.).
+pub fn get_addresses_from_signers_note(
+    hypermap_reader: &hypermap::Hypermap,
+    signers_note_hash_b256: B256,
+) -> Result<Vec<EthAddress>, String> {
+    let signers_note_hash_str = format!("0x{}", hex::encode(signers_note_hash_b256));
+    info!("Helper: Reading signers note using hash: {}", signers_note_hash_str);
+
+    match hypermap_reader.get_hash(&signers_note_hash_str) { 
+        Ok((_tba, _owner, Some(data))) => {
+            info!("  Helper: Found signers note data ({} bytes). Expecting ABI-encoded Address[].", data.len());
+            match Vec::<EthAddress>::abi_decode(&data, true) { // true for lenient if padded
+                Ok(decoded_delegates) => {
+                     info!("  Helper: Successfully ABI-decoded signers note delegates: {:?}", decoded_delegates);
+                     Ok(decoded_delegates)
+                }
+                Err(e) => {
+                    let reason = format!(
+                        "Failed to ABI decode signers note (hash: {}) data as Address[]: {}. Data(hex): 0x{}", 
+                        signers_note_hash_str, e, hex::encode(&data)
+                    );
+                    error!("  Helper: Error - {}", reason);
+                    Err(reason)
+                }
+            }
+        }
+        Ok((_tba, _owner, None)) => {
+            let reason = format!("Signers note found by hash '{}' exists but has no data.", signers_note_hash_str);
+            error!("  Helper: Error - {}", reason);
+            Err(reason)
+        }
+        Err(e) => {
+            let err_msg = format!("{:?}", e);
+            let reason = format!("Error reading signers note by hash '{}': {}", signers_note_hash_str, err_msg);
+            error!("  Helper: Error - {}", reason);
+            if err_msg.contains("note not found") { 
+                Err(format!("SignersNoteNotFound: {}", reason))
+             } else {
+                Err(format!("HypermapReadError: {}", reason))
+             }
+        }
+    }
+}
+
+/// Queries Hypermap for the TBA of a given node name.
+/// Returns a descriptive string with the TBA or an error/not found message.
+fn debug_get_tba_for_node(node_name: &str) -> Result<String> {
+    info!("Debug: Querying TBA for node: {}", node_name);
+    let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+    let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
+        .map_err(|e| anyhow!("Invalid HYPERMAP_ADDRESS: {}", e))?;
+
+    if hypermap_contract_address == EthAddress::ZERO {
+        return Ok("HYPERMAP_ADDRESS is zero, cannot query.".to_string());
+    }
+
+    let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
+    match hypermap_reader.get(node_name) {
+        Ok((tba, _owner, _data)) => {
+            if tba != EthAddress::ZERO {
+                Ok(format!("Found: {}", tba.to_string()))
+            } else {
+                Ok("Not found (TBA is zero address).".to_string())
+            }
+        }
+        Err(e) => {
+            Ok(format!("Error during lookup: {:?}", e))
+        }
+    }
+}
+
+/// Queries Hypermap for the owner EOA of a given node name.
+/// Returns a descriptive string with the owner EOA or an error/not found message.
+fn debug_get_owner_for_node(node_name: &str) -> Result<String> {
+    info!("Debug: Querying owner for node: {}", node_name);
+    let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+    let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
+        .map_err(|e| anyhow!("Invalid HYPERMAP_ADDRESS: {}", e))?;
+
+    if hypermap_contract_address == EthAddress::ZERO {
+        return Ok("HYPERMAP_ADDRESS is zero, cannot query.".to_string());
+    }
+
+    let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
+    match hypermap_reader.get(node_name) {
+        Ok((_tba, owner, _data)) => {
+            Ok(format!("Found: {}", owner.to_string()))
+        }
+        Err(e) => {
+            Ok(format!("Error during lookup: {:?}", e))
+        }
+    }
+}
+
+pub fn send_json_response<T: serde::Serialize>(status: StatusCode, data: &T) -> anyhow::Result<()> {
+    let json_data = serde_json::to_vec(data)?;
+    send_response(
+        status,
+        Some(std::collections::HashMap::from([(
+            String::from("Content-Type"),
+            String::from("application/json"),
+        )])),
+        json_data,
+    );
+    Ok(())
+}
+
+/// Helper functions for ERC-4337 UserOperation dynamic building
+/// These functions extract the logic from test-dynamic-fetch for reuse in other commands
+
+/// Fetch the current nonce for a sender from the EntryPoint contract
+pub fn fetch_dynamic_nonce(
+    provider: &Provider,
+    sender: &str,
+    entry_point: &str,
+) -> Result<String> {
+    use alloy_sol_types::*;
+    sol! {
+        function getNonce(address sender, uint192 key) external view returns (uint256 nonce);
+    }
+    
+    let get_nonce_call = getNonceCall {
+        sender: EthAddress::from_str(sender).map_err(|e| anyhow!("Invalid sender address: {}", e))?,
+        key: alloy_primitives::U256::ZERO.to::<alloy_primitives::Uint<192, 3>>(), // Nonce key 0
+    };
+    
+    let nonce_call_data = get_nonce_call.abi_encode();
+    let nonce_tx_req = TransactionRequest::default()
+        .input(TransactionInput::new(nonce_call_data.into()))
+        .to(EthAddress::from_str(entry_point).map_err(|e| anyhow!("Invalid entry point address: {}", e))?);
+    
+    match provider.call(nonce_tx_req, None) {
+        Ok(bytes) => {
+            let decoded = U256::from_be_slice(&bytes);
+            info!("Dynamic nonce fetched: {}", decoded);
+            Ok(format!("0x{:x}", decoded))
+        }
+        Err(e) => {
+            error!("❌ Failed to fetch nonce: {}", e);
+            info!("Using fallback nonce: 0x1");
+            Ok("0x1".to_string())
+        }
+    }
+}
+
+/// Fetch current gas prices from the latest block
+pub fn fetch_dynamic_gas_prices(provider: &Provider) -> Result<(u128, u128)> {
+    info!("Fetching dynamic gas prices");
+    match provider.get_block_by_number(BlockNumberOrTag::Latest, false) {
+        Ok(Some(block)) => {
+            let base_fee = block.header.inner.base_fee_per_gas.unwrap_or(1_000_000_000) as u128;
+            let base_fee_gwei = base_fee as f64 / 1_000_000_000.0;
+            info!("Current base fee: {} wei ({:.2} gwei)", base_fee, base_fee_gwei);
+            
+            // Calculate dynamic gas prices based on current network conditions
+            let max_fee = base_fee + (base_fee / 3); // Add 33% buffer
+            let priority_fee = std::cmp::max(100_000_000u128, base_fee / 10); // At least 0.1 gwei
+            
+            let max_fee_gwei = max_fee as f64 / 1_000_000_000.0;
+            let priority_fee_gwei = priority_fee as f64 / 1_000_000_000.0;
+            info!("Calculated max fee: {} wei ({:.2} gwei)", max_fee, max_fee_gwei);
+            info!("Calculated priority fee: {} wei ({:.2} gwei)", priority_fee, priority_fee_gwei);
+            
+            Ok((max_fee, priority_fee))
+        }
+        Ok(None) => {
+            error!("❌ No latest block found");
+            info!("Using fallback gas prices");
+            Ok((3_000_000_000u128, 2_000_000_000u128))
+        }
+        Err(e) => {
+            error!("❌ Failed to fetch block: {}", e);
+            info!("Using fallback gas prices");
+            Ok((3_000_000_000u128, 2_000_000_000u128))
+        }
+    }
+}
+
+/// Build USDC transfer calldata with TBA execute wrapper
+pub fn build_usdc_transfer_calldata(
+    usdc_contract: &str,
+    recipient: &str,
+    amount_units: u128,
+) -> Result<Vec<u8>> {
+    use alloy_sol_types::sol;
+    
+    // Build the USDC transfer calldata
+    sol! {
+        function transfer(address to, uint256 amount) external returns (bool);
+    }
+    
+    let transfer_call = transferCall {
+        to: EthAddress::from_str(recipient).map_err(|e| anyhow!("Invalid recipient address: {}", e))?,
+        amount: U256::from(amount_units),
+    };
+    let transfer_data = transfer_call.abi_encode();
+    
+    // Build TBA execute calldata
+    sol! {
+        function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory result);
+    }
+    
+    let execute_call = executeCall {
+        to: EthAddress::from_str(usdc_contract).map_err(|e| anyhow!("Invalid USDC contract address: {}", e))?,
+        value: U256::ZERO,
+        data: AlloyBytes::from(transfer_data),
+        operation: 0u8,
+    };
+    let execute_data = execute_call.abi_encode();
+    
+    info!("Built calldata: 0x{}", hex::encode(&execute_data));
+    Ok(execute_data)
+}
+
+/// Estimate gas for a UserOperation via bundler API
+pub fn estimate_userop_gas(
+    user_op: &serde_json::Value,
+    entry_point: &str,
+    bundler_url: &str,
+) -> Result<Option<serde_json::Value>> {
+    use hyperware_process_lib::http::client::send_request_await_response;
+    use hyperware_process_lib::http::Method;
+    
+    let gas_estimate_request = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "eth_estimateUserOperationGas",
+        "params": [user_op, entry_point],
+        "id": 1
+    });
+
+    info!("Gas estimation request: {}", serde_json::to_string_pretty(&gas_estimate_request).unwrap());
+    
+    let url = url::Url::parse(bundler_url).map_err(|e| anyhow!("Invalid bundler URL: {}", e))?;
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    
+    match send_request_await_response(
+        Method::POST,
+        url,
+        Some(headers),
+        30000,
+        serde_json::to_vec(&gas_estimate_request).map_err(|e| anyhow!("JSON serialization error: {}", e))?,
+    ) {
+        Ok(response) => {
+            let response_str = String::from_utf8_lossy(&response.body());
+            info!("Gas estimation response: {}", response_str);
+            
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
+                if let Some(result) = json.get("result") {
+                    info!("Gas estimates received:");
+                    if let Some(call_gas_est) = result.get("callGasLimit") {
+                        info!("  - Call gas limit: {}", call_gas_est);
+                    }
+                    if let Some(verif_gas_est) = result.get("verificationGasLimit") {
+                        info!("  - Verification gas limit: {}", verif_gas_est);
+                    }
+                    if let Some(preverif_gas_est) = result.get("preVerificationGas") {
+                        info!("  - Pre-verification gas: {}", preverif_gas_est);
+                    }
+                    Ok(Some(result.clone()))
+                } else if let Some(error) = json.get("error") {
+                    error!("❌ Gas estimation error: {}", serde_json::to_string_pretty(error).unwrap());
+                    
+                    // Analyze AA33 errors specifically  
+                    Ok(None)
+                } else {
+                    error!("❌ Unexpected gas estimation response format");
+                    Ok(None)
+                }
+            } else {
+                error!("❌ Failed to parse gas estimation response");
+                Ok(None)
+            }
+        }
+        Err(e) => {
+            error!("❌ Gas estimation request failed: {}", e);
+            Ok(None)
+        }
+    }
+}
+
+/// Calculate UserOperation hash using EntryPoint.getUserOpHash()
+pub fn calculate_userop_hash(
+    provider: &Provider,
+    entry_point: &str,
+    sender: &str,
+    nonce: &str,
+    call_data: &[u8],
+    final_call_gas: u64,
+    final_verif_gas: u64,
+    final_preverif_gas: u64,
+    dynamic_max_fee: u128,
+    dynamic_priority_fee: u128,
+    paymaster_data: &[u8],
+) -> Result<Vec<u8>> {
+    use alloy_sol_types::sol;
+    
+    // Pack gas values for v0.8 EntryPoint hash calculation
+    let account_gas_limits: U256 = (U256::from(final_verif_gas) << 128) | U256::from(final_call_gas);
+    let gas_fees: U256 = (U256::from(dynamic_priority_fee) << 128) | U256::from(dynamic_max_fee);
+    
+    sol! {
+        struct PackedUserOperation {
+            address sender;
+            uint256 nonce;
+            bytes initCode;
+            bytes callData;
+            bytes32 accountGasLimits;
+            uint256 preVerificationGas;
+            bytes32 gasFees;
+            bytes paymasterAndData;
+            bytes signature;
+        }
+        
+        function getUserOpHash(PackedUserOperation userOp) external view returns (bytes32);
+    }
+    
+    let packed_user_op = PackedUserOperation {
+        sender: EthAddress::from_str(sender).map_err(|e| anyhow!("Invalid sender address: {}", e))?,
+        nonce: alloy_primitives::U256::from_str_radix(nonce.trim_start_matches("0x"), 16)
+            .map_err(|e| anyhow!("Invalid nonce format: {}", e))?,
+        initCode: AlloyBytes::new(),
+        callData: AlloyBytes::from(call_data.to_vec()),
+        accountGasLimits: alloy_primitives::FixedBytes::from_slice(&account_gas_limits.to_be_bytes::<32>()),
+        preVerificationGas: alloy_primitives::U256::from(final_preverif_gas),
+        gasFees: alloy_primitives::FixedBytes::from_slice(&gas_fees.to_be_bytes::<32>()),
+        paymasterAndData: AlloyBytes::from(paymaster_data.to_vec()),
+        signature: AlloyBytes::new(),
+    };
+    
+    let get_hash_call = getUserOpHashCall {
+        userOp: packed_user_op,
+    };
+    
+    let hash_call_data = get_hash_call.abi_encode();
+    let hash_tx_req = TransactionRequest::default()
+        .input(TransactionInput::new(hash_call_data.into()))
+        .to(EthAddress::from_str(entry_point).map_err(|e| anyhow!("Invalid entry point address: {}", e))?);
+    
+    match provider.call(hash_tx_req, None) {
+        Ok(bytes) => {
+            let hash = if bytes.len() == 32 {
+                bytes.to_vec()
+            } else {
+                match getUserOpHashCall::abi_decode_returns(&bytes, false) {
+                    Ok(decoded_hash) => decoded_hash._0.to_vec(),
+                    Err(_) => bytes.to_vec()
+                }
+            };
+            info!("UserOp hash calculated: 0x{}", hex::encode(&hash));
+            Ok(hash)
+        }
+        Err(e) => {
+            Err(anyhow!("Failed to calculate UserOp hash: {}", e))
+        }
+    }
+}
+
+/// Sign a UserOperation hash
+pub fn sign_userop_hash(user_op_hash: &[u8], private_key: &str, chain_id: u64) -> Result<String> {
+    use hyperware_process_lib::signer::LocalSigner;
+    
+    let signer = LocalSigner::from_private_key(private_key, chain_id)
+        .map_err(|e| anyhow!("Failed to create signer: {}", e))?;
+    
+    match signer.sign_hash(user_op_hash) {
+        Ok(sig) => {
+            info!("UserOperation signed successfully");
+            Ok(hex::encode(&sig))
+        }
+        Err(e) => {
+            Err(anyhow!("Failed to sign UserOperation: {}", e))
+        }
+    }
+}
+
+/// Build the final UserOperation JSON for submission
+pub fn build_final_userop_json(
+    sender: &str,
+    nonce: &str,
+    call_data_hex: &str,
+    final_call_gas: u64,
+    final_verif_gas: u64,
+    final_preverif_gas: u64,
+    dynamic_max_fee: u128,
+    dynamic_priority_fee: u128,
+    signature: &str,
+    use_paymaster: bool,
+) -> serde_json::Value {
+    serde_json::json!({
+        "sender": sender,
+        "nonce": nonce,
+        "callData": format!("0x{}", call_data_hex),
+        "callGasLimit": format!("0x{:x}", final_call_gas),
+        "verificationGasLimit": format!("0x{:x}", final_verif_gas),
+        "preVerificationGas": format!("0x{:x}", final_preverif_gas),
+        "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
+        "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
+        "signature": format!("0x{}", signature),
+        "factory": serde_json::Value::Null,
+        "factoryData": serde_json::Value::Null,
+        "paymaster": if use_paymaster { 
+            serde_json::Value::String("0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string()) 
+        } else { 
+            serde_json::Value::Null 
+        },
+        "paymasterVerificationGasLimit": if use_paymaster { 
+            serde_json::Value::String(format!("0x{:x}", final_verif_gas)) 
+        } else { 
+            serde_json::Value::Null 
+        },
+        "paymasterPostOpGasLimit": if use_paymaster { 
+            serde_json::Value::String(format!("0x{:x}", final_call_gas)) 
+        } else { 
+            serde_json::Value::Null 
+        },
+        "paymasterData": if use_paymaster { 
+            serde_json::Value::String("0x000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000493e0".to_string()) 
+        } else { 
+            serde_json::Value::Null 
+        }
+    })
+}
+
+/// Build final UserOperation JSON with custom paymaster data (v0.8 format)
+pub fn build_final_userop_json_with_data(
+    sender: &str,
+    nonce: &str,
+    call_data_hex: &str,
+    final_call_gas: u64,
+    final_verif_gas: u64,
+    final_preverif_gas: u64,
+    dynamic_max_fee: u128,
+    dynamic_priority_fee: u128,
+    signature: &str,
+    paymaster_data: &[u8],
+) -> serde_json::Value {
+    // For Circle paymaster, always include the paymaster address and gas limits
+    // Based on working example: verification gas = 500000, post-op gas = 300000
+    let paymaster_val = serde_json::json!("0x0578cFB241215b77442a541325d6A4E6dFE700Ec");
+    let paymaster_data_val = if paymaster_data.is_empty() {
+        serde_json::json!("0x")
+    } else {
+        serde_json::json!(format!("0x{}", hex::encode(paymaster_data)))
+    };
+    
+    serde_json::json!({
+        "sender": sender,
+        "nonce": nonce,
+        "callData": format!("0x{}", call_data_hex),
+        "callGasLimit": format!("0x{:x}", final_call_gas),
+        "verificationGasLimit": format!("0x{:x}", final_verif_gas),
+        "preVerificationGas": format!("0x{:x}", final_preverif_gas),
+        "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
+        "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
+        "signature": format!("0x{}", signature),
+        "factory": serde_json::Value::Null,
+        "factoryData": serde_json::Value::Null,
+        "paymaster": paymaster_val,
+        "paymasterVerificationGasLimit": serde_json::json!("0x7a120"), // 500000 - from working example
+        "paymasterPostOpGasLimit": serde_json::json!("0x493e0"), // 300000 - from working example
+        "paymasterData": paymaster_data_val
+    })
+}
+
+/// Build a UserOperation for gas estimation with proper format
+pub fn build_estimation_userop_json(
+    sender: &str,
+    nonce: &str,
+    call_data_hex: &str,
+    call_gas: u128,
+    verification_gas: u128,
+    pre_verification_gas: u64,
+    dynamic_max_fee: u128,
+    dynamic_priority_fee: u128,
+    use_paymaster: bool,
+) -> serde_json::Value {
+    if use_paymaster {
+        serde_json::json!({
+            "sender": sender,
+            "nonce": nonce,
+            "callData": format!("0x{}", call_data_hex),
+            "callGasLimit": format!("0x{:x}", call_gas),
+            "verificationGasLimit": format!("0x{:x}", verification_gas),
+            "preVerificationGas": format!("0x{:x}", pre_verification_gas),
+            "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
+            "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
+            "signature": "0x6631d932a459f079222e400c20f3cf05a4c0fe30ed22fcc311a5a22a37db61845ee7a42db22925e69e43e458b51b3c5cdd95e15ee9b90a15cf3ab520633c4c5b1b", // Dummy but valid signature for estimation
+            "factory": serde_json::Value::Null,
+            "factoryData": serde_json::Value::Null,
+            "paymaster": "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
+            "paymasterVerificationGasLimit": format!("0x{:x}", verification_gas),
+            "paymasterPostOpGasLimit": format!("0x{:x}", call_gas),
+            "paymasterData": "0x000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000493e0"
+        })
+    } else {
+        serde_json::json!({
+            "sender": sender,
+            "nonce": nonce,
+            "callData": format!("0x{}", call_data_hex),
+            "callGasLimit": format!("0x{:x}", call_gas),
+            "verificationGasLimit": format!("0x{:x}", verification_gas),
+            "preVerificationGas": format!("0x{:x}", pre_verification_gas),
+            "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
+            "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
+            "signature": "0x6631d932a459f079222e400c20f3cf05a4c0fe30ed22fcc311a5a22a37db61845ee7a42db22925e69e43e458b51b3c5cdd95e15ee9b90a15cf3ab520633c4c5b1b", // Dummy but valid signature for estimation
+            "factory": serde_json::Value::Null,
+            "factoryData": serde_json::Value::Null,
+            "paymaster": serde_json::Value::Null,
+            "paymasterVerificationGasLimit": serde_json::Value::Null,
+            "paymasterPostOpGasLimit": serde_json::Value::Null,
+            "paymasterData": serde_json::Value::Null
+        })
+    }
+}
+
+/// Calculate transaction cost in wei, ETH, and USD
+pub fn calculate_transaction_cost(
+    final_call_gas: u64,
+    final_verif_gas: u64,
+    final_preverif_gas: u64,
+    dynamic_max_fee: u128,
+) -> (u128, f64, f64) {
+    let total_gas = final_call_gas + final_verif_gas + final_preverif_gas;
+    let total_cost_wei = total_gas as u128 * dynamic_max_fee;
+    let total_cost_eth = total_cost_wei as f64 / 1e18;
+    let total_cost_usd = total_cost_eth * 3200.0; // Approximate ETH price
+    
+    info!("Transaction cost analysis:");
+    info!("  - Total gas units: {}", total_gas);
+    info!("  - Gas price: {:.2} gwei", dynamic_max_fee as f64 / 1_000_000_000.0);
+    info!("  - Total cost: {} wei (~{:.6} ETH ~${:.2})", total_cost_wei, total_cost_eth, total_cost_usd);
+    
+    (total_cost_wei, total_cost_eth, total_cost_usd)
+}
+
+/// Check TBA ETH balance for gas payment (when not using paymaster)
+pub fn check_tba_eth_balance(
+    provider: &Provider,
+    sender: &str,
+    total_cost_wei: u128,
+    total_cost_eth: f64,
+) -> Result<()> {
+    info!("🔍 Checking TBA ETH balance for gas payment...");
+    match provider.get_balance(EthAddress::from_str(sender).map_err(|e| anyhow!("Invalid sender address: {}", e))?, None) {
+        Ok(balance) => {
+            let eth_balance = balance.to::<u128>() as f64 / 1e18;
+            info!("  - TBA ETH balance: {:.6} ETH", eth_balance);
+            if balance.to::<u128>() < total_cost_wei {
+                error!("  ⚠️  INSUFFICIENT ETH! Need {:.6} ETH but only have {:.6} ETH", total_cost_eth, eth_balance);
+                error!("     This may be why gas estimation failed with AA23");
+            } else {
+                info!("  Sufficient ETH for gas payment");
+            }
+            Ok(())
+        }
+        Err(e) => {
+            error!("  ❌ Failed to check TBA balance: {}", e);
+            Err(anyhow!("Failed to check TBA balance: {}", e))
+        }
+    }
+}
+
+/// Extract gas values from bundler estimation result
+pub fn extract_gas_values_from_estimate(
+    estimates: Option<serde_json::Value>,
+    default_call_gas: u128,
+    default_verification_gas: u128,
+    default_pre_verification_gas: u64,
+) -> (u64, u64, u64) {
+    if let Some(estimates) = estimates {
+        let estimated_call_gas = estimates.get("callGasLimit")
+            .and_then(|v| v.as_str())
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(default_call_gas as u64);
+        let estimated_verif_gas = estimates.get("verificationGasLimit")
+            .and_then(|v| v.as_str())
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(default_verification_gas as u64);
+        let estimated_preverif_gas = estimates.get("preVerificationGas")
+            .and_then(|v| v.as_str())
+            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
+            .unwrap_or(default_pre_verification_gas);
+        
+        info!("Using estimated gas values:");
+        info!("  - Call gas: {} (estimated) vs {} (default)", estimated_call_gas, default_call_gas);
+        info!("  - Verification gas: {} (estimated) vs {} (default)", estimated_verif_gas, default_verification_gas);
+        info!("  - Pre-verification gas: {} (estimated) vs {} (default)", estimated_preverif_gas, default_pre_verification_gas);
+        
+        (estimated_call_gas, estimated_verif_gas, estimated_preverif_gas)
+    } else {
+        info!("⚠️  Using default gas values due to estimation failure");
+        (default_call_gas as u64, default_verification_gas as u64, default_pre_verification_gas)
+    }
+}
+
+
+/////////////////////////////
+// for debugging purposes //
 pub fn handle_terminal_debug(
     our: &HyperAddress,
     body: &[u8],
@@ -120,6 +824,39 @@ pub fn handle_terminal_debug(
     let command_arg = command_parts.get(1).copied();
 
     match command_verb {
+        "help" | "?" => {
+            info!("--- Hypergrid Operator Debug Commands ---");
+            info!("state          : Print current in-memory state.");
+            info!("db             : Check local DB schema.");
+            info!("reset          : Reset state and wipe/reinit DB (requires restart).");
+            info!("resync-db      : Wipes and reinitializes the local DB, resets chain state (requires restart for full effect).");
+            info!("verify         : Check on-chain delegation for selected hot wallet.");
+            info!("namehash <path>: Calculate Hypermap namehash (e.g., namehash ~note.entry.hypr).");
+            info!("pay <amount>   : Attempt test USDC payment from Operator TBA to test address.");
+            info!("pay-eth <amount>: Attempt test ETH payment from Operator TBA to test address.");
+            info!("check-prereqs  : Run a series of checks for Hypergrid operator setup.");
+            info!("graph-test     : Trigger graph generation logic and log output.");
+            info!("get-tba <node> : Query Hypermap for TBA of a given node.");
+            info!("get-owner <node>: Query Hypermap for owner of a given node.");
+            info!("query-provider <name>: Query the local DB for a provider by its exact name.");
+            info!("list-providers : List all providers in the database.");
+            info!("search-providers <query>: Search providers by name, provider_name, site, description, or provider_id.");
+            info!("db-stats       : Show database statistics and the current root hash status.");
+            info!("check-provider-id <provider_id>: Check for provider by provider_id.");
+            info!("check-grid-root: Check the grid-beta.hypr entry status.");
+            info!("\n--- ERC-4337 / Account Abstraction Commands ---");
+            info!("check-aa       : Run ERC-4337 sanity checks (implementation, balances, approvals).");
+            info!("approve-paymaster: Approve Circle paymaster to spend USDC from TBA.");
+            info!("test-gasless <amount>: Test a gasless USDC transfer.");
+            info!("test-paymaster-format <format>: Test different paymaster data formats.");
+            info!("test-permit    : Generate EIP-2612 permit signature components.");
+            info!("test-permit-data: Test full EIP-2612 permit paymaster data format.");
+            info!("test-candide-gas-estimate <amount>: Test gas estimation with Candide bundler API.");
+            info!("decode-aa-error <hex>: Decode AA error codes and paymaster errors.");
+            info!("decode-paymaster-error <code>: Decode common paymaster error codes.");
+            info!("help or ?      : Show this help message.");
+            info!("-----------------------------------");
+        }
         "state" => {
             info!("Hypergrid operator merged state\n{:#?}", state);
         }
@@ -367,39 +1104,6 @@ pub fn handle_terminal_debug(
             }
 
             info!("--- Prerequisite Check {} ---", if all_ok { "PASSED" } else { "FAILED" });
-        }
-        "help" | "?" => {
-            info!("--- Hypergrid Operator Debug Commands ---");
-            info!("state          : Print current in-memory state.");
-            info!("db             : Check local DB schema.");
-            info!("reset          : Reset state and wipe/reinit DB (requires restart).");
-            info!("resync-db      : Wipes and reinitializes the local DB, resets chain state (requires restart for full effect).");
-            info!("verify         : Check on-chain delegation for selected hot wallet.");
-            info!("namehash <path>: Calculate Hypermap namehash (e.g., namehash ~note.entry.hypr).");
-            info!("pay <amount>   : Attempt test USDC payment from Operator TBA to test address.");
-            info!("pay-eth <amount>: Attempt test ETH payment from Operator TBA to test address.");
-            info!("check-prereqs  : Run a series of checks for Hypergrid operator setup.");
-            info!("graph-test     : Trigger graph generation logic and log output.");
-            info!("get-tba <node> : Query Hypermap for TBA of a given node.");
-            info!("get-owner <node>: Query Hypermap for owner of a given node.");
-            info!("query-provider <name>: Query the local DB for a provider by its exact name.");
-            info!("list-providers : List all providers in the database.");
-            info!("search-providers <query>: Search providers by name, provider_name, site, description, or provider_id.");
-            info!("db-stats       : Show database statistics and the current root hash status.");
-            info!("check-provider-id <provider_id>: Check for provider by provider_id.");
-            info!("check-grid-root: Check the grid-beta.hypr entry status.");
-            info!("\n--- ERC-4337 / Account Abstraction Commands ---");
-            info!("check-aa       : Run ERC-4337 sanity checks (implementation, balances, approvals).");
-            info!("approve-paymaster: Approve Circle paymaster to spend USDC from TBA.");
-            info!("test-gasless <amount>: Test a gasless USDC transfer.");
-            info!("test-paymaster-format <format>: Test different paymaster data formats.");
-            info!("test-permit    : Generate EIP-2612 permit signature components.");
-            info!("test-permit-data: Test full EIP-2612 permit paymaster data format.");
-            info!("test-candide-gas-estimate <amount>: Test gas estimation with Candide bundler API.");
-            info!("decode-aa-error <hex>: Decode AA error codes and paymaster errors.");
-            info!("decode-paymaster-error <code>: Decode common paymaster error codes.");
-            info!("help or ?      : Show this help message.");
-            info!("-----------------------------------");
         }
         "graph-test" => {
             info!("--- Running Graph Generation Test ---");
@@ -1656,704 +2360,4 @@ pub fn handle_terminal_debug(
         _ => info!("Unknown command: '{}'. Type 'help' for available commands.", command_verb),
     }
     Ok(())
-}
-
-// --- Hypermap Helper Functions for Delegation --- 
-
-/// Reads an access list note and extracts the B256 hash of the signers note it points to.
-/// 
-/// # Arguments
-/// * `hypermap_reader` - An initialized instance of `hypermap::Hypermap`.
-/// * `access_list_full_path` - The full Hypermap path to the access list note
-///
-/// # Returns
-/// * `Ok(B256)` - The hash of the signers note.
-/// * `Err(String)` - An error message detailing what went wrong (note not found, invalid data format, etc.).
-pub fn get_signers_note_hash_from_access_list(
-    hypermap_reader: &hypermap::Hypermap,
-    access_list_full_path: &str,
-) -> Result<B256, String> {
-    info!("Helper: Reading access list note: {}", access_list_full_path);
-
-    match hypermap_reader.get(access_list_full_path) {
-        Ok((_tba, _owner, Some(data))) => {
-            // Expecting raw 32-byte hash directly
-            info!("  Helper: Found access list data ({} bytes). Expecting raw 32-byte hash.", data.len());
-            if data.len() == 32 { // Expect raw 32 bytes for the hash
-                let hash = B256::from_slice(&data);
-                info!("  Helper: Successfully interpreted raw data as 32-byte namehash for signers note: {}", hash);
-                Ok(hash)
-            } else {
-                let reason = format!(
-                    "Data in access list note '{}' is not 32 bytes long (expected raw hash), length is {}. Data (hex): 0x{}", 
-                    access_list_full_path, data.len(), hex::encode(&data) // Log as hex for debugging
-                );
-                error!("  Helper: Error - {}", reason);
-                Err(reason)
-            }
-        }
-        Ok((_tba, _owner, None)) => {
-            let reason = format!("Access list note '{}' exists but has no data.", access_list_full_path);
-            error!("  Helper: Error - {}", reason);
-            Err(reason)
-        }
-        Err(e) => {
-            let err_msg = format!("{:?}", e);
-            let reason = format!("Error reading access list note '{}': {}", access_list_full_path, err_msg);
-            error!("  Helper: Error - {}", reason);
-            if err_msg.contains("note not found") { 
-                 Err(format!("AccessListNoteMissing: {}", reason)) // More specific error type if needed
-            } else {
-                 Err(format!("HypermapReadError: {}", reason))
-            }
-        }
-    }
-}
-
-/// Reads a signers note (given its hash) and ABI-decodes its content as a Vec<Address>.
-///
-/// # Arguments
-/// * `hypermap_reader` - An initialized instance of `hypermap::Hypermap`.
-/// * `signers_note_hash_b256` - The B256 hash of the signers note.
-///
-/// # Returns
-/// * `Ok(Vec<EthAddress>)` - A vector of delegate Ethereum addresses.
-/// * `Err(String)` - An error message detailing what went wrong (note not found, invalid data format, etc.).
-pub fn get_signers_note_from_hash(
-    hypermap_reader: &hypermap::Hypermap,
-    signers_note_hash_b256: &B256,
-) -> Result<Vec<EthAddress>, String> {
-    info!("Helper: Reading signers note: {}", signers_note_hash_b256);
-
-    let note_hash_hex = format!("{:x}", signers_note_hash_b256);
-
-    match hypermap_reader.get(&note_hash_hex) {
-        Ok((_tba, _owner, Some(data))) => {
-            // Expecting raw 32-byte hash directly
-            info!("  Helper: Found signers note data ({} bytes). Expecting raw 32-byte hash.", data.len());
-            if data.len() == 32 { // Expect raw 32 bytes for the hash
-                let hash = B256::from_slice(&data);
-                info!("  Helper: Successfully interpreted raw data as 32-byte namehash for signers note: {}", hash);
-                Ok(vec![EthAddress::from_slice(&data)])
-            } else {
-                let reason = format!(
-                    "Data in signers note '{}' is not 32 bytes long (expected raw hash), length is {}. Data (hex): 0x{}", 
-                    signers_note_hash_b256, data.len(), hex::encode(&data) // Log as hex for debugging
-                );
-                error!("  Helper: Error - {}", reason);
-                Err(reason)
-            }
-        }
-        Ok((_tba, _owner, None)) => {
-            let reason = format!("Signers note '{}' exists but has no data.", signers_note_hash_b256);
-            error!("  Helper: Error - {}", reason);
-            Err(reason)
-        }
-        Err(e) => {
-            let err_msg = format!("{:?}", e);
-            let reason = format!("Error reading signers note '{}': {}", signers_note_hash_b256, err_msg);
-            error!("  Helper: Error - {}", reason);
-            if err_msg.contains("note not found") { 
-                 Err(format!("SignersNoteMissing: {}", reason)) // More specific error type if needed
-            } else {
-                 Err(format!("HypermapReadError: {}", reason))
-            }
-        }
-    }
-}
-
-/// * `Err(String)` - An error message detailing what went wrong (note not found, invalid data format, etc.).
-pub fn get_addresses_from_signers_note(
-    hypermap_reader: &hypermap::Hypermap,
-    signers_note_hash_b256: B256,
-) -> Result<Vec<EthAddress>, String> {
-    let signers_note_hash_str = format!("0x{}", hex::encode(signers_note_hash_b256));
-    info!("Helper: Reading signers note using hash: {}", signers_note_hash_str);
-
-    match hypermap_reader.get_hash(&signers_note_hash_str) { 
-        Ok((_tba, _owner, Some(data))) => {
-            info!("  Helper: Found signers note data ({} bytes). Expecting ABI-encoded Address[].", data.len());
-            match Vec::<EthAddress>::abi_decode(&data, true) { // true for lenient if padded
-                Ok(decoded_delegates) => {
-                     info!("  Helper: Successfully ABI-decoded signers note delegates: {:?}", decoded_delegates);
-                     Ok(decoded_delegates)
-                }
-                Err(e) => {
-                    let reason = format!(
-                        "Failed to ABI decode signers note (hash: {}) data as Address[]: {}. Data(hex): 0x{}", 
-                        signers_note_hash_str, e, hex::encode(&data)
-                    );
-                    error!("  Helper: Error - {}", reason);
-                    Err(reason)
-                }
-            }
-        }
-        Ok((_tba, _owner, None)) => {
-            let reason = format!("Signers note found by hash '{}' exists but has no data.", signers_note_hash_str);
-            error!("  Helper: Error - {}", reason);
-            Err(reason)
-        }
-        Err(e) => {
-            let err_msg = format!("{:?}", e);
-            let reason = format!("Error reading signers note by hash '{}': {}", signers_note_hash_str, err_msg);
-            error!("  Helper: Error - {}", reason);
-            if err_msg.contains("note not found") { 
-                Err(format!("SignersNoteNotFound: {}", reason))
-             } else {
-                Err(format!("HypermapReadError: {}", reason))
-             }
-        }
-    }
-}
-
-/// Queries Hypermap for the TBA of a given node name.
-/// Returns a descriptive string with the TBA or an error/not found message.
-fn debug_get_tba_for_node(node_name: &str) -> Result<String> {
-    info!("Debug: Querying TBA for node: {}", node_name);
-    let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
-    let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
-        .map_err(|e| anyhow!("Invalid HYPERMAP_ADDRESS: {}", e))?;
-
-    if hypermap_contract_address == EthAddress::ZERO {
-        return Ok("HYPERMAP_ADDRESS is zero, cannot query.".to_string());
-    }
-
-    let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
-    match hypermap_reader.get(node_name) {
-        Ok((tba, _owner, _data)) => {
-            if tba != EthAddress::ZERO {
-                Ok(format!("Found: {}", tba.to_string()))
-            } else {
-                Ok("Not found (TBA is zero address).".to_string())
-            }
-        }
-        Err(e) => {
-            Ok(format!("Error during lookup: {:?}", e))
-        }
-    }
-}
-
-/// Queries Hypermap for the owner EOA of a given node name.
-/// Returns a descriptive string with the owner EOA or an error/not found message.
-fn debug_get_owner_for_node(node_name: &str) -> Result<String> {
-    info!("Debug: Querying owner for node: {}", node_name);
-    let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
-    let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
-        .map_err(|e| anyhow!("Invalid HYPERMAP_ADDRESS: {}", e))?;
-
-    if hypermap_contract_address == EthAddress::ZERO {
-        return Ok("HYPERMAP_ADDRESS is zero, cannot query.".to_string());
-    }
-
-    let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_contract_address);
-    match hypermap_reader.get(node_name) {
-        Ok((_tba, owner, _data)) => {
-            Ok(format!("Found: {}", owner.to_string()))
-        }
-        Err(e) => {
-            Ok(format!("Error during lookup: {:?}", e))
-        }
-    }
-}
-
-pub fn send_json_response<T: serde::Serialize>(status: StatusCode, data: &T) -> anyhow::Result<()> {
-    let json_data = serde_json::to_vec(data)?;
-    send_response(
-        status,
-        Some(std::collections::HashMap::from([(
-            String::from("Content-Type"),
-            String::from("application/json"),
-        )])),
-        json_data,
-    );
-    Ok(())
-}
-
-/// Helper functions for ERC-4337 UserOperation dynamic building
-/// These functions extract the logic from test-dynamic-fetch for reuse in other commands
-
-/// Fetch the current nonce for a sender from the EntryPoint contract
-pub fn fetch_dynamic_nonce(
-    provider: &Provider,
-    sender: &str,
-    entry_point: &str,
-) -> Result<String> {
-    use alloy_sol_types::*;
-    sol! {
-        function getNonce(address sender, uint192 key) external view returns (uint256 nonce);
-    }
-    
-    let get_nonce_call = getNonceCall {
-        sender: EthAddress::from_str(sender).map_err(|e| anyhow!("Invalid sender address: {}", e))?,
-        key: alloy_primitives::U256::ZERO.to::<alloy_primitives::Uint<192, 3>>(), // Nonce key 0
-    };
-    
-    let nonce_call_data = get_nonce_call.abi_encode();
-    let nonce_tx_req = TransactionRequest::default()
-        .input(TransactionInput::new(nonce_call_data.into()))
-        .to(EthAddress::from_str(entry_point).map_err(|e| anyhow!("Invalid entry point address: {}", e))?);
-    
-    match provider.call(nonce_tx_req, None) {
-        Ok(bytes) => {
-            let decoded = U256::from_be_slice(&bytes);
-            info!("Dynamic nonce fetched: {}", decoded);
-            Ok(format!("0x{:x}", decoded))
-        }
-        Err(e) => {
-            error!("❌ Failed to fetch nonce: {}", e);
-            info!("Using fallback nonce: 0x1");
-            Ok("0x1".to_string())
-        }
-    }
-}
-
-/// Fetch current gas prices from the latest block
-pub fn fetch_dynamic_gas_prices(provider: &Provider) -> Result<(u128, u128)> {
-    info!("Fetching dynamic gas prices");
-    match provider.get_block_by_number(BlockNumberOrTag::Latest, false) {
-        Ok(Some(block)) => {
-            let base_fee = block.header.inner.base_fee_per_gas.unwrap_or(1_000_000_000) as u128;
-            let base_fee_gwei = base_fee as f64 / 1_000_000_000.0;
-            info!("Current base fee: {} wei ({:.2} gwei)", base_fee, base_fee_gwei);
-            
-            // Calculate dynamic gas prices based on current network conditions
-            let max_fee = base_fee + (base_fee / 3); // Add 33% buffer
-            let priority_fee = std::cmp::max(100_000_000u128, base_fee / 10); // At least 0.1 gwei
-            
-            let max_fee_gwei = max_fee as f64 / 1_000_000_000.0;
-            let priority_fee_gwei = priority_fee as f64 / 1_000_000_000.0;
-            info!("Calculated max fee: {} wei ({:.2} gwei)", max_fee, max_fee_gwei);
-            info!("Calculated priority fee: {} wei ({:.2} gwei)", priority_fee, priority_fee_gwei);
-            
-            Ok((max_fee, priority_fee))
-        }
-        Ok(None) => {
-            error!("❌ No latest block found");
-            info!("Using fallback gas prices");
-            Ok((3_000_000_000u128, 2_000_000_000u128))
-        }
-        Err(e) => {
-            error!("❌ Failed to fetch block: {}", e);
-            info!("Using fallback gas prices");
-            Ok((3_000_000_000u128, 2_000_000_000u128))
-        }
-    }
-}
-
-/// Build USDC transfer calldata with TBA execute wrapper
-pub fn build_usdc_transfer_calldata(
-    usdc_contract: &str,
-    recipient: &str,
-    amount_units: u128,
-) -> Result<Vec<u8>> {
-    use alloy_sol_types::sol;
-    
-    // Build the USDC transfer calldata
-    sol! {
-        function transfer(address to, uint256 amount) external returns (bool);
-    }
-    
-    let transfer_call = transferCall {
-        to: EthAddress::from_str(recipient).map_err(|e| anyhow!("Invalid recipient address: {}", e))?,
-        amount: U256::from(amount_units),
-    };
-    let transfer_data = transfer_call.abi_encode();
-    
-    // Build TBA execute calldata
-    sol! {
-        function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory result);
-    }
-    
-    let execute_call = executeCall {
-        to: EthAddress::from_str(usdc_contract).map_err(|e| anyhow!("Invalid USDC contract address: {}", e))?,
-        value: U256::ZERO,
-        data: AlloyBytes::from(transfer_data),
-        operation: 0u8,
-    };
-    let execute_data = execute_call.abi_encode();
-    
-    info!("Built calldata: 0x{}", hex::encode(&execute_data));
-    Ok(execute_data)
-}
-
-/// Estimate gas for a UserOperation via bundler API
-pub fn estimate_userop_gas(
-    user_op: &serde_json::Value,
-    entry_point: &str,
-    bundler_url: &str,
-) -> Result<Option<serde_json::Value>> {
-    use hyperware_process_lib::http::client::send_request_await_response;
-    use hyperware_process_lib::http::Method;
-    
-    let gas_estimate_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "eth_estimateUserOperationGas",
-        "params": [user_op, entry_point],
-        "id": 1
-    });
-
-    info!("Gas estimation request: {}", serde_json::to_string_pretty(&gas_estimate_request).unwrap());
-    
-    let url = url::Url::parse(bundler_url).map_err(|e| anyhow!("Invalid bundler URL: {}", e))?;
-    let mut headers = std::collections::HashMap::new();
-    headers.insert("Content-Type".to_string(), "application/json".to_string());
-    
-    match send_request_await_response(
-        Method::POST,
-        url,
-        Some(headers),
-        30000,
-        serde_json::to_vec(&gas_estimate_request).map_err(|e| anyhow!("JSON serialization error: {}", e))?,
-    ) {
-        Ok(response) => {
-            let response_str = String::from_utf8_lossy(&response.body());
-            info!("Gas estimation response: {}", response_str);
-            
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
-                if let Some(result) = json.get("result") {
-                    info!("Gas estimates received:");
-                    if let Some(call_gas_est) = result.get("callGasLimit") {
-                        info!("  - Call gas limit: {}", call_gas_est);
-                    }
-                    if let Some(verif_gas_est) = result.get("verificationGasLimit") {
-                        info!("  - Verification gas limit: {}", verif_gas_est);
-                    }
-                    if let Some(preverif_gas_est) = result.get("preVerificationGas") {
-                        info!("  - Pre-verification gas: {}", preverif_gas_est);
-                    }
-                    Ok(Some(result.clone()))
-                } else if let Some(error) = json.get("error") {
-                    error!("❌ Gas estimation error: {}", serde_json::to_string_pretty(error).unwrap());
-                    
-                    // Analyze AA33 errors specifically  
-                    Ok(None)
-                } else {
-                    error!("❌ Unexpected gas estimation response format");
-                    Ok(None)
-                }
-            } else {
-                error!("❌ Failed to parse gas estimation response");
-                Ok(None)
-            }
-        }
-        Err(e) => {
-            error!("❌ Gas estimation request failed: {}", e);
-            Ok(None)
-        }
-    }
-}
-
-/// Calculate UserOperation hash using EntryPoint.getUserOpHash()
-pub fn calculate_userop_hash(
-    provider: &Provider,
-    entry_point: &str,
-    sender: &str,
-    nonce: &str,
-    call_data: &[u8],
-    final_call_gas: u64,
-    final_verif_gas: u64,
-    final_preverif_gas: u64,
-    dynamic_max_fee: u128,
-    dynamic_priority_fee: u128,
-    paymaster_data: &[u8],
-) -> Result<Vec<u8>> {
-    use alloy_sol_types::sol;
-    
-    // Pack gas values for v0.8 EntryPoint hash calculation
-    let account_gas_limits: U256 = (U256::from(final_verif_gas) << 128) | U256::from(final_call_gas);
-    let gas_fees: U256 = (U256::from(dynamic_priority_fee) << 128) | U256::from(dynamic_max_fee);
-    
-    sol! {
-        struct PackedUserOperation {
-            address sender;
-            uint256 nonce;
-            bytes initCode;
-            bytes callData;
-            bytes32 accountGasLimits;
-            uint256 preVerificationGas;
-            bytes32 gasFees;
-            bytes paymasterAndData;
-            bytes signature;
-        }
-        
-        function getUserOpHash(PackedUserOperation userOp) external view returns (bytes32);
-    }
-    
-    let packed_user_op = PackedUserOperation {
-        sender: EthAddress::from_str(sender).map_err(|e| anyhow!("Invalid sender address: {}", e))?,
-        nonce: alloy_primitives::U256::from_str_radix(nonce.trim_start_matches("0x"), 16)
-            .map_err(|e| anyhow!("Invalid nonce format: {}", e))?,
-        initCode: AlloyBytes::new(),
-        callData: AlloyBytes::from(call_data.to_vec()),
-        accountGasLimits: alloy_primitives::FixedBytes::from_slice(&account_gas_limits.to_be_bytes::<32>()),
-        preVerificationGas: alloy_primitives::U256::from(final_preverif_gas),
-        gasFees: alloy_primitives::FixedBytes::from_slice(&gas_fees.to_be_bytes::<32>()),
-        paymasterAndData: AlloyBytes::from(paymaster_data.to_vec()),
-        signature: AlloyBytes::new(),
-    };
-    
-    let get_hash_call = getUserOpHashCall {
-        userOp: packed_user_op,
-    };
-    
-    let hash_call_data = get_hash_call.abi_encode();
-    let hash_tx_req = TransactionRequest::default()
-        .input(TransactionInput::new(hash_call_data.into()))
-        .to(EthAddress::from_str(entry_point).map_err(|e| anyhow!("Invalid entry point address: {}", e))?);
-    
-    match provider.call(hash_tx_req, None) {
-        Ok(bytes) => {
-            let hash = if bytes.len() == 32 {
-                bytes.to_vec()
-            } else {
-                match getUserOpHashCall::abi_decode_returns(&bytes, false) {
-                    Ok(decoded_hash) => decoded_hash._0.to_vec(),
-                    Err(_) => bytes.to_vec()
-                }
-            };
-            info!("UserOp hash calculated: 0x{}", hex::encode(&hash));
-            Ok(hash)
-        }
-        Err(e) => {
-            Err(anyhow!("Failed to calculate UserOp hash: {}", e))
-        }
-    }
-}
-
-/// Sign a UserOperation hash
-pub fn sign_userop_hash(user_op_hash: &[u8], private_key: &str, chain_id: u64) -> Result<String> {
-    use hyperware_process_lib::signer::LocalSigner;
-    
-    let signer = LocalSigner::from_private_key(private_key, chain_id)
-        .map_err(|e| anyhow!("Failed to create signer: {}", e))?;
-    
-    match signer.sign_hash(user_op_hash) {
-        Ok(sig) => {
-            info!("UserOperation signed successfully");
-            Ok(hex::encode(&sig))
-        }
-        Err(e) => {
-            Err(anyhow!("Failed to sign UserOperation: {}", e))
-        }
-    }
-}
-
-/// Build the final UserOperation JSON for submission
-pub fn build_final_userop_json(
-    sender: &str,
-    nonce: &str,
-    call_data_hex: &str,
-    final_call_gas: u64,
-    final_verif_gas: u64,
-    final_preverif_gas: u64,
-    dynamic_max_fee: u128,
-    dynamic_priority_fee: u128,
-    signature: &str,
-    use_paymaster: bool,
-) -> serde_json::Value {
-    serde_json::json!({
-        "sender": sender,
-        "nonce": nonce,
-        "callData": format!("0x{}", call_data_hex),
-        "callGasLimit": format!("0x{:x}", final_call_gas),
-        "verificationGasLimit": format!("0x{:x}", final_verif_gas),
-        "preVerificationGas": format!("0x{:x}", final_preverif_gas),
-        "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
-        "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
-        "signature": format!("0x{}", signature),
-        "factory": serde_json::Value::Null,
-        "factoryData": serde_json::Value::Null,
-        "paymaster": if use_paymaster { 
-            serde_json::Value::String("0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string()) 
-        } else { 
-            serde_json::Value::Null 
-        },
-        "paymasterVerificationGasLimit": if use_paymaster { 
-            serde_json::Value::String(format!("0x{:x}", final_verif_gas)) 
-        } else { 
-            serde_json::Value::Null 
-        },
-        "paymasterPostOpGasLimit": if use_paymaster { 
-            serde_json::Value::String(format!("0x{:x}", final_call_gas)) 
-        } else { 
-            serde_json::Value::Null 
-        },
-        "paymasterData": if use_paymaster { 
-            serde_json::Value::String("0x000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000493e0".to_string()) 
-        } else { 
-            serde_json::Value::Null 
-        }
-    })
-}
-
-/// Build final UserOperation JSON with custom paymaster data (v0.8 format)
-pub fn build_final_userop_json_with_data(
-    sender: &str,
-    nonce: &str,
-    call_data_hex: &str,
-    final_call_gas: u64,
-    final_verif_gas: u64,
-    final_preverif_gas: u64,
-    dynamic_max_fee: u128,
-    dynamic_priority_fee: u128,
-    signature: &str,
-    paymaster_data: &[u8],
-) -> serde_json::Value {
-    // For Circle paymaster, always include the paymaster address and gas limits
-    // Based on working example: verification gas = 500000, post-op gas = 300000
-    let paymaster_val = serde_json::json!("0x0578cFB241215b77442a541325d6A4E6dFE700Ec");
-    let paymaster_data_val = if paymaster_data.is_empty() {
-        serde_json::json!("0x")
-    } else {
-        serde_json::json!(format!("0x{}", hex::encode(paymaster_data)))
-    };
-    
-    serde_json::json!({
-        "sender": sender,
-        "nonce": nonce,
-        "callData": format!("0x{}", call_data_hex),
-        "callGasLimit": format!("0x{:x}", final_call_gas),
-        "verificationGasLimit": format!("0x{:x}", final_verif_gas),
-        "preVerificationGas": format!("0x{:x}", final_preverif_gas),
-        "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
-        "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
-        "signature": format!("0x{}", signature),
-        "factory": serde_json::Value::Null,
-        "factoryData": serde_json::Value::Null,
-        "paymaster": paymaster_val,
-        "paymasterVerificationGasLimit": serde_json::json!("0x7a120"), // 500000 - from working example
-        "paymasterPostOpGasLimit": serde_json::json!("0x493e0"), // 300000 - from working example
-        "paymasterData": paymaster_data_val
-    })
-}
-
-/// Build a UserOperation for gas estimation with proper format
-pub fn build_estimation_userop_json(
-    sender: &str,
-    nonce: &str,
-    call_data_hex: &str,
-    call_gas: u128,
-    verification_gas: u128,
-    pre_verification_gas: u64,
-    dynamic_max_fee: u128,
-    dynamic_priority_fee: u128,
-    use_paymaster: bool,
-) -> serde_json::Value {
-    if use_paymaster {
-        serde_json::json!({
-            "sender": sender,
-            "nonce": nonce,
-            "callData": format!("0x{}", call_data_hex),
-            "callGasLimit": format!("0x{:x}", call_gas),
-            "verificationGasLimit": format!("0x{:x}", verification_gas),
-            "preVerificationGas": format!("0x{:x}", pre_verification_gas),
-            "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
-            "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
-            "signature": "0x6631d932a459f079222e400c20f3cf05a4c0fe30ed22fcc311a5a22a37db61845ee7a42db22925e69e43e458b51b3c5cdd95e15ee9b90a15cf3ab520633c4c5b1b", // Dummy but valid signature for estimation
-            "factory": serde_json::Value::Null,
-            "factoryData": serde_json::Value::Null,
-            "paymaster": "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
-            "paymasterVerificationGasLimit": format!("0x{:x}", verification_gas),
-            "paymasterPostOpGasLimit": format!("0x{:x}", call_gas),
-            "paymasterData": "0x000000000000000000000000000000000000000000000000000000000007a12000000000000000000000000000000000000000000000000000000000000493e0"
-        })
-    } else {
-        serde_json::json!({
-            "sender": sender,
-            "nonce": nonce,
-            "callData": format!("0x{}", call_data_hex),
-            "callGasLimit": format!("0x{:x}", call_gas),
-            "verificationGasLimit": format!("0x{:x}", verification_gas),
-            "preVerificationGas": format!("0x{:x}", pre_verification_gas),
-            "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
-            "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
-            "signature": "0x6631d932a459f079222e400c20f3cf05a4c0fe30ed22fcc311a5a22a37db61845ee7a42db22925e69e43e458b51b3c5cdd95e15ee9b90a15cf3ab520633c4c5b1b", // Dummy but valid signature for estimation
-            "factory": serde_json::Value::Null,
-            "factoryData": serde_json::Value::Null,
-            "paymaster": serde_json::Value::Null,
-            "paymasterVerificationGasLimit": serde_json::Value::Null,
-            "paymasterPostOpGasLimit": serde_json::Value::Null,
-            "paymasterData": serde_json::Value::Null
-        })
-    }
-}
-
-/// Calculate transaction cost in wei, ETH, and USD
-pub fn calculate_transaction_cost(
-    final_call_gas: u64,
-    final_verif_gas: u64,
-    final_preverif_gas: u64,
-    dynamic_max_fee: u128,
-) -> (u128, f64, f64) {
-    let total_gas = final_call_gas + final_verif_gas + final_preverif_gas;
-    let total_cost_wei = total_gas as u128 * dynamic_max_fee;
-    let total_cost_eth = total_cost_wei as f64 / 1e18;
-    let total_cost_usd = total_cost_eth * 3200.0; // Approximate ETH price
-    
-    info!("Transaction cost analysis:");
-    info!("  - Total gas units: {}", total_gas);
-    info!("  - Gas price: {:.2} gwei", dynamic_max_fee as f64 / 1_000_000_000.0);
-    info!("  - Total cost: {} wei (~{:.6} ETH ~${:.2})", total_cost_wei, total_cost_eth, total_cost_usd);
-    
-    (total_cost_wei, total_cost_eth, total_cost_usd)
-}
-
-/// Check TBA ETH balance for gas payment (when not using paymaster)
-pub fn check_tba_eth_balance(
-    provider: &Provider,
-    sender: &str,
-    total_cost_wei: u128,
-    total_cost_eth: f64,
-) -> Result<()> {
-    info!("🔍 Checking TBA ETH balance for gas payment...");
-    match provider.get_balance(EthAddress::from_str(sender).map_err(|e| anyhow!("Invalid sender address: {}", e))?, None) {
-        Ok(balance) => {
-            let eth_balance = balance.to::<u128>() as f64 / 1e18;
-            info!("  - TBA ETH balance: {:.6} ETH", eth_balance);
-            if balance.to::<u128>() < total_cost_wei {
-                error!("  ⚠️  INSUFFICIENT ETH! Need {:.6} ETH but only have {:.6} ETH", total_cost_eth, eth_balance);
-                error!("     This may be why gas estimation failed with AA23");
-            } else {
-                info!("  Sufficient ETH for gas payment");
-            }
-            Ok(())
-        }
-        Err(e) => {
-            error!("  ❌ Failed to check TBA balance: {}", e);
-            Err(anyhow!("Failed to check TBA balance: {}", e))
-        }
-    }
-}
-
-/// Extract gas values from bundler estimation result
-pub fn extract_gas_values_from_estimate(
-    estimates: Option<serde_json::Value>,
-    default_call_gas: u128,
-    default_verification_gas: u128,
-    default_pre_verification_gas: u64,
-) -> (u64, u64, u64) {
-    if let Some(estimates) = estimates {
-        let estimated_call_gas = estimates.get("callGasLimit")
-            .and_then(|v| v.as_str())
-            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
-            .unwrap_or(default_call_gas as u64);
-        let estimated_verif_gas = estimates.get("verificationGasLimit")
-            .and_then(|v| v.as_str())
-            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
-            .unwrap_or(default_verification_gas as u64);
-        let estimated_preverif_gas = estimates.get("preVerificationGas")
-            .and_then(|v| v.as_str())
-            .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok())
-            .unwrap_or(default_pre_verification_gas);
-        
-        info!("Using estimated gas values:");
-        info!("  - Call gas: {} (estimated) vs {} (default)", estimated_call_gas, default_call_gas);
-        info!("  - Verification gas: {} (estimated) vs {} (default)", estimated_verif_gas, default_verification_gas);
-        info!("  - Pre-verification gas: {} (estimated) vs {} (default)", estimated_preverif_gas, default_pre_verification_gas);
-        
-        (estimated_call_gas, estimated_verif_gas, estimated_preverif_gas)
-    } else {
-        info!("⚠️  Using default gas values due to estimation failure");
-        (default_call_gas as u64, default_verification_gas as u64, default_pre_verification_gas)
-    }
 }

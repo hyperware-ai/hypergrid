@@ -27,6 +27,7 @@ pub fn init_with_hyperwallet() -> bool {
                 "ImportWallet", 
                 "ListWallets",
                 "GetWalletInfo",
+                "SetWalletLimits",
                 "SendEth",
                 "SendToken",
                 "ExecuteViaTba",
@@ -50,8 +51,8 @@ pub fn init_with_hyperwallet() -> bool {
                 "ConfigurePaymaster"
             ],
             "spending_limits": {
-                "per_tx_eth": "10.0",
-                "daily_eth": "100.0",
+                "per_tx_eth": "0.1",
+                "daily_eth": "1.0",
                 "per_tx_usdc": "10000.0",
                 "daily_usdc": "100000.0"
             }
