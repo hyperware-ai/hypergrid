@@ -278,7 +278,7 @@ impl HypergridProviderState {
         *self = HypergridProviderState::load();
         let server = get_server().expect("HTTP server should be initialized");
         
-        server.serve_ui("ui", vec!["/"], HttpBindingConfig::default()).unwrap();
+        server.serve_ui("../pkg/provider-ui", vec!["/"], HttpBindingConfig::default()).unwrap();
 
         // Initialize VFS drive for provider storage
         if let Err(e) = self.init_vfs_drive() {
