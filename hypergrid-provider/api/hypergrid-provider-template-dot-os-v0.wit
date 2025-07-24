@@ -1,0 +1,4 @@
+world hypergrid-provider-template-dot-os-v0 {
+    import hypergrid-provider;
+    include process-v1;
+}

@@ -2,7 +2,7 @@
 
 Projects:
 - [Operator](operator/README.md)
-- [Hypergrid Provider](hypergrid-provider/README.md) 
+- [Hypergrid Provider](provider/README.md) 
 - [HPN Shim](hypergrid-shim/README.md)
 
 

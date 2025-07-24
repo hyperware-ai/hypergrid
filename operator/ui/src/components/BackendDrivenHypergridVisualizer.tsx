@@ -37,6 +37,7 @@ import type { Address } from 'viem';
 import {
     useMintOperatorSubEntry,
     useSetOperatorNote,
+    useApprovePaymaster,
     DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
     viemNamehash,
 } from '../logic/hypermapHelpers';
@@ -62,7 +63,7 @@ const HYPERGRID_GRAPH_ENDPOINT = `${API_BASE_URL}/hypergrid-graph`;
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-export const NODE_WIDTH = 270;
+export const NODE_WIDTH = 320; // Increased from 270 to 320 for better text wrapping
 export const NODE_HEIGHT = 150;
 const OPERATOR_WALLET_TO_MANAGE_HW_EDGE_MINLEN = 2;
 
@@ -204,6 +205,18 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
     
     const [isUnlockingOrLockingWallet, setIsUnlockingOrLockingWallet] = useState<string | null>(null);
     const [actionError, setActionError] = useState<string | null>(null);
+
+    // Paymaster revoke hook
+    const revokePaymasterHook = useApprovePaymaster({
+        onSuccess: (data) => {
+            console.log("Paymaster revoke transaction sent:", data);
+            showActionToast('success', 'Paymaster revocation initiated!');
+        },
+        onError: (err) => {
+            console.error("Paymaster revoke error:", err);
+            showActionToast('error', `Failed to revoke paymaster: ${err.message}`);
+        },
+    });
 
     const showActionToast = useCallback((type: 'success' | 'error', message: string) => {
         setActionToast({ type, message });
@@ -385,6 +398,12 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     finalNodeData.isSettingSignersNote = isOperatorNoteSending || isOperatorNoteConfirming;
                     finalNodeData.activeHotWalletAddressForNode = activeHotWalletAddress;
                     finalNodeData.onWalletsLinked = fetchGraphData;
+                    finalNodeData.onRevokePaymaster = handleRevokePaymaster;
+                    finalNodeData.isRevokingPaymaster = revokePaymasterHook.isSending || revokePaymasterHook.isConfirming;
+                    finalNodeData.revokeHookState = {
+                        isConfirmed: revokePaymasterHook.isConfirmed,
+                        reset: revokePaymasterHook.reset
+                    };
                 } else if (nodeTypeString === 'addHotWalletActionNode') {
                     finalNodeData.onWalletsLinked = fetchGraphData;
                     const opTBAForActionNode = finalNodeData.operatorTbaAddress as Address | undefined;
@@ -500,6 +519,12 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     finalNodeData.isSettingSignersNote = isOperatorNoteSending || isOperatorNoteConfirming;
                     finalNodeData.activeHotWalletAddressForNode = activeHotWalletAddressForInitial; 
                     finalNodeData.onWalletsLinked = fetchGraphData;
+                    finalNodeData.onRevokePaymaster = handleRevokePaymaster;
+                    finalNodeData.isRevokingPaymaster = revokePaymasterHook.isSending || revokePaymasterHook.isConfirming;
+                    finalNodeData.revokeHookState = {
+                        isConfirmed: revokePaymasterHook.isConfirmed,
+                        reset: revokePaymasterHook.reset
+                    };
                 } else if (nodeTypeString === 'addHotWalletActionNode') {
                     finalNodeData.onWalletsLinked = fetchGraphData;
                     const opTBAForActionNode = finalNodeData.operatorTbaAddress as Address | undefined;
@@ -569,20 +594,37 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
 
     useEffect(() => {
         if (mintOperatorWalletHook.isConfirmed) {
-            console.log("Mint transaction confirmed (Tx: ", mintOperatorWalletHook.transactionHash, "). Refetching graph data.");
-            fetchGraphData();
+            console.log("Mint transaction confirmed (Tx: ", mintOperatorWalletHook.transactionHash, "). Refetching graph data with delay.");
             setIsProcessingMintClick(false);
+            // Add delay to allow backend to sync with blockchain
+            setTimeout(() => {
+                fetchGraphData();
+            }, 2000);
             mintOperatorWalletHook.reset();
         }
     }, [mintOperatorWalletHook.isConfirmed, fetchGraphData, mintOperatorWalletHook.reset]);
 
     useEffect(() => {
         if (isOperatorNoteConfirmed) {
-            console.log("Set Note transaction confirmed (Tx: ", operatorNoteTxHash, "). Refetching graph data.");
-            fetchGraphData();
+            console.log("Set Note transaction confirmed (Tx: ", operatorNoteTxHash, "). Refetching graph data with delay.");
+            // Add delay to allow backend to sync with blockchain
+            setTimeout(() => {
+                fetchGraphData();
+            }, 2000);
             resetOperatorNoteHook();
         }
     }, [isOperatorNoteConfirmed, operatorNoteTxHash, fetchGraphData, resetOperatorNoteHook]);
+
+    useEffect(() => {
+        if (revokePaymasterHook.isConfirmed) {
+            console.log("Paymaster revoke transaction confirmed (Tx: ", revokePaymasterHook.transactionHash, "). Refetching graph data with delay.");
+            // Add delay to allow backend to sync with blockchain
+            setTimeout(() => {
+                fetchGraphData();
+            }, 2000);
+            revokePaymasterHook.reset();
+        }
+    }, [revokePaymasterHook.isConfirmed, revokePaymasterHook.transactionHash, fetchGraphData, revokePaymasterHook.reset]);
 
     const handleNodeClick = useCallback(async (_event: React.MouseEvent, node: Node) => {
         console.log('Node clicked: ', node);
@@ -592,7 +634,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         if (node.type === 'mintOperatorWalletActionNode' && node.data) {
             console.log("Mint Action Clicked. Data:", node.data);
             const ownerNodeName = (node.data as any)['ownerNodeName'];
-            const subLabelToMintForGrid = "grid-beta-wallet";
+            const subLabelToMintForGrid = "grid-beta-wallet-aa-final";
             if (!ownerNodeName) {
                 console.error("Mint Action: Owner node name not found in node data.");
                 setMintDisplayError("Configuration error: Owner node name missing.");
@@ -673,18 +715,15 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
     }, []);
 
     const handleUnlockWalletInVisualizer = useCallback(async (walletAddress: Address, passwordInput: string) => {
-        if (!passwordInput) {
-            showActionToast('error', 'Password is required.');
-            throw new Error('Password is required.');
-        }
+        // Note: passwordInput can be empty for unencrypted wallets
         setIsUnlockingOrLockingWalletId(walletAddress as string);
         try {
             await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
-            await callMcpApiFromVisualizer({ ActivateWallet: { password: passwordInput } });
-            showActionToast('success', 'Wallet unlocked successfully!');
+            await callMcpApiFromVisualizer({ ActivateWallet: { password: passwordInput || null } });
+            showActionToast('success', 'Wallet activated successfully!');
             fetchGraphData();
         } catch (err: any) {
-            showActionToast('error', err.message || 'Failed to unlock wallet.');
+            showActionToast('error', err.message || 'Failed to activate wallet.');
             throw err; 
         } finally {
             setIsUnlockingOrLockingWalletId(null);
@@ -705,6 +744,16 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             setIsUnlockingOrLockingWalletId(null);
         }
     }, [fetchGraphData, callMcpApiFromVisualizer, showActionToast]);
+
+    const handleRevokePaymaster = useCallback(async (operatorTbaAddress: Address) => {
+        if (!operatorTbaAddress) {
+            showActionToast('error', 'No operator TBA address provided');
+            return;
+        }
+        
+        console.log('Revoking paymaster approval for TBA:', operatorTbaAddress);
+        revokePaymasterHook.revokePaymaster({ operatorTbaAddress });
+    }, [revokePaymasterHook, showActionToast]);
 
     const nodeTypes = useMemo(() => ({
         ownerNode: OriginalOwnerNodeComponent,

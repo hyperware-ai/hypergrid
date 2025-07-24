@@ -7,7 +7,11 @@ mod chain;
 mod helpers;
 mod identity;
 mod authorized_services;
-pub mod wallet;
+// Replace wallet module with hyperwallet_client
+pub mod hyperwallet_client;
+
+// Re-export hyperwallet_client as wallet for compatibility
+pub use hyperwallet_client as wallet;
 
 use hyperware_process_lib::homepage::add_to_homepage;
 use hyperware_process_lib::http::server::{HttpBindingConfig, HttpServer};
@@ -16,7 +20,7 @@ use hyperware_process_lib::{await_message, call_init, Address, Message};
 use hyperware_process_lib::sqlite::Sqlite;
 use structs::*;
 
-use crate::wallet::{service as wallet_service};
+//use crate::wallet::{service as wallet_service};
 
 const ICON: &str = include_str!("./icon");
 
@@ -51,7 +55,9 @@ fn init_http() -> anyhow::Result<HttpServer> {
     http_server.bind_http_path("/shim/mcp", http_config_unauthenticated.clone())?;
     
     // UI
-    add_to_homepage("Hypergrid Operator", Some(ICON), Some("/"), None);
+    add_to_homepage("Hypergrid", Some(ICON), Some("/"), None);
+    // this changes depending on you are only building operator, or both
+    // change back to just ui when building only operator to not have to build the provider
     http_server.serve_ui("ui", vec!["/"], http_config_authenticated)?;
 
     Ok(http_server)
@@ -71,16 +77,18 @@ fn init(our: Address) {
         //state.operator_tba_address = None;
     }
 
-    // Initialize Wallet Manager
-    wallet_service::initialize_wallet(&mut state);
+    // Initialize hyperwallet connection
+    if !hyperwallet_client::init_with_hyperwallet() {
+        error!("Failed to initialize with hyperwallet service!");
+        error!("The operator requires hyperwallet service to be running and accessible.");
+        error!("Please ensure hyperwallet:hyperwallet:hallman.hypr is installed and running.");
+    }
+    info!("Successfully initialized with hyperwallet service");
 
     // Initialize DB as local variable
     info!("Loading database..");
     let db = match db::load_db(&our) {
-        Ok(db_conn) => {
-            info!("Database loaded successfully.");
-            db_conn 
-        }
+        Ok(db_conn) => db_conn,
         Err(e) => {
             error!("FATAL: Failed to load database: {:?}", e);
             panic!("DB Load Failed!"); 
@@ -112,8 +120,8 @@ fn init(our: Address) {
 fn main(
     our: &Address, 
     state: &mut State, 
-    db: &Sqlite, // Pass db
-    pending_logs: &mut PendingLogs // Pass pending_logs
+    db: &Sqlite,
+    pending_logs: &mut PendingLogs
 ) -> anyhow::Result<()> {
     let message = await_message()?;
     match message {

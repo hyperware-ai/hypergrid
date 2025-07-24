@@ -23,10 +23,10 @@ use uuid::Uuid;
 use crate::{
     authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities},
     db as dbm,
-    helpers::{send_json_response},
+    helpers::send_json_response,
     identity,
     structs::{*, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse, McpRequest, ApiRequest},
-    wallet::{service as wallet_service, payments as wallet_payments},
+    hyperwallet_client::{service as hyperwallet_service, payments as hyperwallet_payments},
     graph::handle_get_hypergrid_graph_layout,
 };
 
@@ -289,7 +289,7 @@ fn handle_mcp(
     }
 }
 
-/// API request dispatcher - routes regular application operations
+/// API request dispatcher - routes regular frontend application operations
 /// Handles wallet management, history, withdrawals, etc.
 fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
     let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing for API request"))?;
@@ -319,6 +319,9 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 
                 // Authorized client management
                 ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
+                
+                // ERC-4337 configuration
+                ApiRequest::SetGaslessEnabled { enabled } => handle_set_gasless_enabled(state, enabled),
             }
         }
         Err(e) if e.is_syntax() || e.is_data() => {
@@ -426,7 +429,7 @@ fn handle_get(
     our: &Address,
     path_str: &str,
     params: &HashMap<String, String>,
-    state: &State,
+    state: &mut State,
     db: &Sqlite,
 ) -> anyhow::Result<()> {
     info!("GET {} with params: {:?}", path_str, params);
@@ -491,7 +494,7 @@ fn handle_search_providers(db: &Sqlite, params: &HashMap<String, String>) -> any
 
 fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
     info!("Getting managed wallets");
-    let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
+    let (selected_id, summaries) = hyperwallet_service::get_wallet_summary_list(state);
     
     send_json_response(StatusCode::OK, &json!({ 
         "selected_wallet_id": selected_id,
@@ -504,7 +507,7 @@ fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
     
     // Get on-chain linked wallets if operator is configured
     let on_chain_wallets = if let Some(operator_entry_name) = &state.operator_entry_name {
-        match wallet_service::get_all_onchain_linked_hot_wallet_addresses(Some(operator_entry_name)) {
+        match hyperwallet_service::get_all_onchain_linked_hot_wallet_addresses(Some(operator_entry_name)) {
             Ok(addresses) => addresses,
             Err(e) => {
                 warn!("Failed to get on-chain linked wallets: {}", e);
@@ -516,7 +519,7 @@ fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
     };
     
     // Get managed wallet summaries
-    let (selected_id, managed_summaries) = wallet_service::get_wallet_summary_list(state);
+    let (selected_id, managed_summaries) = hyperwallet_service::get_wallet_summary_list(state);
     
     // Create a unified view
     let mut linked_wallets = Vec::new();
@@ -685,7 +688,7 @@ fn handle_get_call_history(state: &State) -> anyhow::Result<()> {
 
 fn handle_get_wallet_summary_list(state: &State) -> anyhow::Result<()> {
     info!("Getting wallet summary list");
-    let (selected_id, summaries) = wallet_service::get_wallet_summary_list(state);
+    let (selected_id, summaries) = hyperwallet_service::get_wallet_summary_list(state);
     send_json_response(StatusCode::OK, &json!({ 
         "selected_id": selected_id, 
         "wallets": summaries 
@@ -694,7 +697,7 @@ fn handle_get_wallet_summary_list(state: &State) -> anyhow::Result<()> {
 
 fn handle_select_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<()> {
     info!("Selecting wallet: {}", wallet_id);
-    match wallet_service::select_wallet(state, wallet_id) {
+    match hyperwallet_service::select_wallet(state, wallet_id) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                 Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
             }
@@ -702,7 +705,7 @@ fn handle_select_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<
 
 fn handle_rename_wallet(state: &mut State, wallet_id: String, new_name: String) -> anyhow::Result<()> {
     info!("Renaming wallet {} to '{}'", wallet_id, new_name);
-    match wallet_service::rename_wallet(state, wallet_id, new_name) {
+    match hyperwallet_service::rename_wallet(state, wallet_id, new_name) {
                  Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                  Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
              }
@@ -710,7 +713,7 @@ fn handle_rename_wallet(state: &mut State, wallet_id: String, new_name: String) 
 
 fn handle_delete_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<()> {
     info!("Deleting wallet: {}", wallet_id);
-    match wallet_service::delete_wallet(state, wallet_id) {
+    match hyperwallet_service::delete_wallet(state, wallet_id) {
                  Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
                  Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ "success": false, "error": e })),
              }
@@ -718,18 +721,9 @@ fn handle_delete_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<
 
 fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
     info!("Generating new wallet");
-    match wallet_service::generate_initial_wallet() {
-        Ok(wallet) => {
-            let wallet_id = wallet.id.clone();
-            state.managed_wallets.insert(wallet_id.clone(), wallet);
-            
-        // Auto-select if none selected
-            if state.selected_wallet_id.is_none() {
-            let _ = wallet_service::select_wallet(state, wallet_id.clone());
-            } else {
-                state.save();
-            }
-            info!("Generated wallet: {}", wallet_id);
+    match hyperwallet_service::generate_initial_wallet() {
+        Ok(wallet_id) => {
+            info!("Generated wallet via hyperwallet: {}", wallet_id);
             send_json_response(StatusCode::OK, &json!({ "success": true, "id": wallet_id }))
         },
         Err(e) => send_json_response(StatusCode::INTERNAL_SERVER_ERROR, &json!({ 
@@ -746,7 +740,7 @@ fn handle_import_wallet(
     name: Option<String>
 ) -> anyhow::Result<()> {
     info!("Importing wallet");
-    match wallet_service::import_new_wallet(state, private_key, password, name) {
+    match hyperwallet_service::import_new_wallet(state, private_key, password, name) {
         Ok(address) => send_json_response(StatusCode::OK, &json!({ 
             "success": true, 
             "address": address 
@@ -769,7 +763,7 @@ fn handle_activate_wallet(state: &mut State, password: Option<String>) -> anyhow
     info!("Activating wallet");
     let wallet_id = get_selected_wallet_id(state)?;
     
-    match wallet_service::activate_wallet(state, wallet_id, password) {
+    match hyperwallet_service::activate_wallet(state, wallet_id, password) {
         Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
             "success": false, 
@@ -782,7 +776,7 @@ fn handle_deactivate_wallet(state: &mut State) -> anyhow::Result<()> {
     info!("Deactivating wallet");
     let wallet_id = get_selected_wallet_id(state)?;
     
-    match wallet_service::deactivate_wallet(state, wallet_id) {
+    match hyperwallet_service::deactivate_wallet(state, wallet_id) {
         Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
             "success": false, 
@@ -795,8 +789,13 @@ fn handle_set_wallet_limits(state: &mut State, limits: SpendingLimits) -> anyhow
     info!("Setting wallet spending limits");
     let wallet_id = get_selected_wallet_id(state)?;
     
-    match wallet_service::set_wallet_spending_limits(state, wallet_id, limits) {
-                Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
+    // Convert SpendingLimits to hyperwallet format
+    let max_per_call = limits.max_per_call;
+    let max_total = limits.max_total;
+    let currency = limits.currency.or_else(|| Some("USDC".to_string()));
+    
+    match hyperwallet_service::set_wallet_spending_limits(state, wallet_id, max_per_call, max_total, currency) {
+        Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
             "success": false, 
             "error": e 
@@ -810,7 +809,7 @@ fn handle_export_private_key(state: &State, password: Option<String>) -> anyhow:
     let wallet_id = state.selected_wallet_id.clone()
         .ok_or_else(|| anyhow::anyhow!("No wallet selected"))?;
     
-    match wallet_service::export_private_key(state, wallet_id, password) {
+    match hyperwallet_service::export_private_key(state, wallet_id, password) {
         Ok(private_key) => send_json_response(StatusCode::OK, &json!({ 
             "success": true, 
             "private_key": private_key 
@@ -830,7 +829,7 @@ fn handle_set_wallet_password(
     info!("Setting wallet password");
     let wallet_id = get_selected_wallet_id(state)?;
     
-    match wallet_service::set_wallet_password(state, wallet_id, new_password, old_password) {
+    match hyperwallet_service::set_wallet_password(state, wallet_id, new_password, old_password) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
             "success": false, 
@@ -843,7 +842,7 @@ fn handle_remove_wallet_password(state: &mut State, current_password: String) ->
     info!("Removing wallet password");
     let wallet_id = get_selected_wallet_id(state)?;
     
-    match wallet_service::remove_wallet_password(state, wallet_id, current_password) {
+    match hyperwallet_service::remove_wallet_password(state, wallet_id, current_password) {
                 Ok(_) => send_json_response(StatusCode::OK, &json!({ "success": true })),
         Err(e) => send_json_response(StatusCode::BAD_REQUEST, &json!({ 
             "success": false, 
@@ -861,7 +860,7 @@ fn handle_get_active_account_details(state: &mut State) -> anyhow::Result<()> {
 
     // Cache miss, fetch fresh
     info!("Active account details cache miss, fetching...");
-    match wallet_service::get_active_account_details(state) {
+    match hyperwallet_service::get_active_account_details(state) {
                 Ok(Some(details)) => {
             info!("Fetched details successfully, caching...");
                     state.cached_active_details = Some(details.clone());
@@ -886,9 +885,9 @@ fn handle_get_active_account_details(state: &mut State) -> anyhow::Result<()> {
 
 fn handle_withdraw_eth(state: &mut State, to_address: String, amount_wei_str: String) -> anyhow::Result<()> {
     info!("Withdrawing ETH to: {}, amount: {} wei", to_address, amount_wei_str);
-    match wallet_payments::handle_operator_tba_withdrawal(
+    match hyperwallet_payments::handle_operator_tba_withdrawal(
                 state, 
-        wallet_payments::AssetType::Eth,
+        hyperwallet_payments::AssetType::Eth,
                 to_address, 
                 amount_wei_str
             ) {
@@ -905,9 +904,9 @@ fn handle_withdraw_eth(state: &mut State, to_address: String, amount_wei_str: St
 
 fn handle_withdraw_usdc(state: &mut State, to_address: String, amount_usdc_units_str: String) -> anyhow::Result<()> {
     info!("Withdrawing USDC to: {}, amount: {} units", to_address, amount_usdc_units_str);
-    match wallet_payments::handle_operator_tba_withdrawal(
+    match hyperwallet_payments::handle_operator_tba_withdrawal(
         state,
-        wallet_payments::AssetType::Usdc,
+        hyperwallet_payments::AssetType::Usdc,
         to_address,
         amount_usdc_units_str
     ) {
@@ -989,8 +988,8 @@ fn authenticate_shim_client<'a>(
     }
 }
 
-// Helper function to determine which wallet to use for payment based on request context
-fn determine_payment_wallet(
+// Helper function to determine which wallet to sign the userOp with
+fn determine_signer_wallet(
     state: &State,
     client_config_opt: Option<&HotWalletAuthorizedClient>
 ) -> Result<String, PaymentAttemptResult> {
@@ -1044,7 +1043,7 @@ fn execute_provider_call(
     // Prepare target address
     let target_address = Address::new(
         &provider_details.provider_id,
-        ("hypergrid-provider", "hypergrid-provider", "grid-beta.hypr")
+        ("provider", "hypergrid", "beta-grid.hypr")
     );
     
     let payment_tx_hash_clone = payment_tx_hash.clone();
@@ -1455,21 +1454,21 @@ fn handle_payment(
     }
 
     // Determine which wallet to use for payment
-    let wallet_id = match determine_payment_wallet(state, client_config_opt) {
+    let signer_wallet_id = match determine_signer_wallet(state, client_config_opt) {
         Ok(id) => id,
         Err(payment_result) => return PaymentResult::Failed(payment_result),
     };
     
     info!("Attempting payment of {} to {} for provider {} using wallet {}", 
           provider_details.price_str, provider_details.wallet_address, 
-          provider_details.provider_id, wallet_id);
+          provider_details.provider_id, signer_wallet_id);
     
-    let payment_result = wallet_payments::execute_payment_if_needed(
+    let payment_result = hyperwallet_payments::execute_payment_if_needed(
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,
         provider_details.provider_id.clone(),
-        &wallet_id
+        &signer_wallet_id
     );
     
     match payment_result {
@@ -1521,9 +1520,26 @@ fn handle_delete_authorized_client(state: &mut State, client_id: String) -> anyh
         state.save();
         send_json_response(StatusCode::OK, &json!({ "success": true }))
     } else {
-        send_json_response(
-            StatusCode::NOT_FOUND,
-            &json!({ "error": "Client not found" })
-        )
+        send_json_response(StatusCode::NOT_FOUND, &json!({ 
+            "success": false, 
+            "error": "Client not found" 
+        }))
     }
+}
+
+fn handle_set_gasless_enabled(state: &mut State, enabled: bool) -> anyhow::Result<()> {
+    info!("Setting gasless transactions enabled: {}", enabled);
+    
+    state.gasless_enabled = Some(enabled);
+    state.save();
+    
+    send_json_response(StatusCode::OK, &json!({ 
+        "success": true,
+        "gasless_enabled": enabled,
+        "message": if enabled {
+            "Gasless transactions enabled. Payments will use ERC-4337 UserOperations when possible."
+        } else {
+            "Gasless transactions disabled. Payments will use regular transactions."
+        }
+    }))
 }

@@ -19,7 +19,10 @@ const OwnerNodeComponent: React.FC<NodeProps<IOwnerNodeData>> = ({ data }) => {
     return (
         <div className={styles.nodeContainer} style={{ maxWidth: NODE_WIDTH }}>
             <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            <div className={styles.header}>Operator: {name}</div>
+            <div className={styles.header}>
+                <div className={styles.nodeTitle}>Operator</div>
+                <div className={styles.nodeSubtitle}>{name}</div>
+            </div>
             {displayAddress && (
                 <div className={styles.addressRow}>
                     Address:{` `}

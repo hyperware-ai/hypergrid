@@ -313,10 +313,10 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
             style={{ 
                 maxWidth: NODE_WIDTH, 
                 cursor: 'pointer', 
-                position: 'relative' // ESSENTIAL for icon positioning
+                position: 'relative' 
             }} 
             onClick={isWalletActuallyLocked ? handleLockIconClick : handleNodeAreaClick}
-            title={isWalletActuallyLocked ? "Wallet Locked. Click 🔒 to Unlock." : `Click node to view history, click name to edit`}
+            title={isWalletActuallyLocked ? "Wallet Locked. Click to Unlock." : `Click node to view history, click name to edit`}
         >
             {/* Top-Right Lock Icon - always rendered if locked, click handled by handleLockIconClick */} 
             {isWalletActuallyLocked && (
@@ -334,30 +334,32 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
             {/* Content Wrapper for Blur Effect */}
             <div className={`${styles.nodeContentWrapper} ${isWalletActuallyLocked && !showPasswordInputForUnlock ? styles.contentBlurred : ''}`}>
                 <div className={styles.header}>
-                    Wallet:{" "}
-                    {isEditingName ? (
-                        <input 
-                            ref={nameInputRef}
-                            type="text"
-                            value={editedName}
-                            onChange={(e) => setEditedName(e.target.value)}
-                            onBlur={handleNameInputBlur}
-                            onKeyDown={handleNameInputKeyDown}
-                            className={styles.nameInputEditing} 
-                            disabled={isLocalActionLoading || isUnlockingOrLocking}
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                    ) : (
-                        <span 
-                            onClick={handleNameDisplayClick}
-                            className={styles.nameDisplayClickable}
-                            title="Click to edit name"
-                        >
-                            {(currentName && currentName.toLowerCase() !== 'unnamed') 
-                                ? `"${currentName}"` 
-                                : truncate(address) }
-                        </span>
-                    )}
+                    <div className={styles.nodeTitle}>Hot Wallet</div>
+                    <div className={styles.nodeSubtitle}>
+                        {isEditingName ? (
+                            <input 
+                                ref={nameInputRef}
+                                type="text"
+                                value={editedName}
+                                onChange={(e) => setEditedName(e.target.value)}
+                                onBlur={handleNameInputBlur}
+                                onKeyDown={handleNameInputKeyDown}
+                                className={styles.nameInputEditing} 
+                                disabled={isLocalActionLoading || isUnlockingOrLocking}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        ) : (
+                            <span 
+                                onClick={handleNameDisplayClick}
+                                className={styles.nameDisplayClickable}
+                                title="Click to edit name"
+                            >
+                                {(currentName && currentName.toLowerCase() !== 'unnamed') 
+                                    ? `"${currentName}"` 
+                                    : truncate(address) }
+                            </span>
+                        )}
+                    </div>
                 </div>
 
                 {toastMessage && (
@@ -380,21 +382,15 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                     <span className={styles.infoValue}>{statusDescription || '-'}</span>
                 </div>
 
-                <div className={`${styles.infoRow} ${styles.fundingRowAltered}`}> {/* Use infoRow */}
-                    <span className={styles.infoLabel}>Funding (ETH):</span>
-                    <span className={styles.infoValue}>{fundingInfo?.ethBalanceStr ?? '-'}</span>
-                    {/* Optional: Put needsEth next to value if space allows, or below */}
-                    {/* {fundingInfo?.needsEth && <span className={styles.statusNeedsFunding}>Needs ETH</span>} */} 
-                </div>
-                {fundingInfo?.needsEth && <div className={`${styles.infoRow} ${styles.fundingStatusRowAltered}`}><span className={styles.infoLabel}></span><span className={`${styles.infoValue} ${styles.statusNeedsFunding}`}>Needs ETH</span></div>}
+
                 {fundingInfo?.errorMessage && <div className={`${styles.infoRow} ${styles.errorRowAltered}`}><span className={styles.infoLabel}></span><span className={`${styles.infoValue} ${styles.statusError}`}>{fundingInfo.errorMessage}</span></div>}
                 
-                {/* Limit Display/Edit Section (Styled like infoRow) */}
+                {/* Transaction Limit Display/Edit Section */}
                 <div 
                     className={`${styles.infoRow} ${styles.limitConfigRowAltered}`} 
                     style={{ marginTop: (showPasswordInputForUnlock && isWalletActuallyLocked) ? '5px' : '0' }}
                 >
-                    <span className={styles.infoLabel}>Limit (USDC):</span>
+                    <span className={styles.infoLabel}>Transaction Limit:</span>
                     <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
                         {isEditingLimit ? (
                             <input 
@@ -415,7 +411,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                             <span 
                                 className={styles.limitValueDisplayClickable} 
                                 onClick={handleToggleLimitEdit} 
-                                title={isWalletActuallyLocked ? "Unlock wallet to change limit" : "Click to change limit"}
+                                title={isWalletActuallyLocked ? "Unlock wallet to change limit" : "Click to change transaction limit"}
                             >
                                 {
                                     (currentLimits && currentLimits.maxPerCall && currentLimits.maxPerCall.trim() !== '') 
@@ -426,6 +422,27 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                         )}
                     </span>
                 </div>
+
+                {/* Spending Limit Display (Lifetime Total) */}
+                <div className={`${styles.infoRow}`}>
+                    <span className={styles.infoLabel}>Spending Limit:</span>
+                    <span className={styles.infoValue}>
+                        {(currentLimits && currentLimits.maxTotal && currentLimits.maxTotal.trim() !== '') 
+                            ? `${currentLimits.maxTotal} ${(currentLimits.currency || 'USDC')} total` 
+                            : 'Unlimited'
+                        }
+                    </span>
+                </div>
+
+                {/* Total Spent Display (if limits exist) */}
+                {currentLimits && (
+                    <div className={`${styles.infoRow}`}>
+                        <span className={styles.infoLabel}>Total Spent:</span>
+                        <span className={styles.infoValue}>
+                            {currentLimits.totalSpent || '0'} {(currentLimits.currency || 'USDC')}
+                        </span>
+                    </div>
+                )}
             </div>
 
             {/* Unlock Section - Appears distinctly, not part of the blurred content wrapper */}

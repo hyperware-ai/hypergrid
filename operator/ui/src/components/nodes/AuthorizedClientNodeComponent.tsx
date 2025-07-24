@@ -86,28 +86,30 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
             <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
             
             <div className={styles.header}>
-                Auth. Client:{" "}
-                {isEditingName ? (
-                    <input 
-                        ref={nameInputRef}
-                        type="text" 
-                        value={editedName}
-                        onChange={handleNameChange}
-                        onBlur={handleNameInputBlur}
-                        onKeyDown={handleNameInputKeyDown}
-                        className={styles.nameInputEditing}
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                ) : (
-                    <span 
-                        title={currentClientName} 
-                        onClick={handleNameClick} 
-                        className={styles.nameDisplay}
-                        style={{cursor: 'text'}}
-                    >
-                        {currentClientName}
-                    </span>
-                )}
+                <div className={styles.nodeTitle}>Authorized Client</div>
+                <div className={styles.nodeSubtitle}>
+                    {isEditingName ? (
+                        <input 
+                            ref={nameInputRef}
+                            type="text" 
+                            value={editedName}
+                            onChange={handleNameChange}
+                            onBlur={handleNameInputBlur}
+                            onKeyDown={handleNameInputKeyDown}
+                            className={styles.nameInputEditing}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <span 
+                            title={currentClientName} 
+                            onClick={handleNameClick} 
+                            className={styles.nameDisplay}
+                            style={{cursor: 'text'}}
+                        >
+                            {currentClientName}
+                        </span>
+                    )}
+                </div>
             </div>
 
             <div className={styles.infoRow}>

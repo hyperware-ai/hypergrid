@@ -22,6 +22,7 @@ sha3 = "0.10"
 sha2 = "0.10"
 # Pin base64ct to avoid edition2024 requirement in 1.8.0
 base64ct = "=1.6.0"
+url = "2.4"
 
 [dependencies.uuid]
 version = "1.16.0"

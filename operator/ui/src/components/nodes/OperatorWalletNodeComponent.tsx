@@ -4,12 +4,145 @@ import { IOperatorWalletNodeData, IOperatorWalletFundingInfo, INoteInfo, Spendin
 import type { Address } from 'viem';
 import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
+import PaymasterApprovalButton from '../PaymasterApprovalButton';
+import { useApprovePaymaster } from '../../logic/hypermapHelpers';
 import styles from '../OperatorWalletNode.module.css';
 
 const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
     if (!str) return '';
     if (str.length <= startLen + endLen + 3) return str;
     return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
+};
+
+interface PaymasterToggleButtonProps {
+    operatorTbaAddress: Address;
+    isApproved: boolean;
+    isProcessing: boolean;
+    onApprove: () => void;
+    onRevoke: () => void;
+    revokeHookState?: {
+        isConfirmed: boolean;
+        reset: () => void;
+    };
+}
+
+const PaymasterToggleButton: React.FC<PaymasterToggleButtonProps> = ({
+    operatorTbaAddress,
+    isApproved,
+    isProcessing,
+    onApprove,
+    onRevoke,
+    revokeHookState
+}) => {
+    const [isHovered, setIsHovered] = useState(false);
+    
+    const approveHook = useApprovePaymaster({
+        onSuccess: () => {
+            console.log("Paymaster approval transaction sent");
+            // Don't call onApprove() immediately - wait for confirmation
+        },
+        onError: (err) => {
+            console.error("Paymaster approval error:", err);
+        },
+    });
+
+    // Handle approve confirmation with delayed refresh
+    useEffect(() => {
+        if (approveHook.isConfirmed) {
+            console.log("Approve confirmed in toggle button - triggering delayed refresh");
+            setTimeout(() => {
+                onApprove(); // This triggers the graph refresh after delay
+            }, 2000);
+            approveHook.reset();
+        }
+    }, [approveHook.isConfirmed, onApprove, approveHook]);
+
+    // Handle revoke confirmation - don't trigger immediate refresh, let BackendDrivenHypergridVisualizer handle it with delay
+    useEffect(() => {
+        if (revokeHookState?.isConfirmed) {
+            console.log("Revoke confirmed in toggle button - letting parent handle delayed refresh");
+            // Don't call onApprove() here - the parent BackendDrivenHypergridVisualizer will handle the refresh with proper delay
+            revokeHookState.reset();
+        }
+    }, [revokeHookState?.isConfirmed, revokeHookState]);
+
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        if (isProcessing) return;
+        
+        if (isApproved) {
+            onRevoke();
+        } else {
+            approveHook.approvePaymaster({ operatorTbaAddress });
+        }
+    };
+
+    const getButtonState = () => {
+        if (isProcessing || approveHook.isSending || approveHook.isConfirming) {
+            return {
+                text: isApproved ? 'Revoking...' : 'Approving...',
+                backgroundColor: '#6c757d',
+                color: 'white',
+                borderColor: '#6c757d'
+            };
+        }
+        
+        if (isHovered) {
+            return isApproved ? {
+                text: 'Revoke paymaster',
+                backgroundColor: '#dc3545',
+                color: 'white',
+                borderColor: '#dc3545'
+            } : {
+                text: 'Approve paymaster',
+                backgroundColor: '#28a745',
+                color: 'white',
+                borderColor: '#28a745'
+            };
+        }
+        
+        return isApproved ? {
+            text: 'Paymaster approved',
+            backgroundColor: '#d4edda',
+            color: '#155724',
+            borderColor: '#c3e6cb'
+        } : {
+            text: 'Paymaster not approved',
+            backgroundColor: '#f8d7da',
+            color: '#721c24',
+            borderColor: '#f5c6cb'
+        };
+    };
+
+    const buttonState = getButtonState();
+    const disabled = isProcessing || approveHook.isSending || approveHook.isConfirming;
+
+    return (
+        <div style={{ marginTop: '12px', marginBottom: '12px' }}>
+            <button
+                onClick={handleClick}
+                onMouseEnter={() => setIsHovered(true)}
+                onMouseLeave={() => setIsHovered(false)}
+                disabled={disabled}
+                style={{
+                    width: '100%',
+                    padding: '10px 16px',
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    backgroundColor: buttonState.backgroundColor,
+                    color: buttonState.color,
+                    border: `1px solid ${buttonState.borderColor}`,
+                    borderRadius: '6px',
+                    cursor: disabled ? 'not-allowed' : 'pointer',
+                    opacity: disabled ? 0.7 : 1,
+                    transition: 'all 0.2s ease',
+                    outline: 'none'
+                }}
+            >
+                {buttonState.text}
+            </button>
+        </div>
+    );
 };
 
 const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> = ({ data }) => {
@@ -28,11 +161,6 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
     const activeHotWalletAddress = (data as any).activeHotWalletAddressForNode as Address | null;
     const onDataRefreshNeeded = (data as any).onWalletsLinked || (data as any).onWalletDataUpdate;
 
-    const [showEthWithdrawInput, setShowEthWithdrawInput] = useState<boolean>(false);
-    const [ethWithdrawAddress, setEthWithdrawAddress] = useState<string>('');
-    const [isSendingEth, setIsSendingEth] = useState<boolean>(false);
-    const [ethWithdrawAmount, setEthWithdrawAmount] = useState<string>('');
-
     const [showUsdcWithdrawInput, setShowUsdcWithdrawInput] = useState<boolean>(false);
     const [usdcWithdrawAddress, setUsdcWithdrawAddress] = useState<string>('');
     const [isSendingUsdc, setIsSendingUsdc] = useState<boolean>(false);
@@ -46,6 +174,8 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
             setToastMessage(null);
         }, duration);
     }, []);
+
+
 
     const getApiBasePathLocal = () => {
         const pathParts = window.location.pathname.split('/').filter(p => p);
@@ -67,79 +197,15 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
         return responseData;
     };
 
-    const handleToggleEthWithdraw = (e: React.MouseEvent) => {
-        e.stopPropagation();
-        const nextState = !showEthWithdrawInput;
-        setShowEthWithdrawInput(nextState);
-        setEthWithdrawAddress('');
-        setEthWithdrawAmount('');
-        if (nextState && showUsdcWithdrawInput) {
-            setShowUsdcWithdrawInput(false);
-            setUsdcWithdrawAddress('');
-            setUsdcWithdrawAmount('');
-        }
-    };
-
     const handleToggleUsdcWithdraw = (e: React.MouseEvent) => {
         e.stopPropagation();
         const nextState = !showUsdcWithdrawInput;
         setShowUsdcWithdrawInput(nextState);
         setUsdcWithdrawAddress('');
         setUsdcWithdrawAmount('');
-        if (nextState && showEthWithdrawInput) {
-            setShowEthWithdrawInput(false);
-            setEthWithdrawAddress('');
-            setEthWithdrawAmount('');
-        }
     };
 
-    const handleSendEth = async (e: React.MouseEvent) => {
-        e.stopPropagation();
-        if (!ethWithdrawAddress.trim() || !ethWithdrawAmount.trim()) {
-            showToast('error', 'Address and Amount are required for ETH withdrawal.');
-            return;
-        }
-        const amountEthNum = parseFloat(ethWithdrawAmount);
-        if (isNaN(amountEthNum) || amountEthNum <= 0) {
-            showToast('error', 'ETH withdrawal amount must be a positive number.');
-            return;
-        }
 
-        let amountWeiStr: string;
-        try {
-            const ethAsFloat = parseFloat(ethWithdrawAmount.trim());
-            if (isNaN(ethAsFloat)) throw new Error("Invalid ETH amount format");
-            amountWeiStr = (ethAsFloat * 1e18).toLocaleString('fullwide', {useGrouping:false});
-            if (amountWeiStr.includes('.')) amountWeiStr = amountWeiStr.split('.')[0];
-        } catch (parseErr) {
-            showToast('error', 'Invalid ETH amount format.');
-            return;
-        }
-        if (amountWeiStr === "0") {
-             showToast('error', 'ETH withdrawal amount cannot be zero.');
-             return;
-        }
-
-        setIsSendingEth(true);
-        try {
-            const payload = {
-                WithdrawEthFromOperatorTba: {
-                    to_address: ethWithdrawAddress.trim(),
-                    amount_wei_str: amountWeiStr
-                }
-            };
-            await callMcpApiLocal(payload);
-            showToast('success', 'ETH withdrawal initiated!');
-            setShowEthWithdrawInput(false);
-            setEthWithdrawAddress('');
-            setEthWithdrawAmount('');
-            if (typeof onDataRefreshNeeded === 'function') onDataRefreshNeeded();
-        } catch (err: any) {
-            showToast('error', `ETH Withdrawal Failed: ${err.message}`);
-        } finally {
-            setIsSendingEth(false);
-        }
-    };
     
     const handleSendUsdc = async (e: React.MouseEvent) => {
         e.stopPropagation();
@@ -221,7 +287,10 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
     return (
         <div className={styles.nodeContainer} style={{ maxWidth: NODE_WIDTH }}>
             <Handle type="target" position={Position.Top} style={{visibility:'hidden'}}/>
-            <div className={styles.header}>Operator Wallet: {operatorName}</div>
+            <div className={styles.header}>
+                <div className={styles.nodeTitle}>Operator Wallet</div>
+                <div className={styles.nodeSubtitle}>{operatorName}</div>
+            </div>
 
             {toastMessage && (
                 <div className={`${styles.toastNotification} ${toastMessage.type === 'success' ? styles.toastSuccess : styles.toastError}`}>
@@ -242,55 +311,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
 
             <div className={styles.fundingSection}>
                 <div className={styles.fundingItem}>
-                    <span className={styles.fundingLabel}>ETH:</span>
-                    <span className={styles.fundingValueWithButton}>
-                        <span>{(fundingStatus as IOperatorWalletFundingInfo)?.ethBalanceStr ?? 'N/A'}</span>
-                        {!showEthWithdrawInput && (
-                            <button 
-                                className={styles.withdrawButtonInline} 
-                                onClick={handleToggleEthWithdraw} 
-                                title="Withdraw ETH"
-                                disabled={isCurrentlySettingAccessListNote || isCurrentlySettingSignersNote || isSendingUsdc || isSendingEth}
-                            >
-                                💸
-                            </button>
-                        )}
-                    </span>
-                    {(fundingStatus as IOperatorWalletFundingInfo)?.needsEth && !showEthWithdrawInput && <span className={styles.statusNeedsFunding}>Needs ETH</span>}
-                </div>
-                {showEthWithdrawInput && (
-                    <div className={styles.withdrawInputSection}>
-                        <input 
-                            type="text" 
-                            placeholder="Destination Address (0x...)"
-                            value={ethWithdrawAddress}
-                            onChange={(e) => setEthWithdrawAddress(e.target.value)}
-                            className={styles.withdrawAddressInput}
-                            onClick={(e) => e.stopPropagation()}
-                            disabled={isSendingEth}
-                        />
-                        <input 
-                            type="number" 
-                            step="any" 
-                            min="0"
-                            placeholder="Amount ETH"
-                            value={ethWithdrawAmount}
-                            onChange={(e) => setEthWithdrawAmount(e.target.value)}
-                            className={styles.withdrawAmountInput}
-                            onClick={(e) => e.stopPropagation()}
-                            disabled={isSendingEth}
-                        />
-                        <button className={styles.sendButton} onClick={handleSendEth} disabled={isSendingEth || !ethWithdrawAddress.trim() || !ethWithdrawAmount.trim()}>
-                            {isSendingEth ? 'Sending...' : 'Send ETH'}
-                        </button>
-                        <button className={styles.cancelWithdrawButton} onClick={handleToggleEthWithdraw} disabled={isSendingEth}>
-                            Cancel
-                        </button>
-                    </div>
-                )}
-
-                <div className={styles.fundingItem}>
-                    <span className={styles.fundingLabel}>USDC:</span>
+                    <span className={styles.fundingLabel}>USDC Balance:</span>
                     <span className={styles.fundingValueWithButton}>
                         <span>{(fundingStatus as IOperatorWalletFundingInfo)?.usdcBalanceStr ?? 'N/A'}</span>
                         {!showUsdcWithdrawInput && (
@@ -298,13 +319,13 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                                 className={styles.withdrawButtonInline} 
                                 onClick={handleToggleUsdcWithdraw} 
                                 title="Withdraw USDC"
-                                disabled={isCurrentlySettingAccessListNote || isCurrentlySettingSignersNote || isSendingEth || isSendingUsdc}
+                                disabled={isCurrentlySettingAccessListNote || isCurrentlySettingSignersNote || isSendingUsdc}
                             >
                                 💸
                             </button>
                         )}
                     </span>
-                    {(fundingStatus as IOperatorWalletFundingInfo)?.needsUsdc && !showUsdcWithdrawInput && <span className={styles.statusNeedsFunding}>Needs USDC</span>}
+
                 </div>
                 {showUsdcWithdrawInput && (
                     <div className={styles.withdrawInputSection}>
@@ -339,33 +360,74 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                 {(fundingStatus as IOperatorWalletFundingInfo)?.errorMessage && <div className={styles.statusError}>Funding Error: {(fundingStatus as IOperatorWalletFundingInfo).errorMessage}</div>}
             </div>
 
-            <div className={styles.notesSection}>
-                <div className={styles.noteItem}>
-                    <span className={styles.noteLabel}>Access List Note:</span>
-                    <span className={`${styles.noteValue} ${(accessListNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
-                        {(accessListNoteInfo as INoteInfo)?.statusText || 'Unknown'}
-                    </span>
+            {/* Only show notes section if either note is not set */}
+            {(!accessListNoteInfo?.isSet || !signersNoteInfo?.isSet) && (
+                <div className={styles.notesSection}>
+                    <div className={styles.noteItem}>
+                        <span className={styles.noteLabel}>Access List Note:</span>
+                        <span className={`${styles.noteValue} ${(accessListNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
+                            {(accessListNoteInfo as INoteInfo)?.statusText || 'Unknown'}
+                        </span>
+                    </div>
+                    <div className={styles.noteItem}>
+                        <span className={styles.noteLabel}>Signers Note:</span>
+                        <span className={`${styles.noteValue} ${(signersNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
+                            {(signersNoteInfo as INoteInfo)?.statusText || 'Unknown'}
+                            {(signersNoteInfo as INoteInfo)?.isSet && (signersNoteInfo as INoteInfo).details && 
+                                <span style={{fontSize: '0.8em', color: '#aaa', marginLeft: '5px'}}>
+                                    {(signersNoteInfo as INoteInfo).details}
+                                </span>
+                            }
+                        </span>
+                    </div>
                 </div>
-                <div className={styles.noteItem}>
-                    <span className={styles.noteLabel}>Signers Note:</span>
-                    <span className={`${styles.noteValue} ${(signersNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
-                        {(signersNoteInfo as INoteInfo)?.statusText || 'Unknown'}
-                        {(signersNoteInfo as INoteInfo)?.isSet && (signersNoteInfo as INoteInfo).details && 
-                            <span style={{fontSize: '0.8em', color: '#aaa', marginLeft: '5px'}}>
-                                {(signersNoteInfo as INoteInfo).details}
-                            </span>
+            )}
+
+            {/* Paymaster Toggle Button - show when both notes are set and gasless implementation is available */}
+            {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && data.gaslessEnabled && (
+                <PaymasterToggleButton
+                    operatorTbaAddress={tbaAddress as Address}
+                    isApproved={data.paymasterApproved || false}
+                    isProcessing={(data as any).isRevokingPaymaster || isProcessingNote || showUsdcWithdrawInput || isSendingUsdc}
+                    onApprove={() => {
+                        console.log('Paymaster approval initiated...');
+                        if (typeof onDataRefreshNeeded === 'function') {
+                            onDataRefreshNeeded();
                         }
-                    </span>
+                    }}
+                    onRevoke={() => {
+                        console.log('Paymaster revoke initiated...');
+                        if (typeof (data as any).onRevokePaymaster === 'function') {
+                            (data as any).onRevokePaymaster(tbaAddress);
+                        }
+                    }}
+                    revokeHookState={(data as any).revokeHookState}
+                />
+            )}
+            
+            {/* Show info when operator is configured but gasless implementation is not available */}
+            {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && !data.gaslessEnabled && (
+                <div style={{ 
+                    marginTop: '12px', 
+                    padding: '8px', 
+                    backgroundColor: '#f8f4e6', 
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    color: '#8b5a2b',
+                    textAlign: 'center',
+                    border: '1px solid #e6c77a'
+                }}>
+                    <em>⚠️ This TBA uses an older implementation. ETH required for gas fees.</em>
                 </div>
-            </div>
+            )}
 
             {(canSetAccessList || canSetSigners || needsSignersButNoActiveHW) && (
                 <div className={styles.actionsContainer}>
                     {canSetAccessList && (
                         <button
                             onClick={handleSetAccessListNoteClick}
-                            disabled={isProcessingNote || showEthWithdrawInput || showUsdcWithdrawInput}
-                            className={`${styles.actionButton} ${styles.actionButtonSetAccessList} ${(isProcessingNote || showEthWithdrawInput || showUsdcWithdrawInput) ? styles.actionButtonDisabled : ''}`}
+                            disabled={isProcessingNote || showUsdcWithdrawInput}
+                            className={`${styles.actionButton} ${styles.actionButtonSetAccessList} ${(isProcessingNote || showUsdcWithdrawInput) ? styles.actionButtonDisabled : ''}`}
                         >
                             {isCurrentlySettingAccessListNote ? 'Setting Access List...' : 'Set Access List Note'}
                         </button>
@@ -373,8 +435,8 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                     {canSetSigners && (
                          <button
                             onClick={handleSetSignersNoteClick}
-                            disabled={isProcessingNote || showEthWithdrawInput || showUsdcWithdrawInput}
-                            className={`${styles.actionButton} ${styles.actionButtonSetSigners} ${(isProcessingNote || showEthWithdrawInput || showUsdcWithdrawInput) ? styles.actionButtonDisabled : ''}`}
+                            disabled={isProcessingNote || showUsdcWithdrawInput}
+                            className={`${styles.actionButton} ${styles.actionButtonSetSigners} ${(isProcessingNote || showUsdcWithdrawInput) ? styles.actionButtonDisabled : ''}`}
                         >
                             {isCurrentlySettingSignersNote ? 'Setting Signers...' : `Set Signers (via ${truncate(activeHotWalletAddress || undefined, 4, 4)})`}
                         </button>

@@ -18,29 +18,30 @@ import { useCallback, useMemo } from 'react';
 export { viemNamehash };
 
 // -------------------------------------------------------------------------------------------------
-// Constants - Consider moving to a central constants.ts or abis.ts if not already there
+// Constants
 // -------------------------------------------------------------------------------------------------
 
+// Base Chain ID
+export const BASE_CHAIN_ID = 8453; // Ethereum Mainnet = 1, Base = 8453
+
+// Hypermap Contract Address on Base
 export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda';
 
-// Default implementation address for new Token Bound Accounts (TBAs) created via hypermap.mint()
-// This is the HYPER_ACCOUNT_IMPL from the explorer example.
-// For Hypergrid, if a *specific Hypergrid operator TBA implementation* is required, this address should be updated.
-// export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = '0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97';
+// TBA Implementation Addresses
+// Old implementation (0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97 was even older, now using:)
+export const OLD_TBA_IMPLEMENTATION: Address = '0x000000000046886061414588bb9F63b6C53D8674'; // Works but no gasless support
+//export const NEW_TBA_IMPLEMENTATION: Address = '0x19b89306e31D07426E886E3370E62555A0743D96'; // Supports ERC-4337 gasless (was faulty, no delegation)
+//export const NEW_TBA_IMPLEMENTATION: Address = '0x70fAa7d49036E155B6A1889f0c856931e129CcCD'; // Supports ERC-4337 gasless (fixed) (not fixed lol)
+//export const NEW_TBA_IMPLEMENTATION: Address = '0x73dFF273A33C4BCF95DE2cD8c812BF97931774Ab'; // Supports ERC-4337 gasless (not fixed)
+export const NEW_TBA_IMPLEMENTATION: Address =  '0x3950D18044D7DAA56BFd6740fE05B42C95201535'; // actually fixed (final: part deux)
 
-// Using the correct Operator TBA implementation address with delegated signing
-export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = '0x000000000046886061414588bb9F63b6C53D8674';
-
-export const BASE_CHAIN_ID = 8453; // Base Mainnet
+// Default to the new implementation for new deployments (supports gasless)
+export const DEFAULT_OPERATOR_TBA_IMPLEMENTATION: Address = NEW_TBA_IMPLEMENTATION;
 
 // ABI for the Hypermap contract (relevant functions)
 export const hypermapAbi = parseAbi([
     'function mint(address owner, bytes calldata node, bytes calldata data, address implementation) external returns (address tba)',
     'function note(bytes calldata noteKey, bytes calldata noteValue) external returns (bytes32 labelhash)',
-    // Add other Hypermap functions if needed by other helpers:
-    // 'function get(bytes32 node) external view returns (address tba, address owner, bytes memory note)',
-    // 'function tbaOf(bytes32 entry) external view returns (address tba)',
-    // 'function fact(bytes calldata factKey, bytes calldata factValue) external returns (bytes32 namehash)',
 ]);
 
 // ABI for the standard 'execute' function on a Token Bound Account (TBA)
@@ -48,9 +49,20 @@ export const tbaExecuteAbi = parseAbi([
     'function execute(address target, uint256 value, bytes calldata data, uint8 operation) returns (bytes memory returnData)',
 ]);
 
+// ABI for ERC20 approve function
+export const erc20Abi = parseAbi([
+    'function approve(address spender, uint256 amount) returns (bool)',
+]);
+
 // Note Keys for Hypergrid
 export const HYPERGRID_ACCESS_LIST_NOTE_KEY = "~access-list";
 export const HYPERGRID_SIGNERS_NOTE_KEY = "~grid-beta-signers";
+
+// ERC-4337 Constants
+export const CIRCLE_PAYMASTER_ADDRESS: Address = '0x0578cFB241215b77442a541325d6A4E6dFE700Ec'; // Circle's USDC paymaster on Base
+//export const PIMLICO_PAYMASTER_ADDRESS: Address = '0x888888888888Ec68A58AB8094Cc1AD20Ba3D2402'; // Pimlico's USDC paymaster on Base
+export const USDC_ADDRESS_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
+export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 100n * 10n ** 6n; // 100 USDC (with 6 decimals)
 
 // -------------------------------------------------------------------------------------------------
 // Encoding Helpers
@@ -80,7 +92,7 @@ export function encodeHypermapMintCall({
         functionName: 'mint',
         args: [
             owner,
-            stringToHex(subLabel), // The label of the sub-node to mint relative to msg.sender's owned parent node
+            stringToHex(subLabel), // The label of the sub-node to mint relative to msg.sender's owned parent node. :)
             initializationData,
             implementationAddress,
         ],
@@ -132,6 +144,26 @@ export function encodeAddressArray(addresses: Address[]): EncodeAbiParametersRet
     return encodeAbiParameters(parseAbiParameters('address[]'), [addresses]);
 }
 
+/**
+ * Encodes the calldata for ERC20 approve function.
+ * @param spender The address that will be allowed to spend tokens.
+ * @param amount The amount of tokens to approve (in smallest units).
+ * @returns The encoded function data.
+ */
+export function encodeERC20Approve({
+    spender,
+    amount,
+}: {
+    spender: Address;
+    amount: bigint;
+}): Hex {
+    return encodeFunctionData({
+        abi: erc20Abi,
+        functionName: 'approve',
+        args: [spender, amount],
+    });
+}
+
 // -------------------------------------------------------------------------------------------------
 // Wagmi Interaction Hooks
 // -------------------------------------------------------------------------------------------------
@@ -167,7 +199,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
     const mintInternal = useCallback(({
         parentTbaAddress, // Address of the parent TBA (e.g., pertinent.os's TBA)
         ownerOfNewSubTba,   // EOA that will own the new sub-TBA
-        subLabelToMint,     // Label for the new sub-entry (e.g., "grid-beta-wallet")
+        subLabelToMint,     // Label for the new sub-entry (e.g., "grid-beta-wallet" or "grid-beta-wallet-aa")
         implementationForNewSubTba = DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
     }: {
         parentTbaAddress: Address;
@@ -184,7 +216,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
             return;
         }
         
-        console.log(`useMintOperatorSubEntry: Preparing to mint sub-label '${subLabelToMint}' under parent TBA ${parentTbaAddress}.`);
+        console.log(`useMintOperatorSubEntry: Preparing to mint sub-label '${subLabelToMint}'(SHOULD BE 'grid-beta-wallet-aa-final') under parent TBA ${parentTbaAddress}.`);
         console.log(`  New sub-TBA will be owned by: ${ownerOfNewSubTba}`);
         console.log(`  New sub-TBA implementation: ${implementationForNewSubTba}`);
 
@@ -374,7 +406,132 @@ export function useSetOperatorNote(props?: UseWriteHypermapContractProps) {
     ]);
 }
 
-// Example usage (conceptual, would be in a React component):
+/**
+ * Custom hook for approving the paymaster to spend USDC from an Operator TBA.
+ * This is a one-time setup step required for ERC-4337 gasless transactions.
+ * The EOA owner of the Operator TBA calls `operatorTBA.execute(...)` to approve the paymaster.
+ */
+export function useApprovePaymaster(props?: UseWriteHypermapContractProps) {
+    const { onSuccess, onError, onSettled } = props || {};
+
+    const { data: transactionHash, error, isPending, writeContract, writeContractAsync, reset } = useWriteContract({
+        mutation: {
+            onSuccess: onSuccess,
+            onError: onError,
+            onSettled: onSettled,
+        },
+    });
+    
+    const { isLoading: isConfirming, isSuccess: isConfirmed, error: receiptError } =
+        useWaitForTransactionReceipt({ hash: transactionHash, chainId: BASE_CHAIN_ID });
+
+    const approvePaymasterInternal = useCallback(({
+        operatorTbaAddress,
+        paymasterAddress = CIRCLE_PAYMASTER_ADDRESS,
+        usdcAddress = USDC_ADDRESS_BASE,
+        approvalAmount = DEFAULT_PAYMASTER_APPROVAL_AMOUNT,
+    }: {
+        operatorTbaAddress: Address;
+        paymasterAddress?: Address;
+        usdcAddress?: Address;
+        approvalAmount?: bigint;
+    }) => {
+        if (!operatorTbaAddress) {
+            console.error("Missing operatorTbaAddress for paymaster approval.");
+            if (onError) onError(new Error("Missing operatorTbaAddress"));
+            return;
+        }
+
+        console.log(`useApprovePaymaster: Approving paymaster for Operator TBA ${operatorTbaAddress}`);
+        console.log(`  Paymaster: ${paymasterAddress}`);
+        console.log(`  USDC Contract: ${usdcAddress}`);
+        console.log(`  Approval Amount: ${approvalAmount.toString()} (smallest units)`);
+
+        // Step 1: Encode the ERC20 approve call
+        const approveCallData = encodeERC20Approve({
+            spender: paymasterAddress,
+            amount: approvalAmount,
+        });
+
+        // Step 2: Prepare arguments for operatorTBA.execute()
+        const executeArgs = prepareTbaExecuteArgs({
+            targetContract: usdcAddress,
+            callData: approveCallData,
+            value: 0n,
+            operation: 0, // Standard CALL
+        });
+        
+        console.log(`  executeArgs for TBA: [\n    target: ${executeArgs[0]},\n    value: ${executeArgs[1]},\n    data: ${executeArgs[2]},\n    operation: ${executeArgs[3]}\n   ]`);
+
+        // Step 3: Call execute() on the operatorTbaAddress
+        writeContract({
+            address: operatorTbaAddress,
+            abi: tbaExecuteAbi,
+            functionName: 'execute',
+            args: executeArgs,
+            chainId: BASE_CHAIN_ID,
+        });
+    }, [writeContract, onError]);
+
+    const revokePaymasterInternal = useCallback(({
+        operatorTbaAddress,
+        paymasterAddress = CIRCLE_PAYMASTER_ADDRESS,
+        usdcAddress = USDC_ADDRESS_BASE,
+    }: {
+        operatorTbaAddress: Address;
+        paymasterAddress?: Address;
+        usdcAddress?: Address;
+    }) => {
+        if (!operatorTbaAddress) {
+            console.error("Missing operatorTbaAddress for paymaster revocation.");
+            if (onError) onError(new Error("Missing operatorTbaAddress"));
+            return;
+        }
+
+        console.log(`useApprovePaymaster: Revoking paymaster approval for Operator TBA ${operatorTbaAddress}`);
+        console.log(`  Paymaster: ${paymasterAddress}`);
+        console.log(`  USDC Contract: ${usdcAddress}`);
+        console.log(`  Approval Amount: 0 (revoke)`);
+
+        // Step 1: Encode the ERC20 approve call with amount = 0 to revoke
+        const revokeCallData = encodeERC20Approve({
+            spender: paymasterAddress,
+            amount: 0n, // Setting amount to 0 revokes the approval
+        });
+
+        // Step 2: Prepare arguments for operatorTBA.execute()
+        const executeArgs = prepareTbaExecuteArgs({
+            targetContract: usdcAddress,
+            callData: revokeCallData,
+            value: 0n,
+            operation: 0, // Standard CALL
+        });
+        
+        console.log(`  executeArgs for TBA: [\n    target: ${executeArgs[0]},\n    value: ${executeArgs[1]},\n    data: ${executeArgs[2]},\n    operation: ${executeArgs[3]}\n   ]`);
+
+        // Step 3: Call execute() on the operatorTbaAddress
+        writeContract({
+            address: operatorTbaAddress,
+            abi: tbaExecuteAbi,
+            functionName: 'execute',
+            args: executeArgs,
+            chainId: BASE_CHAIN_ID,
+        });
+    }, [writeContract, onError]);
+
+    return useMemo(() => ({
+        approvePaymaster: approvePaymasterInternal,
+        revokePaymaster: revokePaymasterInternal,
+        transactionHash,
+        isSending: isPending,
+        isConfirming,
+        isConfirmed,
+        error: error || receiptError,
+        reset,
+    }), [approvePaymasterInternal, revokePaymasterInternal, transactionHash, isPending, isConfirming, isConfirmed, error, receiptError, reset]);
+}
+
+// Example usage 
 /*
 function MyComponent() {
     const { address: connectedAccount } = useAccount();

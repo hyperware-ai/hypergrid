@@ -317,18 +317,18 @@ function AccountManager() {
 
     const handleImport = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!privateKeyToImport || !passwordForImport) { showToast('error', 'Private Key and Password required for import.'); return; }
+        if (!privateKeyToImport) { showToast('error', 'Private Key is required for import.'); return; }
         setIsActionLoading(true); setToastMessage(null);
         try {
             const requestBody = {
                 ImportWallet: {
                     private_key: privateKeyToImport,
-                    password: passwordForImport,
+                    password: null,  // No password for imported wallets
                     name: walletNameToImport.trim() === '' ? null : walletNameToImport.trim()
                 }
             };
             await callApiWithRouting(requestBody);
-            handleSuccess(`Account imported successfully. It is now inactive.`);
+            handleSuccess(`Account imported successfully and ready to use.`);
             setShowImportForm(false); 
             setPrivateKeyToImport(''); setPasswordForImport(''); setWalletNameToImport(''); 
         } catch (err: any) { handleError(err); }
@@ -544,14 +544,9 @@ function AccountManager() {
                             onChange={e => setWalletNameToImport(e.target.value)}
                             className="input-field"
                         />
-                        <input
-                            type="password"
-                            placeholder="Choose Password to Encrypt Key"
-                            value={passwordForImport}
-                            onChange={e => setPasswordForImport(e.target.value)}
-                            required
-                            className="input-field"
-                        />
+                        <p style={{ fontSize: '0.9em', color: '#888', margin: '8px 0', fontStyle: 'italic' }}>
+                            ℹ️ Imported wallets are stored unencrypted for easier access
+                        </p>
                         <button type="submit" className="button primary-button" disabled={isActionLoading}>
                             {isActionLoading ? 'Importing...' : 'Import Wallet'}
                         </button>

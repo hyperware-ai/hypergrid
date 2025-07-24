@@ -54,7 +54,6 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
     // Wallet creation states
     const [showImportForm, setShowImportForm] = useState<boolean>(false);
     const [privateKeyToImport, setPrivateKeyToImport] = useState<string>('');
-    const [passwordForImport, setPasswordForImport] = useState<string>('');
     const [walletNameToImport, setWalletNameToImport] = useState<string>('');
     const [isCreatingWallet, setIsCreatingWallet] = useState<boolean>(false);
 
@@ -91,9 +90,12 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
     // Effect to refresh graph data once the transaction is confirmed
     useEffect(() => {
         if (isConfirmed && transactionHash) {
-            console.log("Signers note transaction confirmed. Refreshing wallets/graph. Tx:", transactionHash);
-            onWalletsLinked();
-            fetchWallets(); // Refresh the wallet list too
+            console.log("Signers note transaction confirmed. Refreshing wallets/graph with delay. Tx:", transactionHash);
+            // Add delay to allow backend to sync with blockchain
+            setTimeout(() => {
+                onWalletsLinked();
+                fetchWallets(); // Refresh the wallet list too
+            }, 2000);
         }
     }, [isConfirmed, transactionHash, onWalletsLinked]);
 
@@ -202,14 +204,13 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             const requestBody = {
                 ImportWallet: {
                     private_key: privateKeyToImport,
-                    password: passwordForImport || null,  // Make password optional
+                    password: null,  // No password for imported wallets
                     name: walletNameToImport.trim() === '' ? null : walletNameToImport.trim()
                 }
             };
             await callMcpApi(requestBody);
             setShowImportForm(false);
             setPrivateKeyToImport('');
-            setPasswordForImport('');
             setWalletNameToImport('');
             await fetchWallets(); // Refresh wallet list
         } catch (err: any) {
@@ -245,14 +246,6 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                     className="input-field"
                     style={{ marginBottom: '8px', width: '100%' }}
                 />
-                <input
-                    type="password"
-                    placeholder="Password (Optional)"
-                    value={passwordForImport}
-                    onChange={e => setPasswordForImport(e.target.value)}
-                    className="input-field"
-                    style={{ marginBottom: '8px', width: '100%' }}
-                />
                 <div style={{ display: 'flex', gap: '8px' }}>
                     <button 
                         type="submit" 
@@ -267,7 +260,6 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                         onClick={() => {
                             setShowImportForm(false);
                             setPrivateKeyToImport('');
-                            setPasswordForImport('');
                             setWalletNameToImport('');
                             setError(null);
                         }}
@@ -355,97 +347,110 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                 </>
             )}
 
+            {/* Add Wallet Section - right after wallet lists */}
+            <div style={{ marginTop: '15px' }}> 
+                <div 
+                    className="add-wallet-container minimalist" 
+                    style={{ 
+                        width: '100%', 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        padding: '10px', 
+                        border: '1px solid #404552', 
+                        borderRadius: '8px', 
+                        backgroundColor: '#262930' 
+                    }}
+                >
+                    <span className="add-wallet-plus" style={{ fontSize: '1.6em', color: '#8c92a3', marginRight: '12px' }}>+</span>
+                    <div 
+                        className="add-wallet-actions-inline" 
+                        style={{ 
+                            display: 'flex', 
+                            flexGrow: 1, 
+                            borderRadius: '6px', 
+                            overflow: 'hidden', 
+                            border: '1px solid #4a4f5c'
+                        }}
+                    >
+                        <button 
+                            onClick={handleGenerateWallet} 
+                            className="button generate-button action-button" 
+                            disabled={isCreatingWallet}
+                            style={{
+                                flex: 1,
+                                fontSize: '0.85em', 
+                                padding: '10px 5px',
+                                color: '#a9c1ff',
+                                backgroundColor: isCreatingWallet ? '#30343e' : '#30343e',
+                                border: 'none',
+                                borderRadius: 0,
+                                textAlign: 'center',
+                                lineHeight: '1.3',
+                                cursor: isCreatingWallet ? 'not-allowed' : 'pointer',
+                                opacity: isCreatingWallet ? 0.6 : 1,
+                            }}
+                        >
+                            {isCreatingWallet ? 'Generating...' : 'Generate'}
+                        </button>
+                        <button 
+                            onClick={() => setShowImportForm(true)} 
+                            className="button import-toggle-button action-button" 
+                            disabled={isCreatingWallet}
+                            style={{
+                                flex: 1,
+                                fontSize: '0.85em', 
+                                padding: '10px 5px',
+                                color: '#a9c1ff',
+                                backgroundColor: isCreatingWallet ? '#3c404a' : '#3c404a',
+                                border: 'none',
+                                borderLeft: '1px solid #4a4f5c',
+                                borderRadius: 0,
+                                textAlign: 'center',
+                                lineHeight: '1.3',
+                                cursor: isCreatingWallet ? 'not-allowed' : 'pointer',
+                                opacity: isCreatingWallet ? 0.6 : 1,
+                            }}
+                        >
+                            Import
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Error/Status Messages */}
             {(error || signersNoteError) && (
-                <div style={{ color: 'red', fontSize: '0.85em', marginBottom: '8px' }}>
+                <div style={{ color: 'red', fontSize: '0.85em', marginBottom: '8px', marginTop: '10px' }}>
                     {error || signersNoteError?.message}
                 </div>
             )}
 
-            {isSending && <p style={{ fontSize: '0.85em' }}>Updating signers...</p>}
-            {isConfirming && <p style={{ fontSize: '0.85em' }}>Confirming update...</p>}
+            {isSending && <p style={{ fontSize: '0.85em', marginTop: '10px' }}>Updating signers...</p>}
+            {isConfirming && <p style={{ fontSize: '0.85em', marginTop: '10px' }}>Confirming update...</p>}
             {isConfirmed && transactionHash && (
-                <div style={{ color: 'green', fontSize: '0.85em', marginBottom: '8px' }}>
+                <div style={{ color: 'green', fontSize: '0.85em', marginBottom: '8px', marginTop: '10px' }}>
                     Signers updated! Tx: {transactionHash.substring(0,10)}...
                 </div>
             )}
 
-            <div style={{ marginTop: '10px', display: 'flex', gap: '15px', flexWrap: 'wrap', alignItems: 'stretch' }}>
+            {/* Update Linked Wallets Button - moved to bottom */}
+            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
                 <button 
                     onClick={handleUpdateLinkedWallets} 
                     disabled={isSending || isConfirming || isLoadingWallets}
                     className="button primary-button"
-                    style={{ fontSize: '0.9em', padding: '10px 15px', borderRadius: '6px' }}
+                    style={{ 
+                        fontSize: '0.9em', 
+                        padding: '12px 20px', 
+                        borderRadius: '6px',
+                        backgroundColor: '#007bff',
+                        border: 'none',
+                        color: 'white',
+                        cursor: (isSending || isConfirming || isLoadingWallets) ? 'not-allowed' : 'pointer',
+                        opacity: (isSending || isConfirming || isLoadingWallets) ? 0.6 : 1
+                    }}
                 >
-                    {isSending || isConfirming ? 'Processing...' : 'Update Signers'}
+                    {isSending || isConfirming ? 'Processing...' : (allWallets.length === 0 ? 'Link Wallets' : 'Update Linked Wallets')}
                 </button>
-                <div style={{ width: '100%', marginTop: '10px' }}> 
-                    <div 
-                        className="add-wallet-container minimalist" 
-                        style={{ 
-                            width: '100%', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            padding: '10px', 
-                            border: '1px solid #404552', 
-                            borderRadius: '8px', 
-                            backgroundColor: '#262930' 
-                        }}
-                    >
-                        <span className="add-wallet-plus" style={{ fontSize: '1.6em', color: '#8c92a3', marginRight: '12px' }}>+</span>
-                        <div 
-                            className="add-wallet-actions-inline" 
-                            style={{ 
-                                display: 'flex', 
-                                flexGrow: 1, 
-                                borderRadius: '6px', 
-                                overflow: 'hidden', 
-                                border: '1px solid #4a4f5c'
-                            }}
-                        >
-                            <button 
-                                onClick={handleGenerateWallet} 
-                                className="button generate-button action-button" 
-                                disabled={isCreatingWallet}
-                                style={{
-                                    flex: 1,
-                                    fontSize: '0.85em', 
-                                    padding: '10px 5px',
-                                    color: '#a9c1ff',
-                                    backgroundColor: isCreatingWallet ? '#30343e' : '#30343e',
-                                    border: 'none',
-                                    borderRadius: 0,
-                                    textAlign: 'center',
-                                    lineHeight: '1.3',
-                                    cursor: isCreatingWallet ? 'not-allowed' : 'pointer',
-                                    opacity: isCreatingWallet ? 0.6 : 1,
-                                }}
-                            >
-                                {isCreatingWallet ? 'Generating...' : 'Generate'}
-                            </button>
-                            <button 
-                                onClick={() => setShowImportForm(true)} 
-                                className="button import-toggle-button action-button" 
-                                disabled={isCreatingWallet}
-                                style={{
-                                    flex: 1,
-                                    fontSize: '0.85em', 
-                                    padding: '10px 5px',
-                                    color: '#a9c1ff',
-                                    backgroundColor: isCreatingWallet ? '#3c404a' : '#3c404a',
-                                    border: 'none',
-                                    borderLeft: '1px solid #4a4f5c',
-                                    borderRadius: 0,
-                                    textAlign: 'center',
-                                    lineHeight: '1.3',
-                                    cursor: isCreatingWallet ? 'not-allowed' : 'pointer',
-                                    opacity: isCreatingWallet ? 0.6 : 1,
-                                }}
-                            >
-                                Import
-                            </button>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     );
