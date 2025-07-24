@@ -548,7 +548,7 @@ pub async fn validate_transaction_payment(
         Err(e) => return Err(format!("Error fetching namehash for transaction sender ({} from log). Ensure it's a valid HNS entry TBA. Error: {:?}", final_claimed_sender_address, e)),
     };
 
-    let full_name_for_tba_lookup = format!("grid-beta-wallet.{}", source_node_id);
+    let full_name_for_tba_lookup = format!("grid-beta-wallet-aa-final.{}", source_node_id);
     let expected_namehash_for_requester = hypermap::namehash(&full_name_for_tba_lookup);
 
     if namehash_from_claimed_sender_tba != expected_namehash_for_requester {
