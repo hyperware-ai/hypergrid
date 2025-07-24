@@ -54,7 +54,7 @@ fn init_http() -> anyhow::Result<HttpServer> {
     add_to_homepage("Hypergrid", Some(ICON), Some("/"), None);
     // this changes depending on you are only building operator, or both
     // change back to just ui when building only operator to not have to build the provider
-    http_server.serve_ui("../pkg/ui", vec!["/"], http_config_authenticated)?;
+    http_server.serve_ui("ui", vec!["/"], http_config_authenticated)?;
 
     Ok(http_server)
 }
