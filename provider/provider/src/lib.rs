@@ -451,6 +451,7 @@ impl HypergridProviderState {
         }
     }
 
+    #[local]
     #[remote]
     async fn call_provider(&mut self, request: ProviderRequest) -> Result<String, String> {
         let mcp_request = match request {
