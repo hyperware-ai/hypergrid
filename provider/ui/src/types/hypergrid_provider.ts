@@ -59,7 +59,7 @@ export type RegisterProviderResponse = RustResponse<RegisteredProvider>;
 
 // Request body for the get_registered_providers endpoint
 export interface GetRegisteredProvidersRequest {
-  GetRegisteredProviders: string; // Key matches the Rust function name, value is empty string
+  GetRegisteredProviders: null; // Key matches the Rust function name, value is null since no parameters needed
 }
 
 // Response type for the get_registered_providers endpoint

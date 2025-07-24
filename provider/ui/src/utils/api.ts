@@ -10,7 +10,7 @@ import {
 const BASE_URL = import.meta.env.BASE_URL; 
 
 export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[]> => {
-  const requestData = { GetRegisteredProviders: {} } as any;
+  const requestData = { GetRegisteredProviders: null };
   try {
     const result = await fetch(`${BASE_URL}/api`, {
       method: "POST",
