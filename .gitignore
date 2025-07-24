@@ -3,3 +3,13 @@
 **/Cargo.lock
 **/package-lock.json
 **/node_modules
+**/app.zip
+pkg/*.wasm
+pkg/*.zip
+pkg/provider-ui
+operator/pkg/ui/
+*.swp
+*.swo
+*/wasi_snapshot_preview1.wasm
+*/wit/
+*/process_env
