@@ -1,0 +1,324 @@
+/* Button Styles */
+
+/* Base button styles from index.css */
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  background-color: darkblue;
+  color: white;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background-color 0.25s;
+}
+
+button:hover {
+  background-color: blue;
+}
+
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+/* Enhanced button styles from App.css */
+button, input[type="text"], input[type="url"], input[type="password"], select, textarea {
+  background-color: var(--input-bg);
+  color: var(--input-text);
+  border: 1px solid var(--input-border);
+  padding: 0.6em 0.8em;
+  border-radius: 4px;
+  font-size: 0.95em;
+}
+
+/* Button variants */
+.button-primary {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border: none;
+}
+
+.button-primary:hover {
+  opacity: 0.9;
+}
+
+.button-secondary {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border: 1px solid var(--input-border);
+}
+
+.button-secondary:hover {
+  opacity: 0.9;
+}
+
+/* Specific button styles */
+.providers-header > .toggle-form-button {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border: none;
+}
+
+.providers-header > .toggle-form-button:hover {
+  opacity: 0.9;
+}
+
+.toggle-form-button {
+  padding: 0.6em 1em;
+  font-size: 0.95em;
+}
+
+/* Provider edit button */
+.provider-edit-button {
+  background-color: var(--button-primary-bg);
+  color: var(--button-primary-text);
+  border: none;
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.provider-edit-button:hover {
+  opacity: 0.8;
+}
+
+/* Clear and Copy form button styles */
+.clear-form-button {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  opacity: 0.8;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  border: 1px solid var(--button-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.clear-form-button:hover {
+  opacity: 1;
+  background-color: var(--button-secondary-hover);
+}
+
+.copy-form-button {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  opacity: 0.8;
+  font-size: 0.85rem;
+  padding: 6px 14px;
+  border: 1px solid var(--button-border);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.copy-form-button:hover {
+  opacity: 1;
+  background-color: var(--button-secondary-hover);
+}
+
+/* Tab button styles */
+.tab-button {
+  background: none;
+  border: none;
+  padding: 0.75rem 1.5rem;
+  font-size: 1rem;
+  color: var(--text-color);
+  cursor: pointer;
+  position: relative;
+  transition: color 0.3s ease;
+}
+
+.tab-button:hover {
+  color: var(--primary-color);
+}
+
+.tab-button.active {
+  color: var(--primary-color);
+}
+
+.tab-button.active::after {
+  content: '';
+  position: absolute;
+  bottom: -2px;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background-color: var(--primary-color);
+}
+
+/* Desktop menu button */
+.desktop-menu-button {
+  background: none;
+  border: 1px solid var(--button-border);
+  color: var(--text-color);
+  cursor: pointer;
+  padding: 0.5rem 0.75rem;
+  font-size: 1.25rem;
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+  min-width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.desktop-menu-button:hover {
+  background-color: var(--button-subtle-hover-bg);
+  border-color: var(--button-hover-border);
+}
+
+/* Menu button in dropdown */
+.desktop-menu-dropdown .menu-button {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-color);
+  padding: 0;
+  font-size: 0.9rem;
+  transition: background-color 0.2s ease;
+}
+
+.desktop-menu-dropdown .menu-button:hover {
+  background-color: var(--button-subtle-hover-bg);
+}
+
+.desktop-menu-dropdown .menu-button:active {
+  background-color: var(--button-secondary-bg);
+  opacity: 0.7;
+}
+
+/* Mobile menu button */
+.close-menu-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  color: var(--text-color);
+  opacity: 0.6;
+  cursor: pointer;
+  padding: 0.25rem;
+  line-height: 1;
+}
+
+.menu-button {
+  width: 100%;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.menu-button:hover {
+  background-color: var(--button-subtle-hover-bg);
+}
+
+.menu-button:active {
+  background-color: var(--button-secondary-bg);
+  opacity: 0.5;
+}
+
+/* Modal close button */
+.modal-close-button {
+  background: transparent;
+  border: none;
+  font-size: 1.6rem;
+  font-weight: 400;
+  color: var(--modal-close-color, #6c757d);
+  cursor: pointer;
+  padding: 0;
+  line-height: 1;
+  transition: all 0.2s ease;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  top: 12px;
+  right: 12px;
+}
+
+.modal-close-button:hover {
+  color: var(--modal-close-hover-color, #000000);
+  background-color: rgba(0, 0, 0, 0.08);
+}
+
+/* Validation panel buttons */
+.validation-actions button {
+  padding: 12px 24px;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.validation-actions .btn-primary {
+  background-color: var(--primary-color);
+  color: white;
+}
+
+.validation-actions .btn-primary:hover:not(:disabled) {
+  background-color: var(--primary-hover-color);
+}
+
+.validation-actions .btn-primary:disabled {
+  background-color: #6c757d;
+  cursor: not-allowed;
+}
+
+.validation-actions .btn-secondary {
+  background-color: var(--secondary-color);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.validation-actions .btn-secondary:hover:not(:disabled) {
+  background-color: var(--secondary-hover-color);
+}
+
+/* Provider registration button styles */
+.provider-registration button[type="submit"] {
+  background-color: #4CAF50;
+  color: white;
+  padding: 0.75rem 2rem;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+}
+
+.provider-registration button[type="submit"]:hover:not(:disabled) {
+  background-color: #45a049;
+}
+
+.provider-registration button[type="submit"]:disabled {
+  background-color: #ccc;
+  cursor: not-allowed;
+}
+
+/* Touch-friendly buttons and inputs */
+button,
+input[type="text"],
+input[type="url"],
+input[type="password"],
+select,
+textarea,
+.touch-target {
+  min-height: var(--touch-target-min);
+  touch-action: manipulation;
+}

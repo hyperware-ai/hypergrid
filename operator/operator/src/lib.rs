@@ -55,7 +55,9 @@ fn init_http() -> anyhow::Result<HttpServer> {
     http_server.bind_http_path("/shim/mcp", http_config_unauthenticated.clone())?;
     
     // UI
-    add_to_homepage("Hypergrid Operator", Some(ICON), Some("/"), None);
+    add_to_homepage("Hypergrid", Some(ICON), Some("/"), None);
+    // this changes depending on you are only building operator, or both
+    // change back to just ui when building only operator to not have to build the provider
     http_server.serve_ui("ui", vec!["/"], http_config_authenticated)?;
 
     Ok(http_server)

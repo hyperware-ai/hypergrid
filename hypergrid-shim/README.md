@@ -78,7 +78,7 @@ If you prefer manual configuration, you can create a `grid-shim-api.json` file:
 
 ```json
 {
-  "url": "http://localhost:8080/operator:operator:grid-beta.hypr/shim/mcp",
+  "url": "http://localhost:8080/operator:operator:obfusc-grid123.hypr/shim/mcp",
   "client_id": "your-client-id",
   "token": "your-token",
   "node": "your-node.hypr"

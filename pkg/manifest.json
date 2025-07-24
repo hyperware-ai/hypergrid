@@ -1,0 +1,44 @@
+[
+  {
+    "process_name": "operator",
+    "process_wasm_path": "/operator.wasm",
+    "on_exit": "Restart",
+    "request_networking": true,
+    "request_capabilities": [
+      "http-server:distro:sys",
+      "vfs:distro:sys",
+      "eth:distro:sys",
+      "homepage:homepage:sys",
+      "sqlite:distro:sys",
+      "timer:distro:sys",
+      "hypermap-cacher:hypermap-cacher:sys",
+      "sign:sign:sys",
+      "hns-indexer:hns-indexer:sys"
+    ],
+    "grant_capabilities": ["http-server:distro:sys", "terminal:terminal:sys"],
+    "public": true
+  },
+  {
+    "process_name": "provider",
+    "process_wasm_path": "/provider.wasm",
+    "on_exit": "None",
+    "request_networking": true,
+    "request_capabilities": [
+      "homepage:homepage:sys",
+      "http-client:distro:sys",
+      "http-server:distro:sys",
+      "vfs:distro:sys",
+      "eth:distro:sys"
+    ],
+    "grant_capabilities": [
+      "homepage:homepage:sys",
+      "http-client:distro:sys",
+      "http-server:distro:sys",
+      "vfs:distro:sys",
+      "terminal:terminal:sys",
+      "eth:distro:sys"
+    ],
+    "public": false
+  }
+
+]

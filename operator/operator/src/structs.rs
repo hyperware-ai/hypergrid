@@ -10,7 +10,7 @@ use rmp_serde;
 use crate::authorized_services::HotWalletAuthorizedClient;
 
 wit_bindgen::generate!({
-    path: "target/wit",
+    path: "../target/wit",
     world: "process-v1",
     generate_unused_types: true,
     additional_derives: [serde::Deserialize, serde::Serialize, process_macros::SerdeJsonInto],
