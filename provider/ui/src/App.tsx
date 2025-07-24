@@ -43,6 +43,7 @@ import { updateProviderApi } from "./utils/api";
 import { useProviderRegistration, useProviderUpdate } from "./registration/hypermapUtils";
 import { lookupProviderTbaAddressFromBackend } from "./registration/hypermap";
 import ProviderRegistrationOverlay from "./components/ProviderRegistrationOverlay";
+import AppSwitcher from "./components/AppSwitcher";
 
 // Import logos
 import logoGlow from './assets/logo_glow.png';
@@ -516,6 +517,9 @@ function AppContent() {
         </div>
         {/* Desktop controls */}
         <div className="header-controls">
+            <div className="app-switcher-wrapper desktop-only">
+              <AppSwitcher currentApp="provider" />
+            </div>
             <div className="node-info desktop-only">
               {nodeConnected 
                 ? <>Node ID: <strong className="text-truncate" style={{ maxWidth: '200px', display: 'inline-block', verticalAlign: 'bottom' }}>{window.our?.node || "N/A"}</strong></>
@@ -613,6 +617,10 @@ function AppContent() {
                   <button className="close-menu-button" onClick={() => setMobileMenuOpen(false)}>✕</button>
                 </div>
                 <div className="mobile-menu-content">
+                  <div className="menu-item">
+                    <span className="menu-label">App</span>
+                    <AppSwitcher currentApp="provider" />
+                  </div>
                   <div className="menu-item">
                     <span className="menu-label">Wallet</span>
                     <ConnectButton />
