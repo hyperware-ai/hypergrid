@@ -4,7 +4,7 @@
 
 use hyperware_process_lib::{Address, Request};
 use hyperware_process_lib::{
-    logging::{info, error}, 
+    logging::{info, error, warn}, 
     wallet};
 use serde::{Deserialize, Serialize};
 use alloy_primitives::U256;
@@ -42,7 +42,7 @@ fn call_hyperwallet_payment(
         "wallet_id": wallet_id,
         "chain_id": crate::structs::CHAIN_ID,
         "auth": {
-            "process_address": format!("{}@operator:operator:grid-beta.hypr", hyperware_process_lib::our().node()),
+            "process_address": format!("{}@operator:hypergrid:grid-beta.hypr", hyperware_process_lib::our().node()),
             "signature": null
         },
         "request_id": null,
@@ -154,7 +154,7 @@ pub fn execute_payment_with_metadata(
         amount_units
     );
     
-    // Check if we should use gasless transactions
+    // Check if we should use gasless transactions (we should always do this in the future)
     if should_use_gasless(state) && account_abstraction::is_gasless_available(operator_wallet_id, Some(crate::structs::CHAIN_ID as u64)) {
         // Check if metadata explicitly disables paymaster
         let use_paymaster = if let Some(ref meta) = metadata {
@@ -254,11 +254,48 @@ pub fn execute_payment_with_metadata(
                                 ) {
                                     Ok(user_op_hash) => {
                                         info!("Gasless payment submitted: user_op_hash = {}", user_op_hash);
-                                        Some(PaymentAttemptResult::Success {
-                                            tx_hash: user_op_hash,
-                                            amount_paid: amount_usdc_str.to_string(),
-                                            currency: "USDC".to_string(),
-                                        })
+                                        
+                                        // Convert userOp hash to actual transaction hash
+                                        match account_abstraction::get_user_operation_receipt(
+                                            &user_op_hash,
+                                            Some(crate::structs::CHAIN_ID as u64),
+                                        ) {
+                                            Ok(receipt_data) => {
+                                                info!("Receipt data received from hyperwallet: {}", serde_json::to_string_pretty(&receipt_data).unwrap_or_else(|_| format!("{:?}", receipt_data)));
+                                                if let Some(receipt) = receipt_data.get("receipt") {
+                                                    if let Some(tx_hash) = receipt.get("transactionHash").and_then(|h| h.as_str()) {
+                                                        info!("Converted userOp hash {} to transaction hash {}", user_op_hash, tx_hash);
+                                                        Some(PaymentAttemptResult::Success {
+                                                            tx_hash: tx_hash.to_string(),
+                                                            amount_paid: amount_usdc_str.to_string(),
+                                                            currency: "USDC".to_string(),
+                                                        })
+                                                    } else {
+                                                        warn!("Receipt found but missing transactionHash, using userOp hash as fallback");
+                                                        Some(PaymentAttemptResult::Success {
+                                                            tx_hash: user_op_hash,
+                                                            amount_paid: amount_usdc_str.to_string(),
+                                                            currency: "USDC".to_string(),
+                                                        })
+                                                    }
+                                                } else {
+                                                    warn!("Receipt data missing 'receipt' field, using userOp hash as fallback");
+                                                    Some(PaymentAttemptResult::Success {
+                                                        tx_hash: user_op_hash,
+                                                        amount_paid: amount_usdc_str.to_string(),
+                                                        currency: "USDC".to_string(),
+                                                    })
+                                                }
+                                            }
+                                            Err(e) => {
+                                                warn!("Failed to get UserOperation receipt ({}), using userOp hash as fallback: {}", e, user_op_hash);
+                                                Some(PaymentAttemptResult::Success {
+                                                    tx_hash: user_op_hash,
+                                                    amount_paid: amount_usdc_str.to_string(),
+                                                    currency: "USDC".to_string(),
+                                                })
+                                            }
+                                        }
                                     }
                                     Err(e) => {
                                         error!("Failed to submit gasless payment: {}", e);

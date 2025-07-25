@@ -336,29 +336,29 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 <div className={styles.header}>
                     <div className={styles.nodeTitle}>Hot Wallet</div>
                     <div className={styles.nodeSubtitle}>
-                        {isEditingName ? (
-                            <input 
-                                ref={nameInputRef}
-                                type="text"
-                                value={editedName}
-                                onChange={(e) => setEditedName(e.target.value)}
-                                onBlur={handleNameInputBlur}
-                                onKeyDown={handleNameInputKeyDown}
-                                className={styles.nameInputEditing} 
-                                disabled={isLocalActionLoading || isUnlockingOrLocking}
-                                onClick={(e) => e.stopPropagation()}
-                            />
-                        ) : (
-                            <span 
-                                onClick={handleNameDisplayClick}
-                                className={styles.nameDisplayClickable}
-                                title="Click to edit name"
-                            >
-                                {(currentName && currentName.toLowerCase() !== 'unnamed') 
-                                    ? `"${currentName}"` 
-                                    : truncate(address) }
-                            </span>
-                        )}
+                    {isEditingName ? (
+                        <input 
+                            ref={nameInputRef}
+                            type="text"
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            onBlur={handleNameInputBlur}
+                            onKeyDown={handleNameInputKeyDown}
+                            className={styles.nameInputEditing} 
+                            disabled={isLocalActionLoading || isUnlockingOrLocking}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <span 
+                            onClick={handleNameDisplayClick}
+                            className={styles.nameDisplayClickable}
+                            title="Click to edit name"
+                        >
+                            {(currentName && currentName.toLowerCase() !== 'unnamed') 
+                                ? `"${currentName}"` 
+                                : truncate(address) }
+                        </span>
+                    )}
                     </div>
                 </div>
 

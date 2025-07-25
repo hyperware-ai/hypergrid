@@ -88,27 +88,27 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
             <div className={styles.header}>
                 <div className={styles.nodeTitle}>Authorized Client</div>
                 <div className={styles.nodeSubtitle}>
-                    {isEditingName ? (
-                        <input 
-                            ref={nameInputRef}
-                            type="text" 
-                            value={editedName}
-                            onChange={handleNameChange}
-                            onBlur={handleNameInputBlur}
-                            onKeyDown={handleNameInputKeyDown}
-                            className={styles.nameInputEditing}
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                    ) : (
-                        <span 
-                            title={currentClientName} 
-                            onClick={handleNameClick} 
-                            className={styles.nameDisplay}
-                            style={{cursor: 'text'}}
-                        >
-                            {currentClientName}
-                        </span>
-                    )}
+                {isEditingName ? (
+                    <input 
+                        ref={nameInputRef}
+                        type="text" 
+                        value={editedName}
+                        onChange={handleNameChange}
+                        onBlur={handleNameInputBlur}
+                        onKeyDown={handleNameInputKeyDown}
+                        className={styles.nameInputEditing}
+                        onClick={(e) => e.stopPropagation()}
+                    />
+                ) : (
+                    <span 
+                        title={currentClientName} 
+                        onClick={handleNameClick} 
+                        className={styles.nameDisplay}
+                        style={{cursor: 'text'}}
+                    >
+                        {currentClientName}
+                    </span>
+                )}
                 </div>
             </div>
 

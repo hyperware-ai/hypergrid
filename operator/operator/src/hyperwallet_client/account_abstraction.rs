@@ -56,7 +56,7 @@ pub fn build_user_operation_with_metadata(
         "wallet_id": wallet_id,
         "chain_id": chain_id.unwrap_or(crate::structs::CHAIN_ID),
         "auth": {
-            "process_address": format!("{}@operator:operator:grid-beta.hypr", hyperware_process_lib::our().node()),
+            "process_address": format!("{}@operator:hypergrid:grid-beta.hypr", hyperware_process_lib::our().node()),
             "signature": null
         },
         "request_id": null,

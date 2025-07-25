@@ -253,8 +253,8 @@ pub fn import_new_wallet(
         // Format: { "wallet": { ... } }
         let wallet: ManagedWallet = serde_json::from_value(wallet_obj.clone())
             .map_err(|e| format!("Failed to parse wallet object: {}", e))?;
-        let address = wallet.storage.get_address();
-        state.managed_wallets.insert(wallet.id.clone(), wallet);
+    let address = wallet.storage.get_address();
+    state.managed_wallets.insert(wallet.id.clone(), wallet);
         address
     } else if let Some(address) = data.get("address").and_then(|a| a.as_str()) {
         // Format: { "address": "0x..." }
@@ -290,24 +290,24 @@ pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSumm
             
             let wallets = wallets_array
                 .iter()
-                .filter_map(|wallet_json| {
-                    // Extract wallet info from each wallet entry
-                    let address = wallet_json.get("address")?.as_str()?;
-                    let name = wallet_json.get("name").and_then(|n| n.as_str()).map(|s| s.to_string());
+                        .filter_map(|wallet_json| {
+                            // Extract wallet info from each wallet entry
+                            let address = wallet_json.get("address")?.as_str()?;
+                            let name = wallet_json.get("name").and_then(|n| n.as_str()).map(|s| s.to_string());
                     let is_encrypted = wallet_json.get("encrypted")
                         .or_else(|| wallet_json.get("is_encrypted"))
                         .and_then(|e| e.as_bool())
                         .unwrap_or(false);
-                    
-                    Some(WalletSummary {
-                        id: address.to_string(), // Use address as ID for now
-                        address: address.to_string(),
-                        name,
-                        is_encrypted,
-                        is_unlocked: !is_encrypted, // For now, assume unencrypted = unlocked
-                        is_selected: Some(address) == state.selected_wallet_id.as_deref(),
-                    })
-                })
+                            
+                            Some(WalletSummary {
+                                id: address.to_string(), // Use address as ID for now
+                                address: address.to_string(),
+                                name,
+                                is_encrypted,
+                                is_unlocked: !is_encrypted, // For now, assume unencrypted = unlocked
+                                is_selected: Some(address) == state.selected_wallet_id.as_deref(),
+                            })
+                        })
                 .collect::<Vec<_>>();
             
             (state.selected_wallet_id.clone(), wallets)
@@ -330,11 +330,11 @@ pub fn select_wallet(state: &mut State, wallet_id: String) -> Result<(), String>
         Ok(_) => {
             // Wallet exists in hyperwallet, so update local state
             state.selected_wallet_id = Some(wallet_id.clone());
-            state.active_signer_cache = None; // Clear cache when switching
-            state.cached_active_details = None;
-            state.save();
+    state.active_signer_cache = None; // Clear cache when switching
+    state.cached_active_details = None;
+    state.save();
             info!("Successfully selected wallet {}", wallet_id);
-            Ok(())
+    Ok(())
         }
         Err(e) => {
             info!("Wallet validation failed for {}: {}", wallet_id, e);
@@ -728,7 +728,7 @@ pub fn verify_single_hot_wallet_delegation_detailed(
     } else {
         DelegationStatus::HotWalletNotInList
     }
-}
+} 
 
 pub fn set_wallet_spending_limits(
     state: &mut State,

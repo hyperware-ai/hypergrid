@@ -362,39 +362,39 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
 
             {/* Only show notes section if either note is not set */}
             {(!accessListNoteInfo?.isSet || !signersNoteInfo?.isSet) && (
-                <div className={styles.notesSection}>
-                    <div className={styles.noteItem}>
-                        <span className={styles.noteLabel}>Access List Note:</span>
-                        <span className={`${styles.noteValue} ${(accessListNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
-                            {(accessListNoteInfo as INoteInfo)?.statusText || 'Unknown'}
-                        </span>
-                    </div>
-                    <div className={styles.noteItem}>
-                        <span className={styles.noteLabel}>Signers Note:</span>
-                        <span className={`${styles.noteValue} ${(signersNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
-                            {(signersNoteInfo as INoteInfo)?.statusText || 'Unknown'}
-                            {(signersNoteInfo as INoteInfo)?.isSet && (signersNoteInfo as INoteInfo).details && 
-                                <span style={{fontSize: '0.8em', color: '#aaa', marginLeft: '5px'}}>
-                                    {(signersNoteInfo as INoteInfo).details}
-                                </span>
-                            }
-                        </span>
-                    </div>
+            <div className={styles.notesSection}>
+                <div className={styles.noteItem}>
+                    <span className={styles.noteLabel}>Access List Note:</span>
+                    <span className={`${styles.noteValue} ${(accessListNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
+                        {(accessListNoteInfo as INoteInfo)?.statusText || 'Unknown'}
+                    </span>
                 </div>
+                <div className={styles.noteItem}>
+                    <span className={styles.noteLabel}>Signers Note:</span>
+                    <span className={`${styles.noteValue} ${(signersNoteInfo as INoteInfo)?.isSet ? styles.noteStatusSet : styles.noteStatusNotSet}`}>
+                        {(signersNoteInfo as INoteInfo)?.statusText || 'Unknown'}
+                        {(signersNoteInfo as INoteInfo)?.isSet && (signersNoteInfo as INoteInfo).details && 
+                            <span style={{fontSize: '0.8em', color: '#aaa', marginLeft: '5px'}}>
+                                {(signersNoteInfo as INoteInfo).details}
+                            </span>
+                        }
+                    </span>
+                </div>
+            </div>
             )}
 
             {/* Paymaster Toggle Button - show when both notes are set and gasless implementation is available */}
             {tbaAddress && accessListNoteInfo?.isSet && signersNoteInfo?.isSet && data.gaslessEnabled && (
                 <PaymasterToggleButton
-                    operatorTbaAddress={tbaAddress as Address}
+                        operatorTbaAddress={tbaAddress as Address}
                     isApproved={data.paymasterApproved || false}
                     isProcessing={(data as any).isRevokingPaymaster || isProcessingNote || showUsdcWithdrawInput || isSendingUsdc}
                     onApprove={() => {
                         console.log('Paymaster approval initiated...');
-                        if (typeof onDataRefreshNeeded === 'function') {
-                            onDataRefreshNeeded();
-                        }
-                    }}
+                            if (typeof onDataRefreshNeeded === 'function') {
+                                onDataRefreshNeeded();
+                            }
+                        }}
                     onRevoke={() => {
                         console.log('Paymaster revoke initiated...');
                         if (typeof (data as any).onRevokePaymaster === 'function') {
@@ -402,7 +402,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                         }
                     }}
                     revokeHookState={(data as any).revokeHookState}
-                />
+                    />
             )}
             
             {/* Show info when operator is configured but gasless implementation is not available */}

@@ -23,44 +23,6 @@ use crate::wallet::service;
 use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
-///// Decodes a hex string into a UTF-8 string.
-///// Returns an error if the hex string is invalid or the decoded bytes aren't valid ASCII printable characters.
-//pub fn _decode_datakey(hex_string: &str) -> Result<String> {
-//    // Remove 0x prefix if present
-//    let clean_hex = if hex_string.starts_with("0x") {
-//        &hex_string[2..]
-//    } else {
-//        hex_string
-//    };
-//
-//    // Validate hex string length
-//    if clean_hex.len() % 2 != 0 {
-//        return Err(anyhow!("datakey decoding failed: odd number of hex digits"));
-//    }
-//
-//    // Decode hex to bytes
-//    let bytes = (0..clean_hex.len())
-//        .step_by(2)
-//        .map(|i| {
-//            u8::from_str_radix(&clean_hex[i..i + 2], 16)
-//                .map_err(|_| anyhow!("datakey decoding failed: invalid hex digit"))
-//        })
-//        .collect::<Result<Vec<u8>, _>>()?;
-//
-//    // Decode bytes to UTF-8 string
-//    let decoded = String::from_utf8(bytes)
-//        .map_err(|_| anyhow!("datakey decoding failed: invalid UTF-8 sequence"))?;
-//
-//    // Check if all characters are printable ASCII (range 0x20 to 0x7E)
-//    if decoded.chars().all(|c| c >= ' ' && c <= '~') {
-//        Ok(decoded)
-//    } else {
-//        Err(anyhow!(
-//            "datakey decoding failed: contains non-printable characters"
-//        ))
-//    }
-//}
-
 pub fn make_json_timestamp() -> serde_json::Number {
     let systemtime = SystemTime::now();
 
@@ -776,6 +738,72 @@ pub fn check_tba_eth_balance(
     }
 }
 
+/// Get UserOperation receipt directly from bundler (for manual testing)
+pub fn get_user_op_receipt_manual(
+    user_op_hash: &str,
+    bundler_url: &str,
+) -> Result<serde_json::Value> {
+    use hyperware_process_lib::http::client::send_request_await_response;
+    use hyperware_process_lib::http::Method;
+    
+    info!("Fetching UserOperation receipt from bundler...");
+    info!("  UserOp Hash: {}", user_op_hash);
+    info!("  Bundler URL: {}", bundler_url);
+    
+    let request_body = serde_json::json!({
+        "jsonrpc": "2.0",
+        "method": "eth_getUserOperationReceipt",
+        "params": [user_op_hash],
+        "id": 1
+    });
+    
+    info!("Request body: {}", serde_json::to_string_pretty(&request_body)?);
+    
+    let url = url::Url::parse(bundler_url)?;
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("Content-Type".to_string(), "application/json".to_string());
+    
+    match send_request_await_response(
+        Method::POST,
+        url,
+        Some(headers),
+        30000,
+        serde_json::to_vec(&request_body)?,
+    ) {
+        Ok(response) => {
+            let response_str = String::from_utf8_lossy(&response.body());
+            info!("Raw bundler response: {}", response_str);
+            
+            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
+                if let Some(result) = json.get("result") {
+                    if result.is_null() {
+                        info!("⚠️  Receipt not yet available (result is null)");
+                        info!("   This is normal if the UserOp was just submitted");
+                        info!("   Try again in a few seconds");
+                        return Ok(serde_json::json!({"status": "pending", "message": "Receipt not yet available"}));
+                    } else {
+                        info!("✅ Receipt found!");
+                        return Ok(result.clone());
+                    }
+                } else if let Some(error) = json.get("error") {
+                    error!("❌ Bundler error: {}", serde_json::to_string_pretty(error)?);
+                    return Err(anyhow!("Bundler error: {}", error));
+                } else {
+                    error!("❌ Unexpected response format");
+                    return Err(anyhow!("Unexpected response format: {}", response_str));
+                }
+            } else {
+                error!("❌ Failed to parse JSON response");
+                return Err(anyhow!("Failed to parse JSON: {}", response_str));
+            }
+        }
+        Err(e) => {
+            error!("❌ Network error: {}", e);
+            return Err(anyhow!("Network error: {}", e));
+        }
+    }
+}
+
 /// Extract gas values from bundler estimation result
 pub fn extract_gas_values_from_estimate(
     estimates: Option<serde_json::Value>,
@@ -826,6 +854,7 @@ pub fn handle_terminal_debug(
     match command_verb {
         "help" | "?" => {
             info!("--- Hypergrid Operator Debug Commands ---");
+            info!("help or ?      : Show this help message.");
             info!("state          : Print current in-memory state.");
             info!("db             : Check local DB schema.");
             info!("reset          : Reset state and wipe/reinit DB (requires restart).");
@@ -852,9 +881,9 @@ pub fn handle_terminal_debug(
             info!("test-permit    : Generate EIP-2612 permit signature components.");
             info!("test-permit-data: Test full EIP-2612 permit paymaster data format.");
             info!("test-candide-gas-estimate <amount>: Test gas estimation with Candide bundler API.");
+            info!("get-receipt <hash>: Get UserOperation receipt from bundler manually.");
             info!("decode-aa-error <hex>: Decode AA error codes and paymaster errors.");
             info!("decode-paymaster-error <code>: Decode common paymaster error codes.");
-            info!("help or ?      : Show this help message.");
             info!("-----------------------------------");
         }
         "state" => {
@@ -942,16 +971,6 @@ pub fn handle_terminal_debug(
                 error!("Usage: namehash <full.path.name>");
             }
         }
-        //"pay" => { // Original USDC pay command
-        //    if let Some(amount_str) = command_arg { 
-        //        let provider_tba_str = "0xDEAF82e285c794a8091f95007A71403Ff3dbB21d"; // Hardcoded test address
-        //        info!("Attempting debug USDC payment to TEST ADDRESS {} amount {}", provider_tba_str, amount_str);
-        //        let result = wallet_manager::execute_payment_if_needed(state, provider_tba_str, amount_str);
-        //        info!("USDC Payment Result: {:?}", result);
-        //    } else {
-        //         error!("Usage: pay <amount_usdc>"); 
-        //    }
-        //}
         "pay-eth" => {
             if let Some(amount_str) = command_arg {
                 info!("Attempting test ETH payment via hyperwallet: {} ETH", amount_str);
@@ -2116,6 +2135,42 @@ pub fn handle_terminal_debug(
             } else {
                 error!("Usage: test-candide-gas-estimate <amount>");
                 info!("Example: test-candide-gas-estimate 0.01");
+            }
+        }
+        "get-receipt" => {
+            if let Some(user_op_hash) = command_arg {
+                info!("--- Manual UserOperation Receipt Lookup ---");
+                
+                let bundler_url = "https://api.candide.dev/public/v3/8453";
+                
+                match get_user_op_receipt_manual(user_op_hash, bundler_url) {
+                    Ok(receipt_data) => {
+                        info!("Receipt data received:");
+                        info!("{}", serde_json::to_string_pretty(&receipt_data).unwrap_or_else(|_| format!("{:?}", receipt_data)));
+                        
+                        // Try to extract transaction hash
+                        if let Some(receipt) = receipt_data.get("receipt") {
+                            if let Some(tx_hash) = receipt.get("transactionHash").and_then(|h| h.as_str()) {
+                                info!("✅ Transaction hash found: {}", tx_hash);
+                            } else {
+                                info!("❌ No transactionHash found in receipt");
+                            }
+                        } else if let Some(tx_hash) = receipt_data.get("transactionHash").and_then(|h| h.as_str()) {
+                            info!("✅ Transaction hash found at root level: {}", tx_hash);
+                        } else {
+                            info!("❌ No 'receipt' field or transactionHash found in response");
+                            info!("Available fields: {:?}", receipt_data.as_object().map(|obj| obj.keys().collect::<Vec<_>>()));
+                        }
+                    }
+                    Err(e) => {
+                        error!("❌ Failed to get receipt: {}", e);
+                    }
+                }
+                
+                info!("--- End Receipt Lookup ---");
+            } else {
+                error!("Usage: get-receipt <user_op_hash>");
+                info!("Example: get-receipt 0x25ca82108f7d91d18666ad8bbba48bcb7edd8432c0fb3492de7b1b20b9c2b51b");
             }
         }
         "test-gas-estimation" => {

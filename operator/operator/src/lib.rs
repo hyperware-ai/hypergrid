@@ -73,8 +73,6 @@ fn init(our: Address) {
     // Initialize Operator Identity using the new module
     if let Err(e) = identity::initialize_operator_identity(&our, &mut state) {
         error!("Failed during operator identity initialization: {:?}", e);
-        //state.operator_entry_name = None;
-        //state.operator_tba_address = None;
     }
 
     // Initialize hyperwallet connection

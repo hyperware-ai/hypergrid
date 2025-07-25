@@ -609,7 +609,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             console.log("Set Note transaction confirmed (Tx: ", operatorNoteTxHash, "). Refetching graph data with delay.");
             // Add delay to allow backend to sync with blockchain
             setTimeout(() => {
-                fetchGraphData();
+            fetchGraphData();
             }, 2000);
             resetOperatorNoteHook();
         }

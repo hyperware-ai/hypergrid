@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use chrono::Utc;
+use chrono::{Utc};
 use hyperware_process_lib::{
     last_blob,
     http::{
@@ -619,7 +619,7 @@ fn handle_provider_call_request(
     }
 }
 
-/// Execute the full provider flow: payment (if needed) then provider call
+/// Execute the full provider flow: health check, payment (if needed), then provider call
 fn execute_provider_flow(
     our: &Address,
     state: &mut State,
@@ -630,7 +630,35 @@ fn execute_provider_flow(
     call_args_json: String,
     client_config_opt: Option<HotWalletAuthorizedClient>
 ) -> anyhow::Result<()> {
-    // Attempt payment if required
+    // First, do a health check ping to see if the provider is responsive
+    match perform_provider_health_check(&provider_details) {
+        Ok(()) => {
+            info!("Provider {} health check passed", provider_details.provider_id);
+        }
+        Err(health_error) => {
+            error!("Provider {} health check failed: {:?}", provider_details.provider_id, health_error);
+            let wallet_id_for_failure = client_config_opt.as_ref()
+                .map(|config| config.associated_hot_wallet_address.clone())
+                .or_else(|| state.selected_wallet_id.clone());
+            record_call_failure(
+                state, 
+                timestamp_start_ms, 
+                provider_details.provider_id.clone(),
+                provider_details.provider_id.clone(),
+                call_args_json, 
+                PaymentAttemptResult::Skipped {
+                    reason: format!("Provider health check failed: {}", health_error)
+                },
+                wallet_id_for_failure
+            );
+            return send_json_response(StatusCode::SERVICE_UNAVAILABLE, &json!({ 
+                "error": "Provider is not responding", 
+                "details": format!("Health check failed: {}", health_error)
+            }));
+        }
+    }
+
+    // Provider is responsive, proceed with payment if required
     match handle_payment(state, &provider_details, client_config_opt.as_ref()) {
         PaymentResult::NotRequired => {
             info!("No payment required for provider {}", provider_details.provider_id);
@@ -1062,7 +1090,7 @@ fn execute_provider_call(
     let request_body_bytes = serde_json::to_vec(&wrapped_request)?;
     
     // Send request
-    info!("Sending request to provider at {}", target_address);
+    info!("Sending ping to provider at {}", target_address);
     let provider_call_result = match send_request_to_provider(target_address.clone(), request_body_bytes) {
         Ok(Ok(response)) => ProviderCallResult::Success(response),
         Ok(Err(e)) => ProviderCallResult::Failed(e),
@@ -1130,6 +1158,105 @@ fn execute_provider_call(
                     target_address, provider_comm_error) 
                 })
             )
+        }
+    }
+}
+///// Checks the availability of a provider by sending a test request.
+//fn check_provider_availability(provider_id: &str) -> Result<(), String> {
+//    info!("Checking provider availability for ID: {}", provider_id);
+//
+//    let target_address = HyperwareAddress::new(
+//        provider_id,
+//        ("hypergrid-provider", "hypergrid-provider", "grid-beta.hypr")
+//    );
+//
+//    let DummyArgument = serde_json::json!({
+//        "argument": "swag"
+//    });
+//
+//    let wrapped_request = serde_json::json!({
+//        "HealthPing": DummyArgument
+//    });
+//
+//    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
+//        Ok(bytes) => bytes,
+//        Err(e) => {
+//            let err_msg = format!("Failed to serialize provider availability request: {}", e);
+//            error!("{}", err_msg);
+//            return Err(err_msg);
+//        }
+//    };
+//
+//    info!("Sending request body bytes to provider: {:?}", request_body_bytes);
+//
+//    match send_request_to_provider(target_address.clone(), request_body_bytes) {
+//        Ok(Ok(response)) => {
+//            info!("Provider at {} responded successfully to availability check: {:?}", target_address, response);
+//            Ok(())
+//        }
+//        Ok(Err(e)) => {
+//            let err_msg = format!("Provider at {} failed availability check: {}", target_address, e);
+//            error!("{}", err_msg);
+//            Err(err_msg)
+//        }
+//        Err(e) => {
+//            let err_msg = format!("Error sending availability check to provider at {}: {}", target_address, e);
+//            error!("{}", err_msg);
+//            Err(err_msg)
+//        }
+//    }
+//}
+
+/// Perform a lightweight health check on a provider before payment
+fn perform_provider_health_check(provider_details: &ProviderDetails) -> anyhow::Result<()> {
+    info!("Performing health check for provider {}", provider_details.provider_id);
+    
+    let target_address = Address::new(
+        &provider_details.provider_id,
+        ("provider", "hypergrid", "grid-beta.hypr")
+    );
+    
+    let DummyArgument = serde_json::json!({
+        "argument": "swag"
+    });
+    
+    let wrapped_request = serde_json::json!({
+        "HealthPing": DummyArgument
+    });
+    
+    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
+        Ok(bytes) => bytes,
+        Err(e) => {
+            let err_msg = format!("Failed to serialize provider availability request: {}", e);
+            error!("{}", err_msg);
+            return Err(anyhow::anyhow!("{}", err_msg));
+        }
+    };
+    
+    info!("Sending health check ping to provider at {}", target_address);
+    match ProcessRequest::new()
+        .target(target_address.clone())
+        .body(request_body_bytes)
+        .send_and_await_response(3) {
+        Ok(Ok(response)) => {
+            // Try to parse the response as DummyResponse
+            match serde_json::from_slice::<serde_json::Value>(&response.body()) {
+                Ok(response_json) => {
+                    info!("Provider {} responded to health check: {:?}", provider_details.provider_id, response_json);
+                }
+                Err(_) => {
+                    info!("Provider {} responded to health check (non-JSON response)", provider_details.provider_id);
+                }
+            }
+            Ok(())
+        }
+        Ok(Err(send_error)) => {
+            error!("Provider {} health check failed: {:?}", provider_details.provider_id, send_error);
+            Err(anyhow::anyhow!("Provider communication error: {}", send_error))
+        }
+        Err(timeout_error) => {
+            error!("Provider {} health check timed out: {:?}", provider_details.provider_id, timeout_error);
+            Err(anyhow::anyhow!("Provider timeout: {}", timeout_error))
         }
     }
 }
