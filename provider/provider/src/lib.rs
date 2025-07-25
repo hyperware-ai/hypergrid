@@ -61,18 +61,13 @@ pub enum RequestStructureType {
     PostWithJson,
 }
 
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum TerminalCommand {
     ListProviders,
     RegisterProvider(RegisteredProvider),
     UnregisterProvider(String),
-    TestProvider(TestProviderArgs),
+    TestProvider(ProviderRequest),
     ExportProviders,
-}
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-pub struct TestProviderArgs {
-    pub provider_name: String,
-    pub args: Vec<(String, String)>,
 }
 
 // --- Modified EndpointDefinition ---
@@ -601,36 +596,40 @@ impl HypergridProviderState {
                     provider_name
                 ))
             }
-            TerminalCommand::TestProvider(test_provider_args) => {
+            TerminalCommand::TestProvider(provider_request) => {
                 kiprintln!(
-                    "Testing provider: {}, with dynamic args: {:?}",
-                    test_provider_args.provider_name,
-                    test_provider_args.args
+                    "Testing provider: {}, with dynamic args: {:?}, and tx hash: {:?}",
+                    provider_request.provider_name,
+                    provider_request.arguments,
+                    provider_request.payment_tx_hash,
                 );
+
+                let source_node_id = "anotherdayanothertestingnodeweb.os".to_string();
+
+                validate_transaction_payment(&provider_request, self, source_node_id.clone()).await?;
+
 
                 let registered_provider = match self
                     .registered_providers
                     .iter()
-                    .find(|p| p.provider_name == test_provider_args.provider_name)
+                    .find(|p| p.provider_name == provider_request.provider_name)
                 {
                     Some(provider) => provider,
                     None => {
                         return Err(format!(
                             "Provider with name '{}' not found in registered providers.",
-                            test_provider_args.provider_name
+                            provider_request.provider_name
                         ));
                     }
                 };
 
                 kiprintln!("Registered provider: {:?}", registered_provider);
 
-                let source_str = "default-node".to_string();
-
                 let result = call_provider(
                     registered_provider.provider_name.clone(),
                     registered_provider.endpoint.clone(),
-                    &test_provider_args.args,
-                    source_str,
+                    &provider_request.arguments,
+                    source_node_id,
                 )
                 .await;
 

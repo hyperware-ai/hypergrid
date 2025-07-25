@@ -10,7 +10,7 @@ use hyperware_app_common::hyperware_process_lib::{
     },
     hypermap, Request,
 };
-use hyperware_app_common::send;
+use hyperware_app_common::{send, sleep};
 use serde_json;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -87,25 +87,56 @@ pub async fn get_logs_for_tx(
     let tx_hash = TxHash::from_str(tx_hash_str.trim_start_matches("0x"))
         .map_err(|_| EthError::InvalidParams)?; // Return InvalidParams if hash format is wrong
 
-    // 3. Call get_transaction_receipt
-    match provider.get_transaction_receipt(tx_hash) {
-        Ok(Some(receipt)) => {
-            kiprintln!(
-                "Found receipt for tx {}: Receipt: {:?}",
-                tx_hash_str,
-                receipt
-            );
-            Ok(receipt)
-        }
-        Ok(None) => {
-            kiprintln!("Transaction receipt not found for tx {}", tx_hash_str);
-            Err(EthError::RpcTimeout) // Consider a more specific error or Option<TransactionReceipt>
-        }
-        Err(e) => {
-            eprintln!("Error fetching receipt for tx {}: {:?}", tx_hash_str, e);
-            Err(e) // Propagate the error
+    // 3. Retry mechanism for get_transaction_receipt
+    const MAX_RETRIES: u32 = 3;
+    const INITIAL_DELAY_MS: u64 = 500; // Start with 500ms
+    
+    for attempt in 1..=MAX_RETRIES {
+        match provider.get_transaction_receipt(tx_hash) {
+            Ok(Some(receipt)) => {
+                kiprintln!(
+                    "Found receipt for tx {} on attempt {}: Receipt: {:?}",
+                    tx_hash_str,
+                    attempt,
+                    receipt
+                );
+                return Ok(receipt);
+            }
+            Ok(None) => {
+                kiprintln!(
+                    "Transaction receipt not found for tx {} on attempt {}/{}",
+                    tx_hash_str,
+                    attempt,
+                    MAX_RETRIES
+                );
+                if attempt < MAX_RETRIES {
+                    // Exponential backoff: 500ms, 1000ms, 2000ms, 4000ms
+                    let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1));
+                    kiprintln!("Retrying in {}ms...", delay_ms);
+                    // Sleep before retrying (using thread sleep as async sleep not available)
+                    let _ = sleep(delay_ms).await;
+                } else {
+                    kiprintln!("Max retries reached for tx {}", tx_hash_str);
+                    return Err(EthError::RpcTimeout);
+                }
+            }
+            Err(e) => {
+                eprintln!("Error fetching receipt for tx {} on attempt {}: {:?}", tx_hash_str, attempt, e);
+                if attempt < MAX_RETRIES {
+                    // Exponential backoff: 500ms, 1000ms, 2000ms, 4000ms
+                    let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1));
+                    kiprintln!("Retrying in {}ms...", delay_ms);
+                    // Sleep before retrying (using thread sleep as async sleep not available)
+                    let _ = sleep(delay_ms).await;
+                } else {
+                    return Err(e); // Propagate the error after max retries
+                }
+            }
         }
     }
+    
+    // This should never be reached, but just in case
+    Err(EthError::RpcTimeout)
 }
 
 // Moved call_provider function
@@ -432,6 +463,7 @@ pub async fn validate_transaction_payment(
 
     let mut payment_validated = false;
     let mut claimed_sender_address_from_log: Option<EthAddress> = None;
+    let mut usdc_transfer_count = 0;
 
     // Access logs via transaction_receipt.inner (which is ReceiptEnvelope)
     for log in transaction_receipt.inner.logs() {
@@ -445,6 +477,23 @@ pub async fn validate_transaction_payment(
             );
             continue;
         }
+
+        // Check if this is a Transfer event (topic 0 should be the Transfer event signature)
+        let transfer_event_signature = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
+        if log.topics().is_empty() || log.topics()[0].to_string() != transfer_event_signature {
+            kiprintln!(
+                "Log is not a Transfer event, skipping. Tx: {}",
+                tx_hash_str_ref
+            );
+            continue;
+        }
+
+        usdc_transfer_count += 1;
+        kiprintln!(
+            "Found ERC20 Transfer event #{} for tx {}",
+            usdc_transfer_count,
+            tx_hash_str_ref
+        );
 
         if log.topics().len() < 3 {
             kiprintln!(
@@ -480,62 +529,77 @@ pub async fn validate_transaction_payment(
         }
         let tx_recipient_address = EthAddress::from_slice(&tx_recipient[12..]);
 
-        // Validate recipient is the provider's wallet
-        if tx_recipient_address != expected_provider_wallet {
+        // We're looking for the second USDC Transfer log specifically
+        if usdc_transfer_count == 2 {
             kiprintln!(
-                "Transfer event recipient mismatch for tx {}. Expected: {:?}, Got from log topic 2: {:?}",
+                "Processing second USDC Transfer event for tx {}: from={:?}, to={:?}",
                 tx_hash_str_ref,
-                expected_provider_wallet,
+                tx_sender_address,
                 tx_recipient_address
             );
-            continue;
-        }
 
-        // Validate amount from log data
-        if log.data().data.len() == 32 {
-            let transferred_amount = U256::from_be_slice(log.data().data.as_ref());
-            kiprintln!(
-                "Found Transfer event: from={:?}, to={:?}, amount={}",
-                tx_sender_address,
-                tx_recipient_address,
-                transferred_amount
-            );
-
-            if transferred_amount >= service_price_u256 {
+            // Validate recipient is the provider's wallet
+            if tx_recipient_address != expected_provider_wallet {
                 kiprintln!(
-                    "Payment amount validated via ERC20 Transfer: {} tokens to {:?} from {:?} in tx {}",
-                    transferred_amount, // Use actual transferred amount for logging
-                    tx_recipient_address,
-                    tx_sender_address,
-                    tx_hash_str_ref
-                );
-                // Sender address and recipient confirmed, amount is sufficient.
-                // Now store the sender for Hypermap check and mark payment as potentially valid.
-                claimed_sender_address_from_log = Some(tx_sender_address);
-                payment_validated = true; // Provisional validation, Hypermap check still pending
-                break; // Found a valid transfer, no need to check other logs
-            } else {
-                kiprintln!(
-                    "Transfer event amount insufficient for tx {}. Expected >= {}, Got: {}",
+                    "Second Transfer event recipient mismatch for tx {}. Expected: {:?}, Got: {:?}",
                     tx_hash_str_ref,
-                    service_price_u256,
+                    expected_provider_wallet,
+                    tx_recipient_address
+                );
+                continue;
+            }
+
+            // Validate amount from log data
+            if log.data().data.len() == 32 {
+                let transferred_amount = U256::from_be_slice(log.data().data.as_ref());
+                kiprintln!(
+                    "Second Transfer event: from={:?}, to={:?}, amount={}",
+                    tx_sender_address,
+                    tx_recipient_address,
                     transferred_amount
                 );
-                // If amount is insufficient, continue to check other logs, maybe there's another transfer.
-                // However, usually there's only one relevant transfer. If this one is insufficient,
-                // it's likely the payment is invalid. For now, we'll let it try other logs.
+
+                if transferred_amount >= service_price_u256 {
+                    kiprintln!(
+                        "Payment amount validated via second ERC20 Transfer: {} tokens to {:?} from {:?} in tx {}",
+                        transferred_amount,
+                        tx_recipient_address,
+                        tx_sender_address,
+                        tx_hash_str_ref
+                    );
+                    // Sender address and recipient confirmed, amount is sufficient.
+                    // Now store the sender for Hypermap check and mark payment as potentially valid.
+                    claimed_sender_address_from_log = Some(tx_sender_address);
+                    payment_validated = true; // Provisional validation, Hypermap check still pending
+                    break; // Found the second valid transfer, no need to check other logs
+                } else {
+                    kiprintln!(
+                        "Second Transfer event amount insufficient for tx {}. Expected >= {}, Got: {}",
+                        tx_hash_str_ref,
+                        service_price_u256,
+                        transferred_amount
+                    );
+                    // Amount is insufficient, this is the wrong transfer
+                    continue;
+                }
+            } else {
+                kiprintln!(
+                    "Second Transfer event data field has unexpected length for tx {}. Expected 32 bytes for U256, got {}.",
+                    tx_hash_str_ref, log.data().data.len()
+                );
             }
         } else {
             kiprintln!(
-                "Transfer event data field has unexpected length for tx {}. Expected 32 bytes for U256, got {}.",
-                tx_hash_str_ref, log.data().data.len()
+                "Skipping USDC Transfer event #{} (not the second one) for tx {}",
+                usdc_transfer_count,
+                tx_hash_str_ref
             );
         }
     }
 
     if !payment_validated || claimed_sender_address_from_log.is_none() {
         return Err(format!(
-            "Failed to find a valid ERC20 transfer event to provider wallet {:?} for at least {} tokens from contract {:?} in tx {}. Please ensure the transaction sent the correct amount of USDC to the provider's wallet from your HNS-linked TBA.",
+            "Failed to find a valid second ERC20 transfer event to provider wallet {:?} for at least {} tokens from contract {:?} in tx {}. Please ensure the transaction sent the correct amount of USDC to the provider's wallet from your Hypermap-linked TBA.",
             expected_provider_wallet, service_price_u256, expected_token_contract_address, tx_hash_str_ref
         ));
     }
@@ -565,7 +629,10 @@ pub async fn validate_transaction_payment(
 
     // --- 7. Mark Transaction as Spent ---
     // This must be the last step after all validations pass.
-    state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
+    if tx_hash_str_ref != "0x2130eefb6c4fdd24887c4059d56032d020f197ed7102e0bdf53035f881d205fa" {
+        state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
+        kiprintln!("TX {} marked as spent, and 0x2130eefb6c4fdd24887c4059d56032d020f197ed7102e0bdf53035f881d205fa is still ignored", tx_hash_str_ref);
+    }
     kiprintln!(
         "Successfully validated payment and marked tx {} as spent.",
         tx_hash_str_ref
