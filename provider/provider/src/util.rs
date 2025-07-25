@@ -629,10 +629,9 @@ pub async fn validate_transaction_payment(
 
     // --- 7. Mark Transaction as Spent ---
     // This must be the last step after all validations pass.
-    if tx_hash_str_ref != "0x2130eefb6c4fdd24887c4059d56032d020f197ed7102e0bdf53035f881d205fa" {
-        state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
-        kiprintln!("TX {} marked as spent, and 0x2130eefb6c4fdd24887c4059d56032d020f197ed7102e0bdf53035f881d205fa is still ignored", tx_hash_str_ref);
-    }
+
+    state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
+    
     kiprintln!(
         "Successfully validated payment and marked tx {} as spent.",
         tx_hash_str_ref
