@@ -5,7 +5,7 @@
         "request_networking": false,
         "request_capabilities": [],
         "grant_capabilities": [
-            "operator:hypergrid:grid.hypr"
+            "operator:hypergrid:ware.hypr"
         ],
         "wit_version": 1
     }

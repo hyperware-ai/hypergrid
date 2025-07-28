@@ -5,14 +5,14 @@
     "properties": {
         "package_name": "hypergrid-provider-test",
         "current_version": "0.1.0",
-        "publisher": "grid.hypr",
+        "publisher": "ware.hypr",
         "mirrors": [],
         "code_hashes": {
             "0.1.0": ""
         },
         "wit_version": 1,
         "dependencies": [
-            "hypergrid-provider:grid.hypr",
+            "hypergrid-provider:ware.hypr",
             "tester:sys"
         ]
     },
