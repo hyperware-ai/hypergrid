@@ -26,8 +26,8 @@ function App() {
   const derivedNodeName = useMemo(() => {
     const windowNodeName = (window as any).our?.node;
     if (windowNodeName) return windowNodeName;
-    if (onboardingData?.checks?.operatorEntry && onboardingData.checks.operatorEntry.startsWith("grid-beta-wallet-aa-final.")) {
-        const namePart = onboardingData.checks.operatorEntry.substring("grid-beta-wallet-aa-final.".length);
+    if (onboardingData?.checks?.operatorEntry && onboardingData.checks.operatorEntry.startsWith("grid-wallet.")) {
+        const namePart = onboardingData.checks.operatorEntry.substring("grid-wallet.".length);
         if (namePart) return namePart;
     }
     return null;

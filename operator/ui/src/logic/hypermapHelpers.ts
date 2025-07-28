@@ -71,7 +71,7 @@ export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 100n * 10n ** 6n; // 100 USDC (
 /**
  * Encodes the calldata for the Hypermap 'mint' function.
  * @param owner The address that will own the newly minted TBA.
- * @param subLabel The label for the new sub-entry (e.g., "grid-beta-wallet").
+ * @param subLabel The label for the new sub-entry (e.g., "grid-wallet").
  * @param implementationAddress The address of the TBA implementation contract.
  * @param initializationData Optional data for initializing the TBA (defaults to '0x').
  * @returns The encoded function data.
@@ -199,7 +199,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
     const mintInternal = useCallback(({
         parentTbaAddress, // Address of the parent TBA (e.g., pertinent.os's TBA)
         ownerOfNewSubTba,   // EOA that will own the new sub-TBA
-        subLabelToMint,     // Label for the new sub-entry (e.g., "grid-beta-wallet" or "grid-beta-wallet-aa")
+        subLabelToMint,     // Label for the new sub-entry (e.g., "grid-wallet" or "grid-wallet-aa")
         implementationForNewSubTba = DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
     }: {
         parentTbaAddress: Address;
@@ -216,7 +216,7 @@ export function useMintOperatorSubEntry(props?: UseWriteHypermapContractProps) {
             return;
         }
         
-        console.log(`useMintOperatorSubEntry: Preparing to mint sub-label '${subLabelToMint}'(SHOULD BE 'grid-beta-wallet-aa-final') under parent TBA ${parentTbaAddress}.`);
+        console.log(`useMintOperatorSubEntry: Preparing to mint sub-label '${subLabelToMint}'(SHOULD BE 'grid-wallet') under parent TBA ${parentTbaAddress}.`);
         console.log(`  New sub-TBA will be owned by: ${ownerOfNewSubTba}`);
         console.log(`  New sub-TBA implementation: ${implementationForNewSubTba}`);
 

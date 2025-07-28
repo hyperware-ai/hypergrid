@@ -642,7 +642,7 @@ pub enum GraphNodeData {
 #[serde(rename_all = "camelCase")]
 pub struct MintOperatorWalletActionNodeData {
     pub label: String,
-    pub owner_node_name: String, // To construct the grid-beta-wallet name
+    pub owner_node_name: String, // To construct the grid-wallet name
     pub action_id: String, // e.g., "trigger_mint_operator_wallet"
 }
 

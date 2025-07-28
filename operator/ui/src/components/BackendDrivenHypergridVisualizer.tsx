@@ -634,7 +634,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         if (node.type === 'mintOperatorWalletActionNode' && node.data) {
             console.log("Mint Action Clicked. Data:", node.data);
             const ownerNodeName = (node.data as any)['ownerNodeName'];
-            const subLabelToMintForGrid = "grid-beta-wallet-aa-final";
+            const subLabelToMintForGrid = "grid-wallet";
             if (!ownerNodeName) {
                 console.error("Mint Action: Owner node name not found in node data.");
                 setMintDisplayError("Configuration error: Owner node name missing.");

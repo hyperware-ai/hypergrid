@@ -1029,7 +1029,7 @@ pub fn handle_terminal_debug(
 
             // P1 & P2: Base Node and Sub-Entry Existence
             let base_node_name = our.node.clone();
-            let sub_entry_name = format!("grid-beta-wallet-aa-final.{}", base_node_name);
+            let sub_entry_name = format!("grid-wallet.{}", base_node_name);
             info!("[1/2] Checking base node '{}' and sub-entry '{}' existence...", base_node_name, sub_entry_name);
             let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
             let hypermap_addr = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS).expect("Bad Hypermap Addr");
