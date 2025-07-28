@@ -136,7 +136,7 @@ echo -e "${BLUE}Creating package zip file...${NC}"
 mkdir -p target
 
 # Create the zip file
-ZIP_NAME="hypergrid:grid.zip"
+ZIP_NAME="hypergrid:ware.zip"
 echo "Creating target/$ZIP_NAME..."
 
 # Remove old zip if it exists
