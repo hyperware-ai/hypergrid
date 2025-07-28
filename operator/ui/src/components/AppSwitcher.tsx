@@ -28,8 +28,8 @@ const AppSwitcher: React.FC<AppSwitcherProps> = ({ currentApp = 'operator' }) =>
     // Use the current origin and construct the URL dynamically
     const origin = window.location.origin;
     const url = app === 'operator' 
-      ? `${origin}/operator:hypergrid:grid-beta.hypr/`
-      : `${origin}/provider:hypergrid:grid-beta.hypr/`;
+      ? `${origin}/operator:hypergrid:grid.hypr/`
+      : `${origin}/provider:hypergrid:grid.hypr/`;
     
     window.location.href = url;
   };

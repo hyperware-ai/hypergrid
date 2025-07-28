@@ -48,7 +48,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
               width: `${providerName.length || 13}ch`, // Use actual length or placeholder length
             }}
           />
-        <span>.obfusc-grid123.hypr</span>
+        <span>.grid.hypr</span>
       </div>
 
       {/* Trunk line from HNS name down to the first branch */}

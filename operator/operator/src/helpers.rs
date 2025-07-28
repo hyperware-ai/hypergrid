@@ -872,7 +872,7 @@ pub fn handle_terminal_debug(
             info!("search-providers <query>: Search providers by name, provider_name, site, description, or provider_id.");
             info!("db-stats       : Show database statistics and the current root hash status.");
             info!("check-provider-id <provider_id>: Check for provider by provider_id.");
-            info!("check-grid-root: Check the grid-beta.hypr entry status.");
+            info!("check-grid-root: Check the grid.hypr entry status.");
             info!("\n--- ERC-4337 / Account Abstraction Commands ---");
             info!("check-aa       : Run ERC-4337 sanity checks (implementation, balances, approvals).");
             info!("approve-paymaster: Approve Circle paymaster to spend USDC from TBA.");
@@ -1193,8 +1193,8 @@ pub fn handle_terminal_debug(
                         warn!("No providers found in database!");
                         info!("This could mean:");
                         info!("  1. The database was recently reset");
-                        info!("  2. Chain sync hasn't found obfusc-grid123.hypr yet"); 
-                        info!("  3. No providers have been minted under obfusc-grid123.hypr");
+                        info!("  2. Chain sync hasn't found grid.hypr yet"); 
+                        info!("  3. No providers have been minted under grid.hypr");
                     } else {
                         info!("Found {} provider(s) in database:", providers.len());
                         for (idx, provider) in providers.iter().enumerate() {
@@ -1269,8 +1269,8 @@ pub fn handle_terminal_debug(
             
             // Check if root hash is set
             match &state.root_hash {
-                Some(hash) => info!("Hypergrid root (obfusc-grid123.hypr) hash: {}", hash),
-                None => warn!("Hypergrid root (obfusc-grid123.hypr) NOT SET - this prevents provider indexing!"),
+                Some(hash) => info!("Hypergrid root (grid.hypr) hash: {}", hash),
+                None => warn!("Hypergrid root (grid.hypr) NOT SET - this prevents provider indexing!"),
             }
             
             // Count providers
@@ -1304,7 +1304,7 @@ pub fn handle_terminal_debug(
                                 (row.get("parent_hash").and_then(|v| v.as_str()), 
                                  row.get("count").and_then(|v| v.as_i64())) {
                                 let parent_display = if parent == state.root_hash.as_deref().unwrap_or("") {
-                                    format!("{} (obfusc-grid123.hypr)", parent)
+                                    format!("{} (grid.hypr)", parent)
                                 } else {
                                     parent.to_string()
                                 };
@@ -1411,7 +1411,7 @@ pub fn handle_terminal_debug(
             }
         }
         "check-grid-root" => {
-            info!("--- Checking obfusc-grid123.hypr entry status ---");
+            info!("--- Checking grid.hypr entry status ---");
             
             // Check current state
             match &state.root_hash {
@@ -1423,16 +1423,16 @@ pub fn handle_terminal_debug(
                 }
             }
             
-            // Check on-chain for obfusc-grid123.hypr
-            info!("\nChecking on-chain for obfusc-grid123.hypr...");
+            // Check on-chain for grid.hypr
+            info!("\nChecking on-chain for grid.hypr...");
             let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
-            match debug_get_tba_for_node("obfusc-grid123.hypr") {
+            match debug_get_tba_for_node("grid.hypr") {
                 Ok(result) => {
-                    info!("On-chain lookup for obfusc-grid123.hypr: {}", result);
+                    info!("On-chain lookup for grid.hypr: {}", result);
                     
                     // Calculate the expected hash
-                    let expected_hash = hypermap::namehash("obfusc-grid123.hypr");
-                    info!("Expected hash for obfusc-grid123.hypr: {}", expected_hash);
+                    let expected_hash = hypermap::namehash("grid.hypr");
+                    info!("Expected hash for grid.hypr: {}", expected_hash);
                     
                     // Check if it matches state
                     if let Some(state_hash) = &state.root_hash {
@@ -1444,15 +1444,15 @@ pub fn handle_terminal_debug(
                     }
                 }
                 Err(e) => {
-                    error!("Failed to look up obfusc-grid123.hypr on-chain: {}", e);
+                    error!("Failed to look up grid.hypr on-chain: {}", e);
                 }
             }
             
             // Show hypr parent hash for reference
             let hypr_hash = "0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826";
             info!("\nFor reference:");
-            info!("  hypr hash (parent of grid-beta): {}", hypr_hash);
-            info!("  obfusc-grid123.hypr expected hash: {}", hypermap::namehash("obfusc-grid123.hypr"));
+            info!("  hypr hash (parent of grid): {}", hypr_hash);
+            info!("  grid.hypr expected hash: {}", hypermap::namehash("grid.hypr"));
             
             // Check if any providers are waiting
             let pending_query = "SELECT COUNT(*) as count FROM providers WHERE parent_hash != ?1".to_string();
@@ -1468,7 +1468,7 @@ pub fn handle_terminal_debug(
                 Err(_) => {}
             }
             
-            info!("--- End obfusc-grid123.hypr check ---");
+            info!("--- End grid.hypr check ---");
         }
         "check-aa" => {
             info!("--- ERC-4337 Account Abstraction Sanity Check ---");

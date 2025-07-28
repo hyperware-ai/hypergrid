@@ -1071,7 +1071,7 @@ fn execute_provider_call(
     // Prepare target address
     let target_address = Address::new(
         &provider_details.provider_id,
-        ("provider", "hypergrid", "grid-beta.hypr")
+        ("provider", "hypergrid", "grid.hypr")
     );
     
     let payment_tx_hash_clone = payment_tx_hash.clone();
@@ -1167,7 +1167,7 @@ fn execute_provider_call(
 //
 //    let target_address = HyperwareAddress::new(
 //        provider_id,
-//        ("hypergrid-provider", "hypergrid-provider", "grid-beta.hypr")
+//        ("hypergrid-provider", "hypergrid-provider", "grid.hypr")
 //    );
 //
 //    let DummyArgument = serde_json::json!({
@@ -1213,7 +1213,7 @@ fn perform_provider_health_check(provider_details: &ProviderDetails) -> anyhow::
     
     let target_address = Address::new(
         &provider_details.provider_id,
-        ("provider", "hypergrid", "grid-beta.hypr")
+        ("provider", "hypergrid", "grid.hypr")
     );
     
     let DummyArgument = serde_json::json!({

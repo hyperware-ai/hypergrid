@@ -6,11 +6,11 @@
         "request_networking": true,
         "request_capabilities": [
             "http-client:distro:sys",
-            "hypergrid-provider:hypergrid-provider:grid-beta.hypr"
+            "hypergrid-provider:hypergrid-provider:grid.hypr"
         ],
         "grant_capabilities": [
             "http-client:distro:sys",
-            "hypergrid-provider:hypergrid-provider:grid-beta.hypr"
+            "hypergrid-provider:hypergrid-provider:grid.hypr"
         ],
         "public": true
     }

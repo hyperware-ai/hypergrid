@@ -42,7 +42,7 @@ fn call_hyperwallet_payment(
         "wallet_id": wallet_id,
         "chain_id": crate::structs::CHAIN_ID,
         "auth": {
-            "process_address": format!("{}@operator:hypergrid:grid-beta.hypr", hyperware_process_lib::our().node()),
+            "process_address": format!("{}@operator:hypergrid:grid.hypr", hyperware_process_lib::our().node()),
             "signature": null
         },
         "request_id": null,

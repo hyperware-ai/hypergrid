@@ -32,7 +32,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
       <div className="provider-left-section">
         <div className="provider-header">
           <h3 className="provider-name">
-            <span className="provider-icon">🔌</span> {provider.provider_name}.obfusc-grid123.hypr
+            <span className="provider-icon">🔌</span> {provider.provider_name}.grid.hypr
           </h3>
           <span className="provider-price">
             <span style={{ fontSize: '0.9em', opacity: 0.9 }}>💰 <span className="desktop-only">Price:</span></span>

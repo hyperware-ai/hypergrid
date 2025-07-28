@@ -7,7 +7,7 @@ import type {
   Result,
 } from "./types";
 
-export const API_PATH = "/operator:hypergrid:grid-beta.hypr/api";
+export const API_PATH = "/operator:hypergrid:grid.hypr/api";
 
 export async function fetchState(): AsyncRes<ProcessState> {
   try {

@@ -534,7 +534,7 @@ impl HypergridProviderState {
         // Use the hypermap library to calculate the correct namehash
         // This ensures consistency with the on-chain registration
         // TODO: Make this configurable via environment variable or config
-        let namespace = "obfusc-grid123.hypr"; // Replace with your actual namespace
+        let namespace = "grid.hypr"; // Replace with your actual namespace
         let full_name = format!("{}.{}", provider.provider_name, namespace);
         let namehash = hypermap::namehash(&full_name);
         

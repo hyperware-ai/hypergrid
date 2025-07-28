@@ -300,7 +300,7 @@ function AppContent() {
   }, [registeredProviders, setRegisteredProviders]);
 
   const handleCopyProviderMetadata = useCallback(async (provider: RegisteredProvider) => {
-    const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid-beta.hypr";
+    const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid.hypr";
     const metadata = {
       "~description": provider.description,
       "~instructions": provider.instructions,
