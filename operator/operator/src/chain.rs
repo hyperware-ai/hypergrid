@@ -531,24 +531,23 @@ pub fn handle_timer(
     is_checkpoint: bool,
 ) -> anyhow::Result<()> {
     let timer_type = if is_checkpoint { "CHECKPOINT" } else { "DELAY" };
-    debug!("handling timer - pending: {:?}", pending.len());
+    debug!("handling {} timer - pending: {:?}", timer_type, pending.len());
     
-    let block_number = state.hypermap.provider.get_block_number();
-    if let Ok(block_number) = block_number {
-        debug!("Current block: {}", block_number);
-        state.last_checkpoint_block = block_number;
-        if is_checkpoint {
-            state.save();
-            // Reset checkpoint timer
-            timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
-        } else {
-            // This is a regular DELAY_MS timer event
-            // Reset the delay timer ONLY when handling a delay timer event
-            timer::set_timer(DELAY_MS, None);
-        }
+    // No need to call get_block_number() - we get block numbers from subscription events
+    // The last_checkpoint_block is already updated in handle_log() from event data
+    
+    if is_checkpoint {
+        debug!("Checkpoint timer: saving state at block {}", state.last_checkpoint_block);
+        state.save();
+        // Reset checkpoint timer
+        timer::set_timer(CHECKPOINT_MS, Some(b"checkpoint".to_vec()));
     } else {
-        error!("Failed to get block number in {} timer: {:?}", timer_type, block_number);
+        // This is a regular DELAY_MS timer event
+        debug!("Delay timer: processing pending logs at block {}", state.last_checkpoint_block);
+        // Reset the delay timer ONLY when handling a delay timer event
+        timer::set_timer(DELAY_MS, None);
     }
+    
     handle_pending(state, db, pending);
     debug!("new pending: {:?}", pending.len());
 
