@@ -21,7 +21,9 @@ pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
 mod util; // Declare the util module
 use util::*; // Use its public items
 
-const ICON: &str = include_str!("./icon");
+mod db; // Declare the db module  
+use db::*; // Use its public items
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderRequest {
     pub provider_name: String,
@@ -68,6 +70,7 @@ pub enum TerminalCommand {
     UnregisterProvider(String),
     TestProvider(ProviderRequest),
     ExportProviders,
+    ViewDatabase,
 }
 
 // --- Modified EndpointDefinition ---
@@ -542,6 +545,108 @@ impl HypergridProviderState {
         Ok(namehash)
     }
 
+    /// Get all providers from the operator's indexed database
+    #[http]
+    async fn get_indexed_providers(&self) -> Result<String, String> {
+        info!("Fetching all indexed providers from operator database");
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let providers = get_all_indexed_providers(&db).map_err(|e| {
+            format!("Failed to fetch indexed providers: {}", e)
+        })?;
+        
+        let json_providers: Vec<serde_json::Value> = providers
+            .into_iter()
+            .map(|provider| serde_json::to_value(provider).unwrap_or_default())
+            .collect();
+            
+        info!("Retrieved {} indexed providers", json_providers.len());
+        
+        serde_json::to_string(&json_providers).map_err(|e| {
+            format!("Failed to serialize providers to JSON: {}", e)
+        })
+    }
+
+    /// Search indexed providers by query
+    #[http]
+    async fn search_indexed_providers(&self, query: String) -> Result<String, String> {
+        info!("Searching indexed providers with query: {}", query);
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let providers = search_indexed_providers(&db, query.clone()).map_err(|e| {
+            format!("Failed to search indexed providers: {}", e)
+        })?;
+        
+        let json_providers: Vec<serde_json::Value> = providers
+            .into_iter()
+            .map(|provider| serde_json::to_value(provider).unwrap_or_default())
+            .collect();
+            
+        info!("Found {} providers matching query '{}'", json_providers.len(), query);
+        
+        serde_json::to_string(&json_providers).map_err(|e| {
+            format!("Failed to serialize providers to JSON: {}", e)
+        })
+    }
+
+    /// Get specific provider details from indexed database by name
+    #[http]
+    async fn get_indexed_provider_details(&self, name: String) -> Result<String, String> {
+        info!("Getting indexed provider details for name: {}", name);
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let provider = get_indexed_provider_by_name(&db, &name).map_err(|e| {
+            format!("Failed to get provider details: {}", e)
+        })?;
+        
+        let result = provider.map(|p| serde_json::to_value(p).unwrap_or_default());
+        
+        match &result {
+            Some(_) => info!("Found indexed provider details for '{}'", name),
+            None => info!("No indexed provider found for '{}'", name),
+        }
+        
+        serde_json::to_string(&result).map_err(|e| {
+            format!("Failed to serialize provider details to JSON: {}", e)
+        })
+    }
+
+    /// Get provider state synchronization status
+    #[http]
+    async fn get_provider_sync_status(&self) -> Result<String, String> {
+        info!("Checking provider sync status");
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let comparison = compare_with_indexed_state(&self.registered_providers, &db).map_err(|e| {
+            format!("Failed to compare provider states: {}", e)
+        })?;
+        
+        let status = serde_json::json!({
+            "is_synchronized": comparison.is_synchronized(),
+            "summary": comparison.summary(),
+            "total_local": comparison.total_local,
+            "missing_from_index": comparison.missing_from_index,
+            "mismatched": comparison.mismatched,
+            "has_issues": !comparison.is_synchronized()
+        });
+        
+        serde_json::to_string(&status).map_err(|e| {
+            format!("Failed to serialize sync status to JSON: {}", e)
+        })
+    }
+
     #[local]
     async fn terminal_command(&mut self, command: TerminalCommand) -> Result<String, String> {
         match command {
@@ -659,6 +764,24 @@ impl HypergridProviderState {
                         Err(e)
                     }
                 }
+            },
+            TerminalCommand::ViewDatabase => {
+                kiprintln!("Viewing database");
+
+                let db = load_provider_db().map_err(|e| {
+                    format!("Failed to load provider database: {}", e)
+                })?;
+
+                let providers = get_all_indexed_providers(&db).map_err(|e| {
+                    format!("Failed to fetch indexed providers: {}", e)
+                })?;
+
+                let json_providers: Vec<serde_json::Value> = providers
+                    .into_iter()
+                    .map(|provider| serde_json::to_value(provider).unwrap_or_default())
+                    .collect();
+
+                Ok(format!("Database: {:?}", json_providers))
             }
         }
     }

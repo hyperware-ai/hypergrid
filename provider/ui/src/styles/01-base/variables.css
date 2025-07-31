@@ -21,6 +21,7 @@
   --button-primary-text: #ffffff;
   --button-secondary-bg: #bdc3c7;
   --button-secondary-text: #2c3e50;
+  --button-secondary-hover: #a8b1b5;
   --button-subtle-hover-bg: rgba(0, 0, 0, 0.05);
   --button-border: #dee2e6;
   --button-hover-border: #adb5bd;
@@ -33,6 +34,9 @@
   /* Link styles */
   --link-color: #004fff; /* Match heading color for consistency or choose another blue */
   --link-hover-color: #003cb3; /* Darker shade of link-color */
+  
+  /* Text styles */
+  --text-muted: #6c757d;
   
   /* Modal styles */
   --modal-content-bg: #fff;
@@ -134,6 +138,7 @@ html[data-theme="dark"] {
   --button-primary-text: #111111; /* Contrasting text for primary button */
   --button-secondary-bg: #3a3a3a;
   --button-secondary-text: #e0e0e0;
+  --button-secondary-hover: #4a4a4a;
   --button-subtle-hover-bg: rgba(255, 255, 255, 0.1);
   --button-border: #495057;
   --button-hover-border: #6c757d;
@@ -146,6 +151,9 @@ html[data-theme="dark"] {
   /* Link styles */
   --link-color: #dcff71; /* Match heading color for consistency */
   --link-hover-color: #c5e861; /* Slightly darker shade of link-color */
+  
+  /* Text styles */
+  --text-muted: #adb5bd;
   
   /* Modal styles */
   --modal-content-bg: #1e1e1e;

@@ -88,6 +88,118 @@ button, input[type="text"], input[type="url"], input[type="password"], select, t
   opacity: 0.8;
 }
 
+/* Provider view button for indexed providers */
+.provider-view-button {
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border: 1px solid var(--button-border);
+  padding: 6px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+.provider-view-button:hover {
+  background-color: var(--button-secondary-hover);
+  opacity: 0.9;
+}
+
+/* Provider View Toggle Buttons */
+.provider-view-toggle {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px;
+  background-color: rgba(59, 130, 246, 0.05);
+  border-radius: 8px;
+  border: 1px solid rgba(59, 130, 246, 0.2);
+}
+
+.view-toggle-button {
+  flex: 1;
+  background-color: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  border: 1px solid var(--button-border);
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.view-toggle-button:hover {
+  background-color: var(--button-secondary-hover);
+}
+
+.view-toggle-button.active {
+  background-color: var(--primary-color);
+  color: var(--button-primary-text);
+  border-color: var(--primary-color);
+}
+
+/* Dark mode improvements for toggle buttons */
+html[data-theme="dark"] .view-toggle-button.active {
+  background-color: var(--button-secondary-bg);
+  color: var(--primary-color);
+  border-color: var(--primary-color);
+  font-weight: 600;
+}
+
+html[data-theme="dark"] .provider-view-toggle {
+  background-color: rgba(220, 255, 113, 0.08);
+  border-color: rgba(220, 255, 113, 0.3);
+}
+
+.toggle-icon {
+  font-size: 1.1em;
+}
+
+/* Mobile responsiveness for toggle buttons */
+@media (max-width: 768px) {
+  .provider-view-toggle {
+    gap: 8px;
+    margin-bottom: 12px;
+    padding: 6px;
+  }
+  
+  .view-toggle-button {
+    padding: 8px 12px;
+    font-size: 0.8em;
+    gap: 6px;
+  }
+  
+  .toggle-icon {
+    font-size: 1em;
+  }
+}
+
+@media (max-width: 480px) {
+  .provider-view-toggle {
+    gap: 6px;
+    padding: 4px;
+  }
+  
+  .view-toggle-button {
+    padding: 6px 10px;
+    font-size: 0.75em;
+    gap: 4px;
+  }
+  
+  .toggle-icon {
+    font-size: 0.9em;
+  }
+}
+
+
+
 /* Clear and Copy form button styles */
 .clear-form-button {
   background-color: var(--button-secondary-bg);

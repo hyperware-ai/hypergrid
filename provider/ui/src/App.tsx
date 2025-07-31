@@ -18,15 +18,25 @@ import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
   HttpMethod,
   RegisterProviderResponse,
-  RegisteredProvider
+  RegisteredProvider,
+  IndexedProvider
 } from "./types/hypergrid_provider";
-import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
+import { 
+  fetchRegisteredProvidersApi, 
+  registerProviderApi,
+  fetchAllIndexedProvidersApi,
+  searchIndexedProvidersApi,
+  getProviderSyncStatusApi
+} from "./utils/api";
 import CurlVisualizer from "./components/curlVisualizer";
 import ValidationPanel from "./components/ValidationPanel";
 import SelectionModal from "./components/SelectionModal";
 import APIConfigForm from "./components/APIConfigForm";
 import HypergridEntryForm from "./components/HypergridEntryForm";
 import RegisteredProviderView from './components/RegisteredProviderView';
+import IndexedProviderView from './components/IndexedProviderView';
+import ProviderSyncStatus from './components/ProviderSyncStatus';
+import FloatingNotification from './components/FloatingNotification';
 import { 
   validateProviderConfig, 
   buildProviderPayload, 
@@ -166,6 +176,16 @@ function AppContent() {
     const storedTheme = localStorage.getItem('theme');
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
+
+  // Provider view state
+  const [viewMode, setViewMode] = useState<'my-providers' | 'search-all'>('my-providers');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [indexedProviders, setIndexedProviders] = useState<IndexedProvider[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  
+  // Provider loading state
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [providersError, setProvidersError] = useState<string | null>(null);
   
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
@@ -277,14 +297,18 @@ function AppContent() {
   };
 
   const loadAndSetProviders = useCallback(async () => {
+    setProvidersLoading(true);
+    setProvidersError(null);
     try {
       const providers = await fetchRegisteredProvidersApi();
       setRegisteredProviders(providers);
       console.log("Fetched registered providers:", providers);
     } catch (error) {
       console.error("Failed to load registered providers in App:", error);
+      setProvidersError(error instanceof Error ? error.message : 'Failed to load providers');
       setRegisteredProviders([]);
-      // alert(`Error fetching providers: ${(error as Error).message}`);
+    } finally {
+      setProvidersLoading(false);
     }
   }, [setRegisteredProviders]);
 
@@ -298,6 +322,58 @@ function AppContent() {
     setRegisteredProviders(updatedProviders);
     console.log("Provider updated locally:", updatedProvider);
   }, [registeredProviders, setRegisteredProviders]);
+
+  const handleSearchIndexedProviders = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setIndexedProviders([]);
+      return;
+    }
+    
+    setSearchLoading(true);
+    try {
+      const results = await searchIndexedProvidersApi(query);
+      setIndexedProviders(results);
+      console.log("Fetched indexed providers:", results);
+    } catch (error) {
+      console.error("Failed to search indexed providers:", error);
+      setIndexedProviders([]);
+    } finally {
+      setSearchLoading(false);
+    }
+  }, []);
+
+  const handleViewModeChange = useCallback((mode: 'my-providers' | 'search-all') => {
+    setViewMode(mode);
+    if (mode === 'my-providers') {
+      setSearchQuery('');
+      setIndexedProviders([]);
+    }
+  }, []);
+
+  // Effect to handle search when query changes
+  useEffect(() => {
+    if (viewMode === 'search-all' && searchQuery.trim()) {
+      // Debounce the search
+      const timeoutId = setTimeout(() => {
+        handleSearchIndexedProviders(searchQuery);
+      }, 300);
+      
+      return () => clearTimeout(timeoutId);
+    } else if (viewMode === 'search-all' && !searchQuery.trim()) {
+      setIndexedProviders([]);
+    }
+  }, [searchQuery, viewMode, handleSearchIndexedProviders]);
+
+  // Effect to auto-refresh providers
+  useEffect(() => {
+    // Initial load
+    loadAndSetProviders();
+
+    // Set up periodic refresh (every 60 seconds)
+    const interval = setInterval(loadAndSetProviders, 60000);
+    
+    return () => clearInterval(interval);
+  }, [loadAndSetProviders]);
 
   const handleCopyProviderMetadata = useCallback(async (provider: RegisteredProvider) => {
     const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid.hypr";
@@ -578,18 +654,89 @@ function AppContent() {
               </button>
             </div>
 
-            {registeredProviders.length > 0 ? (
-              <ul className="provider-list">
-                {registeredProviders.map((provider) => (
-                  <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '0'}}>
-                    <RegisteredProviderView provider={provider} onEdit={handleEditProvider} />
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p>No API providers registered. Click "Add New Provider Configuration" to start.</p>
+            {/* Provider View Toggle */}
+            <div className="provider-view-toggle">
+              <button 
+                className={`view-toggle-button ${viewMode === 'my-providers' ? 'active' : ''}`}
+                onClick={() => handleViewModeChange('my-providers')}
+              >
+                <span className="toggle-icon">🏠</span>
+                My Providers ({registeredProviders.length})
+              </button>
+              <button 
+                className={`view-toggle-button ${viewMode === 'search-all' ? 'active' : ''}`}
+                onClick={() => handleViewModeChange('search-all')}
+              >
+                <span className="toggle-icon">🌐</span>
+                Search All Providers
+              </button>
+            </div>
+
+            {/* Search Input (only shown when in search mode) */}
+            {viewMode === 'search-all' && (
+              <div className="search-container">
+                <input
+                  type="text"
+                  placeholder="Search providers by name, description, or site..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="search-input"
+                />
+                {searchLoading && <div className="search-loading">🔍 Searching...</div>}
+              </div>
             )}
-            <button onClick={loadAndSetProviders} style={{ marginTop: '1em' }}>Refresh List</button>
+
+            {/* Provider List */}
+            {viewMode === 'my-providers' ? (
+              // My Providers View
+              <>
+                {registeredProviders.length > 0 ? (
+                  <ul className="provider-list">
+                    {registeredProviders.map((provider) => (
+                      <li key={provider.provider_id || provider.provider_name} className="provider-item" style={{ listStyleType: 'none', marginBottom: '0'}}>
+                        <RegisteredProviderView provider={provider} onEdit={handleEditProvider} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : !providersError ? (
+                  <div className="no-providers-state">
+                    <div className="no-providers-content">
+                      <span className="no-providers-icon">🔌</span>
+                      <h3>No API providers configured yet</h3>
+                      <p>Get started by adding your first API provider configuration.</p>
+                      <button onClick={handleOpenAddNewModal} className="add-provider-cta">
+                        Add Your First Provider
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="providers-error-state">
+                    <div className="error-state-content">
+                      <span className="error-state-icon">⚠️</span>
+                      <p>Unable to load provider information.</p>
+                      <p className="error-state-subtitle">Check the notification above to retry loading.</p>
+                    </div>
+                  </div>
+                )}
+              </>
+            ) : (
+              // Search All Providers View
+              <>
+                {!searchQuery.trim() ? (
+                  <p className="search-prompt">Enter a search term to find providers from the network...</p>
+                ) : indexedProviders.length > 0 ? (
+                  <ul className="provider-list">
+                    {indexedProviders.map((provider, index) => (
+                      <li key={provider.provider_id || provider.name || index} className="provider-item" style={{ listStyleType: 'none', marginBottom: '0'}}>
+                        <IndexedProviderView provider={provider} />
+                      </li>
+                    ))}
+                  </ul>
+                ) : !searchLoading && searchQuery.trim() ? (
+                  <p>No providers found matching "{searchQuery}". Try a different search term.</p>
+                ) : null}
+              </>
+            )}
           </section>
           
           {/* Mobile bottom action bar */}
@@ -779,6 +926,19 @@ function AppContent() {
           )}
         </div>
         </SelectionModal>
+
+        {/* Floating Notifications - only show when needed */}
+        <ProviderSyncStatus autoRefresh={true} refreshInterval={30000} />
+        <FloatingNotification
+          type="error"
+          title="Failed to fetch providers"
+          subtitle="Click to retry"
+          loading={providersLoading}
+          onRetry={loadAndSetProviders}
+          className="provider-notification"
+          show={!!providersError}
+          retryTooltip="Click to retry loading providers"
+        />
       </main>
     </div>
   );

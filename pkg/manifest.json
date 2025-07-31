@@ -15,7 +15,7 @@
       "sign:sign:sys",
       "hns-indexer:hns-indexer:sys"
     ],
-    "grant_capabilities": ["http-server:distro:sys", "terminal:terminal:sys"],
+    "grant_capabilities": ["http-server:distro:sys", "terminal:terminal:sys", "sqlite:distro:sys"],
     "public": true
   },
   {
@@ -28,7 +28,8 @@
       "http-client:distro:sys",
       "http-server:distro:sys",
       "vfs:distro:sys",
-      "eth:distro:sys"
+      "eth:distro:sys",
+      "sqlite:distro:sys"
     ],
     "grant_capabilities": [
       "homepage:homepage:sys",
@@ -36,7 +37,8 @@
       "http-server:distro:sys",
       "vfs:distro:sys",
       "terminal:terminal:sys",
-      "eth:distro:sys"
+      "eth:distro:sys",
+      "sqlite:distro:sys"
     ],
     "public": false
   }
