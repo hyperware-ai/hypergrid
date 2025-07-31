@@ -749,7 +749,7 @@ fn handle_delete_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<
 
 fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
     info!("Generating new wallet");
-    match hyperwallet_service::generate_initial_wallet() {
+    match hyperwallet_service::generate_initial_wallet(state) {
         Ok(wallet_id) => {
             info!("Generated wallet via hyperwallet: {}", wallet_id);
             send_json_response(StatusCode::OK, &json!({ "success": true, "id": wallet_id }))
@@ -1587,10 +1587,13 @@ fn handle_payment(
     };
     
     info!("Attempting payment of {} to {} for provider {} using wallet {}", 
-          provider_details.price_str, provider_details.wallet_address, 
-          provider_details.provider_id, signer_wallet_id);
+          provider_details.price_str, 
+          provider_details.wallet_address, 
+          provider_details.provider_id, 
+          signer_wallet_id
+        );
     
-    let payment_result = hyperwallet_payments::execute_payment_if_needed(
+    let payment_result = hyperwallet_payments::execute_payment(
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,

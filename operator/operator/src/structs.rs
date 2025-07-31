@@ -1,6 +1,7 @@
 use hyperware_process_lib::{eth, get_state, set_state, hypermap};
 use hyperware_process_lib::signer::LocalSigner;
 use hyperware_process_lib::logging::{info, error};
+use hyperware_process_lib::hyperwallet_client::SessionInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -137,7 +138,7 @@ pub struct Provider {
     pub provider_id: Option<String>,
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct State {
     // --- Indexer Fields (Copied from Indexer) ---
     pub chain_id: u64,
@@ -170,6 +171,10 @@ pub struct State {
     // ERC-4337 configuration
     #[serde(default)]
     pub gasless_enabled: Option<bool>,
+
+    // Hyperwallet session info
+    #[serde(skip)]
+    pub hyperwallet_session: Option<SessionInfo>,
 
     #[serde(skip)]
     pub db_conn: Option<hyperware_process_lib::sqlite::Sqlite>,
@@ -212,6 +217,7 @@ impl State {
             hashed_shim_api_key: None, // Will be phased out
             authorized_clients: default_clients, // Initialize as empty HashMap
             gasless_enabled: None, // Initialize gasless_enabled
+            hyperwallet_session: None, // Initialize hyperwallet session
             db_conn: None,
             timers_initialized: false,
         }
@@ -230,6 +236,7 @@ impl State {
                     state.providers_cache = HashMap::new(); 
                     state.db_conn = None; // Ensure db_conn is initialized after load
                     state.timers_initialized = false; // Reset timer initialization flag
+                    state.hyperwallet_session = None; // Reset hyperwallet session on load
                     // Re-initialize hypermap to ensure a fresh eth::Provider instance
                     state.hypermap = hypermap::Hypermap::default(60);
                     // The contract_address field in state should still be respected by hypermap logic if it differs from default.
@@ -249,8 +256,9 @@ impl State {
     }
     /// Saves the serializable state (including wallet_storage)
     pub fn save(&mut self) {
-        // Detach DB connection before saving
+        // Detach DB connection and session before saving
         self.db_conn = None;
+        // Note: hyperwallet_session is already marked with #[serde(skip)] so it won't be serialized
         match rmp_serde::to_vec(self) {
             Ok(state_bytes) => set_state(&state_bytes),
             Err(e) => {

@@ -19,7 +19,7 @@ use hex;
 
 use crate::structs::{self, *};
 use crate::db;
-use crate::wallet::service;
+use crate::hyperwallet_client::{service, payments::{handle_operator_tba_withdrawal, AssetType, execute_payment}};
 use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
@@ -1006,9 +1006,9 @@ pub fn handle_terminal_debug(
                     amount_eth_f64, wei_value, operator_tba_addr_str, target_address_str);
 
                 // Use hyperwallet to handle the ETH transfer
-                match crate::wallet::payments::handle_operator_tba_withdrawal(
+                match handle_operator_tba_withdrawal(
                     state,
-                    crate::wallet::payments::AssetType::Eth,
+                    AssetType::Eth,
                     target_address_str.to_string(),
                     wei_value.to_string(),
                 ) {
@@ -1589,7 +1589,7 @@ pub fn handle_terminal_debug(
                 state.gasless_enabled = Some(true);
                 
                 // Use the same function that the operator uses for real payments
-                match crate::wallet::payments::execute_payment_if_needed(
+                match execute_payment(
                     state,
                     target,
                     &amount_f64.to_string(),

@@ -25,12 +25,13 @@ use crate::structs::{
     IdentityStatus, DelegationStatus, 
     MintOperatorWalletActionNodeData,
 };
-use crate::wallet::service::{
+use crate::hyperwallet_client::service::{
     get_wallet_summary_for_address,
     get_all_onchain_linked_hot_wallet_addresses,
-    //verify_single_hot_wallet_delegation_detailed,
+    verify_single_hot_wallet_delegation_detailed,
+    get_wallet_spending_limits,
 };
-use crate::wallet::payments::{
+use crate::hyperwallet_client::payments::{
     check_operator_tba_funding_detailed,
     check_single_hot_wallet_funding_detailed,
 };
@@ -161,7 +162,7 @@ pub fn build_hypergrid_graph_data(
                 if let Some(selected_hw_id) = &state.selected_wallet_id {
                     if let Some(selected_hw) = state.managed_wallets.get(selected_hw_id) {
                         let hw_address_str = &selected_hw.id.to_string();
-                        match crate::wallet::service::verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
+                        match verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
                             DelegationStatus::Verified => {
                                 signers_note_status_text = format!("Signers Note: Set (Verified for {})", truncate_address(hw_address_str));
                                 signers_note_is_set = true;
@@ -424,7 +425,7 @@ pub fn build_hypergrid_graph_data(
                         }
 
                         // Get spending limits from hyperwallet (works for both managed and external wallets)
-                        let spending_limits = crate::hyperwallet_client::service::get_wallet_spending_limits(hw_address_str.clone())
+                        let spending_limits = get_wallet_spending_limits(state, hw_address_str.clone())
                             .unwrap_or_else(|e| {
                                 info!("Could not fetch spending limits for {}: {}", hw_address_str, e);
                                 None
@@ -449,7 +450,7 @@ pub fn build_hypergrid_graph_data(
                     } else {
                         // No summary found - create a minimal node for external wallet
                         // Still try to get spending limits from hyperwallet
-                        let spending_limits = crate::hyperwallet_client::service::get_wallet_spending_limits(hw_address_str.clone())
+                        let spending_limits = get_wallet_spending_limits(state, hw_address_str.clone())
                             .unwrap_or_else(|e| {
                                 info!("Could not fetch spending limits for external wallet {}: {}", hw_address_str, e);
                                 None
