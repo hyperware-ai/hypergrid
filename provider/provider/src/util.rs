@@ -1,5 +1,5 @@
 use crate::{EndpointDefinition, HttpMethod, ProviderRequest};
-use crate::constants::USDC_BASE_ADDRESS;
+use crate::constants::{USDC_BASE_ADDRESS, WALLET_PREFIX};
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_app_common::hyperware_process_lib::{
     eth::{Address as EthAddress, EthError, TransactionReceipt, TxHash, U256},
@@ -10,6 +10,7 @@ use hyperware_app_common::hyperware_process_lib::{
         StatusCode,
     },
     hypermap, Request,
+    logging::{debug, error, warn, info},
 };
 use hyperware_app_common::{send, sleep};
 use serde_json;
@@ -27,13 +28,19 @@ pub async fn send_async_http_request(
     timeout: u64,
     body: Vec<u8>,
 ) -> std::result::Result<HyperwareHttpResponse<Vec<u8>>, HttpClientError> {
+    // Capture values for logging before they're consumed
+    let headers_clone = headers.clone().unwrap_or_default();
+    let body_size = body.len();
+    let method_str = method.to_string();
+    let url_str = url.to_string();
+    
     let req = Request::to(("our", "http-client", "distro", "sys"))
         .expects_response(timeout)
         .body(
             serde_json::to_vec(&HttpClientAction::Http(OutgoingHttpRequest {
-                method: method.to_string(),
+                method: method_str.clone(),
                 version: None,
-                url: url.to_string(),
+                url: url_str.clone(),
                 headers: headers.unwrap_or_default(),
             }))
             .map_err(|_| HttpClientError::MalformedRequest)?,
@@ -61,13 +68,33 @@ pub async fn send_async_http_request(
                 .body(get_blob().unwrap_or_default().bytes)
                 .unwrap())
         }
-        Ok(Ok(HttpClientResponse::WebSocketAck)) => Err(HttpClientError::ExecuteRequestFailed(
-            "http-client gave unexpected response".to_string(),
-        )),
-        Ok(Err(http_client_err)) => Err(http_client_err),
-        Err(app_send_err) => Err(HttpClientError::ExecuteRequestFailed(format!(
-            "http-client gave invalid response: {app_send_err:?}"
-        ))),
+        Ok(Ok(HttpClientResponse::WebSocketAck)) => {
+            let error = HttpClientError::ExecuteRequestFailed(
+                "http-client gave unexpected response".to_string(),
+            );
+            error!(
+                "HTTP request failed - unexpected WebSocket response: method={}, url={}, timeout={}s, error={:?}",
+                method_str, url_str, timeout, error
+            );
+            Err(error)
+        }
+        Ok(Err(http_client_err)) => {
+            error!(
+                "HTTP request failed - client error: method={}, url={}, timeout={}s, headers={:?}, body_size={}, error={:?}",
+                method_str, url_str, timeout, headers_clone, body_size, http_client_err
+            );
+            Err(http_client_err)
+        }
+        Err(app_send_err) => {
+            let error = HttpClientError::ExecuteRequestFailed(format!(
+                "http-client gave invalid response: {app_send_err:?}"
+            ));
+            error!(
+                "HTTP request failed - send error: method={}, url={}, timeout={}s, headers={:?}, body_size={}, send_error={:?}",
+                method_str, url_str, timeout, headers_clone, body_size, app_send_err
+            );
+            Err(error)
+        }
     }
 }
 
@@ -95,7 +122,7 @@ pub async fn get_logs_for_tx(
     for attempt in 1..=MAX_RETRIES {
         match provider.get_transaction_receipt(tx_hash) {
             Ok(Some(receipt)) => {
-                kiprintln!(
+                debug!(
                     "Found receipt for tx {} on attempt {}: Receipt: {:?}",
                     tx_hash_str,
                     attempt,
@@ -104,7 +131,7 @@ pub async fn get_logs_for_tx(
                 return Ok(receipt);
             }
             Ok(None) => {
-                kiprintln!(
+                debug!(
                     "Transaction receipt not found for tx {} on attempt {}/{}",
                     tx_hash_str,
                     attempt,
@@ -113,20 +140,20 @@ pub async fn get_logs_for_tx(
                 if attempt < MAX_RETRIES {
                     // Exponential backoff: 500ms, 1000ms, 2000ms, 4000ms
                     let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1));
-                    kiprintln!("Retrying in {}ms...", delay_ms);
+                    debug!("Retrying in {}ms...", delay_ms);
                     // Sleep before retrying (using thread sleep as async sleep not available)
                     let _ = sleep(delay_ms).await;
                 } else {
-                    kiprintln!("Max retries reached for tx {}", tx_hash_str);
+                    debug!("Max retries reached for tx {}", tx_hash_str);
                     return Err(EthError::RpcTimeout);
                 }
             }
             Err(e) => {
-                eprintln!("Error fetching receipt for tx {} on attempt {}: {:?}", tx_hash_str, attempt, e);
+                debug!("Error fetching receipt for tx {} on attempt {}: {:?}", tx_hash_str, attempt, e);
                 if attempt < MAX_RETRIES {
                     // Exponential backoff: 500ms, 1000ms, 2000ms, 4000ms
                     let delay_ms = INITIAL_DELAY_MS * (1 << (attempt - 1));
-                    kiprintln!("Retrying in {}ms...", delay_ms);
+                    debug!("Retrying in {}ms...", delay_ms);
                     // Sleep before retrying (using thread sleep as async sleep not available)
                     let _ = sleep(delay_ms).await;
                 } else {
@@ -147,7 +174,7 @@ pub async fn call_provider(
     dynamic_args: &Vec<(String, String)>,
     source: String,
 ) -> Result<String, String> {
-    kiprintln!(
+    info!(
         "Calling provider via util: {}, endpoint: {}, structure: {:?}",
         provider_id_for_log,
         endpoint_def.name,
@@ -164,7 +191,7 @@ pub async fn call_provider(
     {
         if !api_key_value.is_empty() && !header_name.is_empty() {
             http_headers.insert(header_name.clone(), api_key_value.clone());
-            kiprintln!("API Key added to header: {}", header_name);
+            debug!("API Key added to header: {}", header_name);
             api_key_in_header = true;
         }
     }
@@ -176,7 +203,7 @@ pub async fn call_provider(
                     http_headers.insert(key.clone(), value.clone());
                 }
             } else {
-                kiprintln!(
+                warn!(
                     "Warning: Missing dynamic argument for header key: '{}'",
                     key
                 );
@@ -186,7 +213,7 @@ pub async fn call_provider(
 
     http_headers.insert("X-Insecure-HPN-Client-Node-Id".to_string(), source);
 
-    kiprintln!(
+    debug!(
         "Prepared headers (before body processing): {:?}",
         http_headers
     );
@@ -199,14 +226,14 @@ pub async fn call_provider(
     match endpoint_def.request_structure {
         // Assuming RequestStructureType is also available via super:: or globally
         super::RequestStructureType::GetWithPath => {
-            kiprintln!("Structure: GetWithPath - Processing path parameters.");
+            debug!("Structure: GetWithPath - Processing path parameters.");
             if let Some(path_keys) = &endpoint_def.path_param_keys {
                 for path_key in path_keys {
                     if let Some(value) = args_map.get(path_key) {
                         processed_url_template =
                             processed_url_template.replace(&format!("{{{}}}", path_key), value);
                     } else {
-                        kiprintln!(
+                        warn!(
                             "Warning: Missing path parameter '{}' for URL template",
                             path_key
                         );
@@ -215,26 +242,26 @@ pub async fn call_provider(
             }
         }
         super::RequestStructureType::GetWithQuery => {
-            kiprintln!("Structure: GetWithQuery - Processing query parameters.");
+            debug!("Structure: GetWithQuery - Processing query parameters.");
             if let Some(query_keys) = &endpoint_def.query_param_keys {
                 for key in query_keys {
                     if let Some(value) = args_map.get(key) {
                         query_params_to_add.push((key.clone(), value.clone()));
                     } else {
-                        kiprintln!("Warning: Missing dynamic argument for query key: '{}'", key);
+                        warn!("Warning: Missing dynamic argument for query key: '{}'", key);
                     }
                 }
             }
         }
         super::RequestStructureType::PostWithJson => {
-            kiprintln!("Structure: PostWithJson - Processing path, query, and body parameters.");
+            debug!("Structure: PostWithJson - Processing path, query, and body parameters.");
             if let Some(path_keys) = &endpoint_def.path_param_keys {
                 for path_key in path_keys {
                     if let Some(value) = args_map.get(path_key) {
                         processed_url_template =
                             processed_url_template.replace(&format!("{{{}}}", path_key), value);
                     } else {
-                        kiprintln!(
+                        warn!(
                             "Warning: Missing optional path parameter '{}' for POST URL template",
                             path_key
                         );
@@ -246,7 +273,7 @@ pub async fn call_provider(
                     if let Some(value) = args_map.get(key) {
                         query_params_to_add.push((key.clone(), value.clone()));
                     } else {
-                        kiprintln!(
+                        warn!(
                             "Warning: Missing optional dynamic argument for query key: '{}'",
                             key
                         );
@@ -259,25 +286,30 @@ pub async fn call_provider(
                         if let Some(value) = args_map.get(key) {
                             body_data.insert(key.clone(), value.clone());
                         } else {
-                            kiprintln!("Warning: Missing dynamic argument for body key: '{}'", key);
+                            warn!("Warning: Missing dynamic argument for body key: '{}'", key);
                         }
                     }
-                    kiprintln!("Collected body data: {:?}", body_data.keys());
+                    debug!("Collected body data: {:?}", body_data.keys());
                 } else {
-                    kiprintln!("POST request configured with explicitly empty body_param_keys. No body generated from dynamic args.");
+                    debug!("POST request configured with explicitly empty body_param_keys. No body generated from dynamic args.");
                 }
             } else {
-                kiprintln!("POST request configured without body_param_keys specified (Option is None). Body will be empty.");
+                debug!("POST request configured without body_param_keys specified (Option is None). Body will be empty.");
             }
         }
     }
 
     // --- 3. Finalize URL with Query Params (including API Key if needed) ---
     let mut final_url = Url::parse(&processed_url_template).map_err(|e| {
-        format!(
+        let error_msg = format!(
             "Invalid base URL template after path substitution: {} -> {}: {}",
             endpoint_def.base_url_template, processed_url_template, e
-        )
+        );
+        error!(
+            "URL parsing failed for provider '{}': original_template={}, processed_template={}, error={}",
+            provider_id_for_log, endpoint_def.base_url_template, processed_url_template, e
+        );
+        error_msg
     })?;
 
     {
@@ -292,14 +324,14 @@ pub async fn call_provider(
             ) {
                 if !api_key_value.is_empty() && !param_name.is_empty() {
                     query_pairs.append_pair(param_name, api_key_value);
-                    kiprintln!("API Key added to query parameter: {}", param_name);
+                    debug!("API Key added to query parameter: {}", param_name);
                 }
             }
         }
     }
 
     let final_url_str = final_url.to_string();
-    kiprintln!("Final URL for call: {}", final_url_str);
+    debug!("Final URL for call: {}", final_url_str);
 
     // --- 4. Finalize Body and Headers for POST ---
     let mut body_bytes: Vec<u8> = Vec::new();
@@ -307,20 +339,25 @@ pub async fn call_provider(
         // HttpMethod also needs to be available
         if !body_data.is_empty() {
             http_headers.insert("Content-Type".to_string(), "application/json".to_string());
-            kiprintln!("Added Content-Type: application/json header because POST body is present.");
+            debug!("Added Content-Type: application/json header because POST body is present.");
 
             body_bytes = serde_json::to_vec(&body_data).map_err(|e| {
-                format!(
+                let error_msg = format!(
                     "Failed to serialize POST body: {}. Data: {:?}",
                     e, body_data
-                )
+                );
+                error!(
+                    "JSON serialization failed for provider '{}': endpoint={}, body_data={:?}, error={}",
+                    provider_id_for_log, endpoint_def.name, body_data, e
+                );
+                error_msg
             })?;
-            kiprintln!("POST Body Bytes Length: {}", body_bytes.len());
+            debug!("POST Body Bytes Length: {}", body_bytes.len());
         } else {
-            kiprintln!("POST request proceeding with empty body.");
+            warn!("POST request proceeding with empty body.");
         }
     }
-    kiprintln!("Final Headers being sent: {:?}", http_headers);
+    debug!("Final Headers being sent: {:?}", http_headers);
 
     // --- 5. Determine HTTP Method ---
     let http_client_method = match endpoint_def.method {
@@ -328,7 +365,7 @@ pub async fn call_provider(
         HttpMethod::GET => HyperwareHttpMethod::GET,
         HttpMethod::POST => HyperwareHttpMethod::POST,
     };
-    kiprintln!("HTTP Method for call: {:?}", http_client_method);
+    debug!("HTTP Method for call: {:?}", http_client_method);
 
     // --- 6. Execute HTTP Request --- Reuses send_async_http_request from this file
     let timeout_seconds = 60;
@@ -345,7 +382,10 @@ pub async fn call_provider(
             let status = response.status().as_u16();
             let response_body_bytes = response.body().to_vec();
             let body_result = String::from_utf8(response_body_bytes)
-                .map_err(|e| format!("Failed to parse response body as UTF-8: {}", e))?;
+                .map_err(|e| {
+                    error!("Failed to parse response body as UTF-8: {}", e);
+                    format!("Failed to parse response body as UTF-8: {}", e)
+                })?;
             
             // Try to parse the body as JSON to avoid double-encoding
             let body_json = match serde_json::from_str::<serde_json::Value>(&body_result) {
@@ -361,11 +401,11 @@ pub async fn call_provider(
             Ok(response_wrapper.to_string())
         }
         Err(e) => {
-            eprintln!(
+            error!(
                 "API call failed for {}: {} - Error: {:?}",
                 provider_id_for_log, endpoint_def.name, e
             );
-            Err(format!("API call failed: {:?}", e))
+            Err(format!("API call failed: {}", e))
         }
     }
 }
@@ -396,20 +436,30 @@ pub async fn validate_transaction_payment(
 
     // --- 2. Check if Transaction Hash has already been used ---
     if state.spent_tx_hashes.contains(tx_hash_str_ref) {
-        return Err(format!(
+        let error_msg = format!(
             "Transaction hash {} has already been used. You request has been rejected.",
             tx_hash_str_ref
-        ));
+        );
+        error!(
+            "Duplicate transaction hash used: provider={}, tx_hash={}, source_node={}",
+            mcp_request.provider_name, tx_hash_str_ref, source_node_id
+        );
+        return Err(error_msg);
     }
 
     // --- 3. Fetch Transaction Receipt ---
     let transaction_receipt = match get_logs_for_tx(tx_hash_str_ref, state).await {
         Ok(r) => r,
         Err(e) => {
-            return Err(format!(
+            let error_msg = format!(
                 "Error fetching transaction receipt for {}: {:?}",
                 tx_hash_str_ref, e
-            ));
+            );
+            error!(
+                "Failed to fetch transaction receipt: provider={}, tx_hash={}, source_node={}, error={:?}",
+                mcp_request.provider_name, tx_hash_str_ref, source_node_id, e
+            );
+            return Err(error_msg);
         }
     };
 
@@ -430,7 +480,7 @@ pub async fn validate_transaction_payment(
     //     ));
     // }
 
-    kiprintln!(
+    debug!(
         "Transaction to field confirmed to be token contract {} for tx: {}",
         expected_token_contract_address,
         tx_hash_str_ref
@@ -470,7 +520,7 @@ pub async fn validate_transaction_payment(
     for log in transaction_receipt.inner.logs() {
         // Check if the log is from the expected token contract
         if log.address() != expected_token_contract_address {
-            kiprintln!(
+            debug!(
                 "Log from contract {:?} does not match expected token contract {:?}, skipping. Tx: {}",
                 log.address(),
                 expected_token_contract_address,
@@ -482,7 +532,7 @@ pub async fn validate_transaction_payment(
         // Check if this is a Transfer event (topic 0 should be the Transfer event signature)
         let transfer_event_signature = "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
         if log.topics().is_empty() || log.topics()[0].to_string() != transfer_event_signature {
-            kiprintln!(
+            debug!(
                 "Log is not a Transfer event, skipping. Tx: {}",
                 tx_hash_str_ref
             );
@@ -490,14 +540,14 @@ pub async fn validate_transaction_payment(
         }
 
         usdc_transfer_count += 1;
-        kiprintln!(
+        debug!(
             "Found ERC20 Transfer event #{} for tx {}",
             usdc_transfer_count,
             tx_hash_str_ref
         );
 
         if log.topics().len() < 3 {
-            kiprintln!(
+            debug!(
                 "Transfer event log does not have enough topics (expected 3, got {}). Tx: {}",
                 log.topics().len(),
                 tx_hash_str_ref
@@ -509,7 +559,7 @@ pub async fn validate_transaction_payment(
         let tx_sender: &[u8] = log.topics()[1].as_slice();
         // Topics representing addresses are 32 bytes, address is last 20 bytes.
         if tx_sender.len() != 32 {
-            kiprintln!(
+            debug!(
                 "Sender topic (topic 1) has unexpected length: {}, expected 32. Tx: {}",
                 tx_sender.len(),
                 tx_hash_str_ref
@@ -521,7 +571,7 @@ pub async fn validate_transaction_payment(
         // Extract recipient from topic 2
         let tx_recipient: &[u8] = log.topics()[2].as_slice();
         if tx_recipient.len() != 32 {
-            kiprintln!(
+            debug!(
                 "Recipient topic (topic 2) has unexpected length: {}, expected 32. Tx: {}",
                 tx_recipient.len(),
                 tx_hash_str_ref
@@ -532,7 +582,7 @@ pub async fn validate_transaction_payment(
 
         // We're looking for the second USDC Transfer log specifically
         if usdc_transfer_count == 2 {
-            kiprintln!(
+            debug!(
                 "Processing second USDC Transfer event for tx {}: from={:?}, to={:?}",
                 tx_hash_str_ref,
                 tx_sender_address,
@@ -541,7 +591,7 @@ pub async fn validate_transaction_payment(
 
             // Validate recipient is the provider's wallet
             if tx_recipient_address != expected_provider_wallet {
-                kiprintln!(
+                debug!(
                     "Second Transfer event recipient mismatch for tx {}. Expected: {:?}, Got: {:?}",
                     tx_hash_str_ref,
                     expected_provider_wallet,
@@ -553,7 +603,7 @@ pub async fn validate_transaction_payment(
             // Validate amount from log data
             if log.data().data.len() == 32 {
                 let transferred_amount = U256::from_be_slice(log.data().data.as_ref());
-                kiprintln!(
+                debug!(
                     "Second Transfer event: from={:?}, to={:?}, amount={}",
                     tx_sender_address,
                     tx_recipient_address,
@@ -561,7 +611,7 @@ pub async fn validate_transaction_payment(
                 );
 
                 if transferred_amount >= service_price_u256 {
-                    kiprintln!(
+                    debug!(
                         "Payment amount validated via second ERC20 Transfer: {} tokens to {:?} from {:?} in tx {}",
                         transferred_amount,
                         tx_recipient_address,
@@ -574,7 +624,7 @@ pub async fn validate_transaction_payment(
                     payment_validated = true; // Provisional validation, Hypermap check still pending
                     break; // Found the second valid transfer, no need to check other logs
                 } else {
-                    kiprintln!(
+                    debug!(
                         "Second Transfer event amount insufficient for tx {}. Expected >= {}, Got: {}",
                         tx_hash_str_ref,
                         service_price_u256,
@@ -584,13 +634,13 @@ pub async fn validate_transaction_payment(
                     continue;
                 }
             } else {
-                kiprintln!(
+                debug!(
                     "Second Transfer event data field has unexpected length for tx {}. Expected 32 bytes for U256, got {}.",
                     tx_hash_str_ref, log.data().data.len()
                 );
             }
         } else {
-            kiprintln!(
+            debug!(
                 "Skipping USDC Transfer event #{} (not the second one) for tx {}",
                 usdc_transfer_count,
                 tx_hash_str_ref
@@ -613,7 +663,7 @@ pub async fn validate_transaction_payment(
         Err(e) => return Err(format!("Error fetching namehash for transaction sender ({} from log). Ensure it's a valid HNS entry TBA. Error: {:?}", final_claimed_sender_address, e)),
     };
 
-    let full_name_for_tba_lookup = format!("grid-wallet.{}", source_node_id);
+    let full_name_for_tba_lookup = format!("{}{}", WALLET_PREFIX, source_node_id);
     let expected_namehash_for_requester = hypermap::namehash(&full_name_for_tba_lookup);
 
     if namehash_from_claimed_sender_tba != expected_namehash_for_requester {
@@ -621,7 +671,7 @@ pub async fn validate_transaction_payment(
                           final_claimed_sender_address, namehash_from_claimed_sender_tba,
                           source_node_id, expected_namehash_for_requester));
     }
-    kiprintln!(
+    debug!(
         "Hypermap TBA sender verification passed for tx {}: Log sender {} matches requester {}",
         tx_hash_str_ref,
         final_claimed_sender_address,
@@ -633,7 +683,7 @@ pub async fn validate_transaction_payment(
 
     state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
     
-    kiprintln!(
+    debug!(
         "Successfully validated payment and marked tx {} as spent.",
         tx_hash_str_ref
     );

@@ -6,7 +6,7 @@ use hyperware_app_common::hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
     get_state,
     hypermap,
-    logging::{debug, error, info, init_logging, Level},
+    logging::{debug, error, info, warn, init_logging, Level},
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
@@ -304,15 +304,19 @@ impl HypergridProviderState {
         provider: RegisteredProvider,
     ) -> Result<RegisteredProvider, String> {
         info!("Registering provider: {:?}", provider);
+
+        // need to check if provider already exists in db + our registry, add that later
         if self
             .registered_providers
             .iter()
             .any(|p| p.provider_name == provider.provider_name)
         {
-            return Err(format!(
+            let error_msg = format!(
                 "Provider with name '{}' already registered.",
                 provider.provider_name
-            ));
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
         }
 
         // Provider ID is set by frontend to match node identity
@@ -355,10 +359,12 @@ impl HypergridProviderState {
             .iter()
             .any(|p| p.provider_name == provider.provider_name)
         {
-            return Err(format!(
+            let error_msg = format!(
                 "Provider with name '{}' already registered.",
                 provider.provider_name
-            ));
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
         }
         
         // Validate the endpoint by making a test call
@@ -406,10 +412,12 @@ impl HypergridProviderState {
                         .iter()
                         .any(|p| p.provider_name == updated_provider.provider_name)
                     {
-                        return Err(format!(
+                        let error_msg = format!(
                             "A provider with name '{}' already exists. Please choose a different name.",
                             updated_provider.provider_name
-                        ));
+                        );
+                        warn!("{}", error_msg);
+                        return Err(error_msg);
                     }
                 }
 
@@ -473,10 +481,12 @@ impl HypergridProviderState {
             .iter()
             .any(|p| p.provider_name == mcp_request.provider_name)
         {
-            return Err(format!(
+            let error_msg = format!(
                 "Provider '{}' not found - please make sure to enter a valid, registered provider name",
                 mcp_request.provider_name
-            ));
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
         }
 
         // Get the source node ID ---
@@ -488,6 +498,10 @@ impl HypergridProviderState {
         if let Err(validation_err) =
             validate_transaction_payment(&mcp_request, self, source_node_id.clone()).await
         {
+            error!(
+                "Payment validation failed for provider '{}' from node '{}': {}",
+                mcp_request.provider_name, source_node_id, validation_err
+            );
             return Err(validation_err);
         }
         // We can safely unwrap here since validate_transaction_payment already checked
@@ -670,10 +684,12 @@ impl HypergridProviderState {
                     .iter()
                     .any(|p| p.provider_name == provider.provider_name)
                 {
-                    return Err(format!(
+                    let error_msg = format!(
                         "Provider with name '{}' already registered.",
                         provider.provider_name
-                    ));
+                    );
+                    warn!("{}", error_msg);
+                    return Err(error_msg);
                 }
                 self.registered_providers.push(provider.clone());
                 debug!(
@@ -727,10 +743,12 @@ impl HypergridProviderState {
                 {
                     Some(provider) => provider,
                     None => {
-                        return Err(format!(
+                        let error_msg = format!(
                             "Provider with name '{}' not found in registered providers.",
                             provider_request.provider_name
-                        ));
+                        );
+                        warn!("{}", error_msg);
+                        return Err(error_msg);
                     }
                 };
 
