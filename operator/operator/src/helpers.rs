@@ -13,6 +13,7 @@ use hyperware_process_lib::hypermap;
 use hyperware_process_lib::eth;
 use hyperware_process_lib::http::{StatusCode, server::send_response};
 use hyperware_process_lib::signer::Signer;
+use crate::constants::{HYPR_HASH, USDC_BASE_ADDRESS};
 use alloy_primitives::{U256, B256};
 use alloy_sol_types::{SolValue, SolCall};
 use hex;
@@ -1449,7 +1450,7 @@ pub fn handle_terminal_debug(
             }
             
             // Show hypr parent hash for reference
-            let hypr_hash = "0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826";
+            let hypr_hash = HYPR_HASH;
             info!("\nFor reference:");
             info!("  hypr hash (parent of grid): {}", hypr_hash);
             info!("  grid.hypr expected hash: {}", hypermap::namehash("grid.hypr"));
@@ -1515,7 +1516,7 @@ pub fn handle_terminal_debug(
             
             // 2. Check USDC balance
             info!("\n2. Checking USDC balance for TBA");
-            let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+            let usdc_addr = USDC_BASE_ADDRESS; // Base USDC
             match wallet::erc20_balance_of(usdc_addr, &operator_tba_addr_str, &provider) {
                 Ok(balance) => {
                     if balance > 0.0 {
@@ -1657,7 +1658,7 @@ pub fn handle_terminal_debug(
                 
                 // Configuration
                 let sender = "0x62DFaDaBFd0b036c1C616aDa273856c514e65819";
-                let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+                let usdc_contract = USDC_BASE_ADDRESS;
                 let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
                 let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
                 let private_key = "0x0988b51979846798cb05ffaa241c6f8bd5538b16344c14343f5dfb6a4dbb2e9a";
@@ -1989,7 +1990,7 @@ pub fn handle_terminal_debug(
                 
                 // Configuration
                 let sender = "0x4FdF431523D25A0306eFBC0aEF3F13fdA9CE4a2c"; // TBA for spigot-fondler.os
-                let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+                let usdc_contract = USDC_BASE_ADDRESS;
                 let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
                 let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
                 let chain_id = 8453u64;
@@ -2198,7 +2199,7 @@ pub fn handle_terminal_debug(
                 
                 // Configuration
                 let sender = "0x62DFaDaBFd0b036c1C616aDa273856c514e65819";
-                let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+                let usdc_contract = USDC_BASE_ADDRESS;
                 let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
                 let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
                 let private_key = "0x0988b51979846798cb05ffaa241c6f8bd5538b16344c14343f5dfb6a4dbb2e9a";

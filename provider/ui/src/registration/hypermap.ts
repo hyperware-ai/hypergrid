@@ -1,10 +1,8 @@
 import { parseAbi, Address, encodeFunctionData, keccak256, stringToHex, encodePacked, Hex, toHex } from 'viem';
+import { HYPERMAP_ADDRESS, HYPERGRID_ADDRESS, HYPERGRID_NAMESPACE_MINTER_ADDRESS } from '../constants';
 
-// Contract addresses
-export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda';
-// currently obfusc-grid123.hypr, but should be grid.hypr
-export const HYPERGRID_ADDRESS: Address = '0xd65cb2ae7212e9b767c6953bb11cad1876d81cc8';
-export const HYPERGRID_NAMESPACE_MINTER_ADDRESS: Address = '0x44a8Bd4f9370b248c91d54773Ac4a457B3454b50';
+// Re-export from constants for backwards compatibility
+export { HYPERMAP_ADDRESS, HYPERGRID_ADDRESS, HYPERGRID_NAMESPACE_MINTER_ADDRESS };
 export const MULTICALL_ADDRESS: Address = '0xcA11bde05977b3631167028862bE2a173976CA11';
 
 // Note keys for provider metadata

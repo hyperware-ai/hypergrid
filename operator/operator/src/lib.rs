@@ -7,6 +7,7 @@ mod chain;
 mod helpers;
 mod identity;
 mod authorized_services;
+pub mod constants;
 // Replace wallet module with hyperwallet_client
 pub mod hyperwallet_client;
 

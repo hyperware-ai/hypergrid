@@ -4,7 +4,9 @@ export { fetchNode, fetchNodeInfo, mintFunction, noteFunction } from "./helpers"
 
 export const API_PATH = "/explorer:hypermap-explorer:nick.hypr/api";
 
-export const HYPERMAP: `0x${string}` = "0x000000000044C6B8Cb4d8f0F889a3E47664EAeda";
+import { HYPERMAP_ADDRESS } from './constants';
+
+export const HYPERMAP: `0x${string}` = HYPERMAP_ADDRESS as `0x${string}`;
 export const MULTICALL: `0x${string}` = "0xcA11bde05977b3631167028862bE2a173976CA11";
 export const HYPER_ACCOUNT_IMPL: `0x${string}` = "0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97";
 

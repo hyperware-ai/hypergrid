@@ -12,6 +12,8 @@ import { type Address as ViemAddress, parseAbi, namehash as viemNamehash } from 
 import { useConfig, useContractRead } from 'wagmi'; 
 // Import ConnectButton from RainbowKit
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+// Import constants
+import { HYPERMAP_ADDRESS } from './constants';
 
 
 function App() {
@@ -35,7 +37,7 @@ function App() {
 
   const wagmiConfig = useConfig(); // For useContractRead
   const BASE_CHAIN_ID = 8453;
-  const HYPERMAP_ADDRESS = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda' as ViemAddress;
+
   const hypermapAbiForNodeTba = parseAbi([
     'function get(bytes32 node) external view returns (address tba, address owner, bytes memory note)'
   ]);

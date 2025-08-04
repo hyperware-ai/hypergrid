@@ -8,6 +8,7 @@ use hyperware_process_lib::{
     wallet,
 };
 use alloy_primitives::Address as EthAddress;
+use crate::constants::USDC_BASE_ADDRESS;
 use std::str::FromStr;
 
 use crate::helpers::send_json_response;
@@ -300,7 +301,7 @@ pub fn build_hypergrid_graph_data(
         // Check if paymaster has been approved (only if gasless is enabled)
         let paymaster_approved = if state.gasless_enabled.unwrap_or(false) {
             let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
-            let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+            let usdc_addr = USDC_BASE_ADDRESS; // Base USDC
             let paymaster = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec"; // Circle paymaster
             
             match wallet::erc20_allowance(usdc_addr, &tba_address, paymaster, &provider) {

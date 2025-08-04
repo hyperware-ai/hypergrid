@@ -1,14 +1,15 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::get_server;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
-use hyperware_process_lib::eth::Address as EthAddress;
-use hyperware_process_lib::vfs::{create_drive, create_file, open_file};
-use hyperware_process_lib::{
-    eth::Provider,
+use hyperware_app_common::hyperware_process_lib::logging::RemoteLogSettings;
+use hyperware_app_common::hyperware_process_lib::{
+    eth::{Provider, Address as EthAddress},
     get_state,
     hypermap,
-    logging::{error, info},
+    logging::{error, info, init_logging, Level},
     our,
+    vfs::{create_drive, create_file, open_file},
+    Address,
 };
 use hyperware_app_common::{source, SaveOptions};
 use rmp_serde;
@@ -24,6 +25,7 @@ use util::*; // Use its public items
 mod db; // Declare the db module  
 use db::*; // Use its public items
 
+pub mod constants; // Declare the constants module
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderRequest {
     pub provider_name: String,
@@ -228,7 +230,7 @@ impl HypergridProviderState {
         match get_state() {
             Some(bytes) => match rmp_serde::from_slice::<Self>(&bytes) {
                 Ok(state) => {
-                    println!("Successfully loaded HypergridProviderState from checkpoint.");
+                    info!("Successfully loaded HypergridProviderState from checkpoint.");
                     state
                 }
                 Err(e) => {
@@ -272,7 +274,11 @@ impl Default for HypergridProviderState {
 impl HypergridProviderState {
     #[init]
     async fn initialize(&mut self) {
-        println!("Initializing provider registry");
+        let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.os", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };
+        // Initialize tracing-based logging for the provider process
+        init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).expect("Failed to initialize logging");
+        info!("Initializing Hypergrid Provider");
+        
         *self = HypergridProviderState::load();
         let server = get_server().expect("HTTP server should be initialized");
 

@@ -7,6 +7,7 @@ use hyperware_process_lib::eth::{Provider, EthError};
 use alloy_primitives::{Bytes, Address, U256, B256};
 use anyhow::Result;
 use std::str::FromStr;
+use crate::constants::{NAMESPACE, HYPR_HASH};
 
 use crate::db as dbm;
 use crate::structs::*;
@@ -235,9 +236,9 @@ pub fn add_mint(
     
     // Check if this is the Hypergrid root entry (grid under hypr)
     // The parent hash 0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826 is 'hypr'
-    if name == "grid" {
+    if name == NAMESPACE {
         // We found a grid-beta entry, let's check if it's under hypr
-        let hypr_hash = "0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826";
+        let hypr_hash = HYPR_HASH;
         if parent_hash == hypr_hash {
             info!("Found Grid root entry: {} with hash {} (parent: {} which is 'hypr')", name, child_hash, parent_hash);
             state.root_hash = Some(child_hash.clone());

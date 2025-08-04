@@ -15,3 +15,9 @@ operator/pkg/ui/
 */wit/
 */process_env
 **/pkg/ui/
+
+# Generated constants files
+operator/operator/src/constants.rs
+provider/provider/src/constants.rs
+operator/ui/src/constants.ts
+provider/ui/src/constants.ts

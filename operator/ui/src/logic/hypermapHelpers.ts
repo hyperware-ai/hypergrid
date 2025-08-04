@@ -13,6 +13,7 @@ import {
     encodePacked,
 } from 'viem';
 import { useCallback, useMemo } from 'react';
+import { HYPERMAP_ADDRESS as HYPERMAP_ADDRESS_CONST, USDC_BASE_ADDRESS } from '../constants';
 
 // Export viemNamehash so it can be imported directly by other modules
 export { viemNamehash };
@@ -24,8 +25,8 @@ export { viemNamehash };
 // Base Chain ID
 export const BASE_CHAIN_ID = 8453; // Ethereum Mainnet = 1, Base = 8453
 
-// Hypermap Contract Address on Base
-export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda';
+// Re-export from constants
+export const HYPERMAP_ADDRESS: Address = HYPERMAP_ADDRESS_CONST as Address;
 
 // TBA Implementation Addresses
 // Old implementation (0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97 was even older, now using:)
@@ -61,7 +62,7 @@ export const HYPERGRID_SIGNERS_NOTE_KEY = "~grid-beta-signers";
 // ERC-4337 Constants
 export const CIRCLE_PAYMASTER_ADDRESS: Address = '0x0578cFB241215b77442a541325d6A4E6dFE700Ec'; // Circle's USDC paymaster on Base
 //export const PIMLICO_PAYMASTER_ADDRESS: Address = '0x888888888888Ec68A58AB8094Cc1AD20Ba3D2402'; // Pimlico's USDC paymaster on Base
-export const USDC_ADDRESS_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
+export const USDC_ADDRESS_BASE: Address = USDC_BASE_ADDRESS as Address; // USDC on Base
 export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 100n * 10n ** 6n; // 100 USDC (with 6 decimals)
 
 // -------------------------------------------------------------------------------------------------

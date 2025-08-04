@@ -8,6 +8,7 @@ use hyperware_process_lib::{
     wallet};
 use serde::{Deserialize, Serialize};
 use alloy_primitives::U256;
+use crate::constants::USDC_BASE_ADDRESS;
 
 use crate::structs::{State, PaymentAttemptResult};
 use super::account_abstraction;
@@ -402,7 +403,7 @@ pub fn handle_operator_tba_withdrawal(
         AssetType::Usdc => {
             // For USDC, we need to create the ERC20 transfer calldata
             let usdc_contract = match crate::structs::CHAIN_ID {
-                8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
+                8453 => USDC_BASE_ADDRESS, // Base USDC
                 1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
                 _ => return Err(format!("Unsupported chain ID for USDC: {}", crate::structs::CHAIN_ID)),
             };
@@ -463,7 +464,7 @@ pub fn check_operator_tba_funding_detailed(
     };
 
     let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
-    let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+    let usdc_addr = USDC_BASE_ADDRESS; // Base USDC
     
     // Check USDC balance
     let (usdc_balance_str, usdc_error) = match wallet::erc20_balance_of(usdc_addr, tba_addr, &provider) {

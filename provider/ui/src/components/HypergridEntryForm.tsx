@@ -1,4 +1,5 @@
 import React from 'react';
+import { HYPR_SUFFIX } from '../constants';
 
 export interface HypergridEntryFormProps {
   nodeId: string;
@@ -48,7 +49,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
               width: `${providerName.length || 13}ch`, // Use actual length or placeholder length
             }}
           />
-        <span>.grid.hypr</span>
+        <span>{HYPR_SUFFIX}</span>
       </div>
 
       {/* Trunk line from HNS name down to the first branch */}

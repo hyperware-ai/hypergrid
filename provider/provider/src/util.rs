@@ -1,4 +1,5 @@
 use crate::{EndpointDefinition, HttpMethod, ProviderRequest};
+use crate::constants::USDC_BASE_ADDRESS;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_app_common::hyperware_process_lib::{
     eth::{Address as EthAddress, EthError, TransactionReceipt, TxHash, U256},
@@ -414,7 +415,7 @@ pub async fn validate_transaction_payment(
 
     // --- 4. Initial Transaction Validation (Recipient is Token Contract) ---
     let expected_token_contract_address = EthAddress::from_str(
-        "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913", // Example: USDC on Base
+        USDC_BASE_ADDRESS, // Example: USDC on Base
     )
     .map_err(|e| format!("Invalid expected token contract address format: {}", e))?;
 
