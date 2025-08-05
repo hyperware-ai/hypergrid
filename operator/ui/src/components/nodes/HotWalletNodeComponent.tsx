@@ -1,10 +1,10 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import classNames from 'classnames';
 import { NodeProps, Handle, Position } from 'reactflow';
 import { IHotWalletNodeData, SpendingLimits } from '../../logic/types';
 import type { Address } from 'viem';
 import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer'; // Assuming NODE_WIDTH is exported
 import CopyToClipboardText from '../CopyToClipboardText';
-import styles from '../HotWalletNode.module.css';
 
 // Helper to truncate text (can be moved to a utils file)
 const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
@@ -45,12 +45,12 @@ interface HotWalletNodeComponentProps extends NodeProps<IHotWalletNodeData> {
 }
 
 const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, id: nodeId, onWalletDataUpdate, onOpenHistoryModal, onUnlockWallet, onLockWallet, isUnlockingOrLocking }) => {
-    const { 
+    const {
         address,
-        statusDescription, 
-        fundingInfo, 
-        isEncrypted: initialIsEncrypted, 
-        isUnlocked: initialIsUnlocked, 
+        statusDescription,
+        fundingInfo,
+        isEncrypted: initialIsEncrypted,
+        isUnlocked: initialIsUnlocked,
         limits: initialLimits,
         name: initialName
     } = data;
@@ -79,28 +79,28 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     useEffect(() => {
         // Only update name if it actually changed from backend
         if (currentName !== initialName) {
-        setCurrentName(initialName);
-        setEditedName(initialName || '');
+            setCurrentName(initialName);
+            setEditedName(initialName || '');
         }
-        
+
         // Only update limits if they actually changed
         if (JSON.stringify(currentLimits) !== JSON.stringify(initialLimits)) {
-        setCurrentLimits(initialLimits);
+            setCurrentLimits(initialLimits);
             setLimitPerCall(initialLimits?.maxPerCall || '');
             setTempLimitPerCall(initialLimits?.maxPerCall || '');
         }
-        
+
         // Only update encryption status if it changed
         if (isEncrypted !== initialIsEncrypted) {
-        setIsEncrypted(initialIsEncrypted);
+            setIsEncrypted(initialIsEncrypted);
         }
-        
+
         // Only update unlock status if it changed
         // This prevents the wallet from appearing locked after operations
         if (isUnlocked !== initialIsUnlocked) {
-        setIsUnlocked(initialIsUnlocked);
+            setIsUnlocked(initialIsUnlocked);
         }
-        
+
         // Always reset editing states on prop changes
         setIsEditingName(false);
         setPasswordInput('');
@@ -153,7 +153,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         }
     };
 
-    const MCP_ENDPOINT_LOCAL = `${window.location.pathname.split('/').filter(p=>p).find(p=>p.includes(':')) ? '/'+window.location.pathname.split('/').filter(p=>p).find(p=>p.includes(':')) : ''}/api/mcp`;
+    const MCP_ENDPOINT_LOCAL = `${window.location.pathname.split('/').filter(p => p).find(p => p.includes(':')) ? '/' + window.location.pathname.split('/').filter(p => p).find(p => p.includes(':')) : ''}/api/mcp`;
 
     const callMcpApiLocal = async (body: any) => {
         const response = await fetch(MCP_ENDPOINT_LOCAL, {
@@ -175,16 +175,16 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         const currentEffectiveLimit = currentLimits?.maxPerCall?.trim() === '' ? null : currentLimits?.maxPerCall?.trim();
 
         if (newLimitValue === currentEffectiveLimit) {
-            setIsEditingLimit(false); 
+            setIsEditingLimit(false);
             return;
         }
 
         const limitsToSet: SpendingLimits = {
             maxPerCall: newLimitValue,
-            maxTotal: null, 
+            maxTotal: null,
             currency: 'USDC',
         };
-        
+
         setIsLocalActionLoading(true);
         try {
             await callMcpApiLocal({ SelectWallet: { wallet_id: address } });
@@ -241,9 +241,9 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
         e.stopPropagation();
         setShowPasswordInputForUnlock(true);
     };
-    
+
     const handleUnlockAction = async () => {
-        if (showPasswordInputForUnlock) { 
+        if (showPasswordInputForUnlock) {
             await handleUnlockWalletAttempt();
             // setShowPasswordInputForUnlock(false); // Optional: parent refresh handles this by isUnlocked change
         }
@@ -278,10 +278,10 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
             setCurrentName(editedName.trim());
             setIsEditingName(false);
             onWalletDataUpdate(address);
-        } catch (err: any) { 
+        } catch (err: any) {
             showToast('error', err.message || 'Failed to rename wallet.');
-            setEditedName(currentName || ''); 
-            setIsEditingName(false); 
+            setEditedName(currentName || '');
+            setIsEditingName(false);
         } finally {
             setIsLocalActionLoading(false);
         }
@@ -308,115 +308,123 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     };
 
     return (
-        <div 
-            className={styles.nodeContainer} 
-            style={{ 
-                maxWidth: NODE_WIDTH, 
-                cursor: 'pointer', 
-                position: 'relative' 
-            }} 
+        <div
+            className="p-3 border rounded-lg box-border font-sans flex flex-col gap-2 text-left cursor-pointer relative bg-gray"
+            style={{
+                maxWidth: NODE_WIDTH,
+            }}
             onClick={isWalletActuallyLocked ? handleLockIconClick : handleNodeAreaClick}
             title={isWalletActuallyLocked ? "Wallet Locked. Click to Unlock." : `Click node to view history, click name to edit`}
         >
-            {/* Top-Right Lock Icon - always rendered if locked, click handled by handleLockIconClick */} 
+            {/* Top-Right Lock Icon - always rendered if locked, click handled by handleLockIconClick */}
             {isWalletActuallyLocked && (
-                <div 
-                    className={styles.lockIconTopRight} 
-                    onClick={handleLockIconClick} 
+                <div
+                    className="absolute top-2 right-2 cursor-pointer text-base p-1 leading-none z-10 text-gray-100"
+                    onClick={handleLockIconClick}
                     title="Wallet Locked. Click to Unlock."
                 >
-                    🔒 
+                    🔒
                 </div>
             )}
 
             <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            
+
             {/* Content Wrapper for Blur Effect */}
-            <div className={`${styles.nodeContentWrapper} ${isWalletActuallyLocked && !showPasswordInputForUnlock ? styles.contentBlurred : ''}`}>
-                <div className={styles.header}>
-                    <div className={styles.nodeTitle}>Hot Wallet</div>
-                    <div className={styles.nodeSubtitle}>
-                    {isEditingName ? (
-                        <input 
-                            ref={nameInputRef}
-                            type="text"
-                            value={editedName}
-                            onChange={(e) => setEditedName(e.target.value)}
-                            onBlur={handleNameInputBlur}
-                            onKeyDown={handleNameInputKeyDown}
-                            className={styles.nameInputEditing} 
-                            disabled={isLocalActionLoading || isUnlockingOrLocking}
-                            onClick={(e) => e.stopPropagation()}
-                        />
-                    ) : (
-                        <span 
-                            onClick={handleNameDisplayClick}
-                            className={styles.nameDisplayClickable}
-                            title="Click to edit name"
-                        >
-                            {(currentName && currentName.toLowerCase() !== 'unnamed') 
-                                ? `"${currentName}"` 
-                                : truncate(address) }
-                        </span>
-                    )}
+            <div className={classNames({ "blur-sm": isWalletActuallyLocked && !showPasswordInputForUnlock })}>
+                <div className="mb-2 text-center">
+                    <div className="text-base font-bold mb-0.5" style={{ color: '#ffff00' }}>Hot Wallet</div>
+                    <div className="text-sm text-gray-400 break-words leading-tight flex justify-center items-center">
+                        {isEditingName ? (
+                            <input
+                                ref={nameInputRef}
+                                type="text"
+                                value={editedName}
+                                onChange={(e) => setEditedName(e.target.value)}
+                                onBlur={handleNameInputBlur}
+                                onKeyDown={handleNameInputKeyDown}
+                                className="bg-gray-800 text-gray-100 border border-yellow-500 rounded px-1 py-0.5 text-sm font-bold min-w-24 w-auto ml-1"
+                                disabled={isLocalActionLoading || isUnlockingOrLocking}
+                                onClick={(e) => e.stopPropagation()}
+                            />
+                        ) : (
+                            <span
+                                onClick={handleNameDisplayClick}
+                                className="cursor-text px-1 py-0.5 rounded transition-colors hover:bg-white hover:bg-opacity-10 font-bold"
+                                title="Click to edit name"
+                            >
+                                {(currentName && currentName.toLowerCase() !== 'unnamed')
+                                    ? `"${currentName}"`
+                                    : truncate(address)}
+                            </span>
+                        )}
                     </div>
                 </div>
 
                 {toastMessage && (
-                    <div className={`${styles.toastNotification} ${toastMessage.type === 'success' ? styles.toastSuccess : styles.toastError}`}>
+                    <div className={classNames(
+                        "px-2 py-1 mt-2 rounded text-sm text-center",
+                        {
+                            "bg-green-600 text-white border border-green-800": toastMessage.type === 'success',
+                            "bg-red-600 text-white border border-red-800": toastMessage.type === 'error'
+                        }
+                    )}>
                         {toastMessage.text}
                     </div>
                 )}
 
-                <div className={`${styles.infoRow} ${styles.addressRowAltered}`}> {/* Use infoRow for consistent styling */}
-                    <span className={styles.infoLabel}>Address:</span>
-                    <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
-                        <CopyToClipboardText textToCopy={address || ''} className={styles.addressValueClickable}>
+                <div className="text-sm leading-relaxed flex justify-between items-center py-0.5">
+                    <span className="text-gray-400 mr-2 whitespace-nowrap">Address:</span>
+                    <span className="text-gray-300 break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
+                        <CopyToClipboardText textToCopy={address || ''} className="text-blue-400 cursor-pointer no-underline hover:underline">
                             {truncate(address)}
                         </CopyToClipboardText>
                     </span>
                 </div>
 
-                <div className={`${styles.infoRow} ${styles.statusRowAltered}`}> {/* Use infoRow */}
-                    <span className={styles.infoLabel}>Status:</span>
-                    <span className={styles.infoValue}>{statusDescription || '-'}</span>
+                <div className="text-sm leading-relaxed flex justify-between items-center py-0.5">
+                    <span className="text-gray-400 mr-2 whitespace-nowrap">Status:</span>
+                    <span className="text-gray-300 text-right flex-grow">{statusDescription || '-'}</span>
                 </div>
 
+                {fundingInfo?.errorMessage && (
+                    <div className="text-sm leading-relaxed flex justify-between items-center py-0.5">
+                        <span className="text-gray-400 mr-2"></span>
+                        <span className="text-red-400 text-sm mt-0.5">{fundingInfo.errorMessage}</span>
+                    </div>
+                )}
 
-                {fundingInfo?.errorMessage && <div className={`${styles.infoRow} ${styles.errorRowAltered}`}><span className={styles.infoLabel}></span><span className={`${styles.infoValue} ${styles.statusError}`}>{fundingInfo.errorMessage}</span></div>}
-                
                 {/* Transaction Limit Display/Edit Section */}
-                <div 
-                    className={`${styles.infoRow} ${styles.limitConfigRowAltered}`} 
-                    style={{ marginTop: (showPasswordInputForUnlock && isWalletActuallyLocked) ? '5px' : '0' }}
-                >
-                    <span className={styles.infoLabel}>Transaction Limit:</span>
-                    <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
+                <div className="text-sm leading-relaxed flex justify-between items-center py-0.5">
+                    <span className="text-gray-400 mr-2 whitespace-nowrap">Transaction Limit:</span>
+                    <span className="text-gray-300 text-right flex-grow" onClick={(e) => e.stopPropagation()}>
                         {isEditingLimit ? (
-                            <input 
+                            <input
                                 ref={limitInputRef}
-                                type="number" 
-                                step="any" 
+                                type="number"
+                                step="any"
                                 min="0"
                                 placeholder="(empty for ∞)"
-                                value={tempLimitPerCall} 
-                                onChange={e => setTempLimitPerCall(e.target.value)} 
+                                value={tempLimitPerCall}
+                                onChange={e => setTempLimitPerCall(e.target.value)}
                                 onBlur={handleLimitInputBlur}
                                 onKeyDown={handleLimitInputKeyDown}
-                                className={styles.limitInputFieldInline} 
+                                className="bg-gray-900 text-white border border-gray-600 rounded px-1.5 py-0.5 text-sm w-24 text-right box-border"
+                                style={{
+                                    appearance: 'textfield'
+                                }}
                                 disabled={isLocalActionLoading || isUnlockingOrLocking || isWalletActuallyLocked}
                                 autoFocus
                             />
                         ) : (
-                            <span 
-                                className={styles.limitValueDisplayClickable} 
-                                onClick={handleToggleLimitEdit} 
+                            <span
+                                className="cursor-pointer px-1.5 py-0.5 rounded hover:bg-gray-700 text-right"
+                                onClick={handleToggleLimitEdit}
                                 title={isWalletActuallyLocked ? "Unlock wallet to change limit" : "Click to change transaction limit"}
                             >
                                 {
-                                    (currentLimits && currentLimits.maxPerCall && currentLimits.maxPerCall.trim() !== '') 
-                                    ? `${currentLimits.maxPerCall} ${(currentLimits.currency || 'USDC')}` 
-                                    : <span style={{ fontSize: '1.2em' }}>∞</span>
+                                    (currentLimits && currentLimits.maxPerCall && currentLimits.maxPerCall.trim() !== '')
+                                        ? `${currentLimits.maxPerCall} ${(currentLimits.currency || 'USDC')}`
+                                        : <span className="text-xl">∞</span>
                                 }
                             </span>
                         )}
@@ -424,11 +432,11 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 </div>
 
                 {/* Spending Limit Display (Lifetime Total) */}
-                <div className={`${styles.infoRow}`}>
-                    <span className={styles.infoLabel}>Spending Limit:</span>
-                    <span className={styles.infoValue}>
-                        {(currentLimits && currentLimits.maxTotal && currentLimits.maxTotal.trim() !== '') 
-                            ? `${currentLimits.maxTotal} ${(currentLimits.currency || 'USDC')} total` 
+                <div className="text-sm leading-relaxed flex justify-between items-center py-0.5">
+                    <span className="text-gray-400 mr-2 whitespace-nowrap">Spending Limit:</span>
+                    <span className="text-gray-300 text-right flex-grow">
+                        {(currentLimits && currentLimits.maxTotal && currentLimits.maxTotal.trim() !== '')
+                            ? `${currentLimits.maxTotal} ${(currentLimits.currency || 'USDC')} total`
                             : 'Unlimited'
                         }
                     </span>
@@ -436,9 +444,9 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
 
                 {/* Total Spent Display (if limits exist) */}
                 {currentLimits && (
-                    <div className={`${styles.infoRow}`}>
-                        <span className={styles.infoLabel}>Total Spent:</span>
-                        <span className={styles.infoValue}>
+                    <div className="text-sm leading-relaxed flex justify-between items-center py-0.5">
+                        <span className="text-gray-400 mr-2 whitespace-nowrap">Total Spent:</span>
+                        <span className="text-gray-300 text-right flex-grow">
                             {currentLimits.totalSpent || '0'} {(currentLimits.currency || 'USDC')}
                         </span>
                     </div>
@@ -447,36 +455,38 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
 
             {/* Unlock Section - Appears distinctly, not part of the blurred content wrapper */}
             {showPasswordInputForUnlock && isWalletActuallyLocked && (
-                <div className={styles.unlockOverlaySection} onClick={(e) => e.stopPropagation()}> {/* New class for overlay styling */}
-                    <h4>{isEncrypted ? 'Unlock' : 'Activate'} Wallet: {currentName || truncate(address)}</h4>
+                <div className="mt-2 pt-2 border-t border-gray-600" onClick={(e) => e.stopPropagation()}>
+                    <h4 className="text-base font-medium mb-1 text-center" style={{ color: '#ffff00' }}>
+                        {isEncrypted ? 'Unlock' : 'Activate'} Wallet: {currentName || truncate(address)}
+                    </h4>
                     {isEncrypted && (
-                    <input 
-                        type="password"
-                        placeholder="Enter Password"
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        className={styles.passwordInputCentered} // New/Updated class
-                        disabled={isUnlockingOrLocking} 
-                        autoFocus
-                    />
+                        <input
+                            type="password"
+                            placeholder="Enter Password"
+                            value={passwordInput}
+                            onChange={(e) => setPasswordInput(e.target.value)}
+                            className="flex-grow mr-2 bg-gray-800 text-gray-100 border border-gray-600 rounded px-2 py-1 text-sm w-full box-border"
+                            disabled={isUnlockingOrLocking}
+                            autoFocus
+                        />
                     )}
                     {!isEncrypted && (
-                        <p style={{ marginBottom: '10px', fontSize: '0.9em', color: '#888' }}>
+                        <p className="mb-2 text-sm text-gray-500">
                             This wallet needs to be activated for use.
                         </p>
                     )}
-                    <div className={styles.unlockButtonContainer}> {/* For button layout */}
+                    <div className="flex gap-2 mt-2">
                         <button
                             onClick={handleUnlockAction}
                             disabled={isUnlockingOrLocking || (isEncrypted && !passwordInput)}
-                            className={styles.actionButtonPrimary} // New/Updated class
+                            className="px-3 py-1.5 rounded text-sm bg-green-600 text-white transition-colors hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed disabled:opacity-70"
                         >
                             {isUnlockingOrLocking ? (isEncrypted ? 'Unlocking...' : 'Activating...') : (isEncrypted ? 'Unlock' : 'Activate')}
                         </button>
-                        <button 
-                            type="button" 
+                        <button
+                            type="button"
                             onClick={(e) => { e.stopPropagation(); setShowPasswordInputForUnlock(false); setPasswordInput(''); }}
-                            className={styles.actionButtonSecondary} // New/Updated class
+                            className="px-3 py-1.5 rounded text-sm bg-gray-600 text-white transition-colors hover:bg-gray-700 disabled:cursor-not-allowed disabled:opacity-70"
                             disabled={isUnlockingOrLocking}
                         >
                             Cancel
@@ -484,7 +494,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                     </div>
                 </div>
             )}
-            
+
             <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
         </div>
     );

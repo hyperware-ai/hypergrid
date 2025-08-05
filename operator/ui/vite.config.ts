@@ -1,5 +1,6 @@
 import react from "@vitejs/plugin-react";
 import { defineConfig } from "vite";
+import tailwindcss from "@tailwindcss/vite";
 
 /*
 If you are developing a UI outside of a Hyperware project,
@@ -22,16 +23,16 @@ const PROXY_URL = (
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   base: BASE_URL,
   server: {
     proxy: {
       // This route will match all other HTTP requests to the backend
       [`^${BASE_URL}/(?!(@vite/client|src/.*|node_modules/.*|@react-refresh|$))`]:
-        {
-          target: PROXY_URL,
-          changeOrigin: true,
-        },
+      {
+        target: PROXY_URL,
+        changeOrigin: true,
+      },
 
       "/our": {
         target: PROXY_URL,

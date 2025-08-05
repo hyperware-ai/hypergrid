@@ -1,4 +1,4 @@
-import  { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 // SearchPage is no longer directly rendered here by default, but keep import if used elsewhere or if needed later.
 import BackendDrivenHypergridVisualizerWrapper from "./components/BackendDrivenHypergridVisualizer.tsx";
 import HeaderSearch from "./components/HeaderSearch.tsx";
@@ -7,9 +7,9 @@ import AppSwitcher from "./components/AppSwitcher.tsx";
 // Import required types
 import { ActiveAccountDetails, OnboardingStatusResponse } from "./logic/types.ts";
 // Corrected viem import
-import { type Address as ViemAddress, parseAbi, namehash as viemNamehash } from "viem"; 
+import { type Address as ViemAddress, parseAbi, namehash as viemNamehash } from "viem";
 // Import wagmi hooks separately
-import { useConfig, useContractRead } from 'wagmi'; 
+import { useConfig, useContractRead } from 'wagmi';
 // Import ConnectButton from RainbowKit
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 
@@ -17,7 +17,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 function App() {
   // Popover state
   const accountButtonRef = useRef<HTMLButtonElement>(null);
-  const modalRef = useRef<HTMLDivElement>(null); 
+  const modalRef = useRef<HTMLDivElement>(null);
 
   // State for Onboarding Data
   const [onboardingData, setOnboardingData] = useState<OnboardingStatusResponse | null>(null);
@@ -27,8 +27,8 @@ function App() {
     const windowNodeName = (window as any).our?.node;
     if (windowNodeName) return windowNodeName;
     if (onboardingData?.checks?.operatorEntry && onboardingData.checks.operatorEntry.startsWith("grid-beta-wallet-aa-final.")) {
-        const namePart = onboardingData.checks.operatorEntry.substring("grid-beta-wallet-aa-final.".length);
-        if (namePart) return namePart;
+      const namePart = onboardingData.checks.operatorEntry.substring("grid-beta-wallet-aa-final.".length);
+      if (namePart) return namePart;
     }
     return null;
   }, [onboardingData]);
@@ -40,10 +40,10 @@ function App() {
     'function get(bytes32 node) external view returns (address tba, address owner, bytes memory note)'
   ]);
 
-  const { 
-    data: nodeTbaContractData, 
-    isLoading: isNodeTbaLoading, 
-    error: nodeTbaError 
+  const {
+    data: nodeTbaContractData,
+    isLoading: isNodeTbaLoading,
+    error: nodeTbaError
   } = useContractRead({
     address: HYPERMAP_ADDRESS,
     abi: hypermapAbiForNodeTba,
@@ -52,7 +52,7 @@ function App() {
     chainId: BASE_CHAIN_ID,
     config: wagmiConfig,
     query: {
-        enabled: !!derivedNodeName, 
+      enabled: !!derivedNodeName,
     }
   });
 
@@ -74,26 +74,26 @@ function App() {
   }, [modalRef, accountButtonRef]);
 
   return (
-    <div className="app-container">
-      <header className="app-header">
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+    <div className="flex h-screen">
+      <header className="flex flex-col px-6 py-3 bg-white shadow-md relative flex-shrink-0">
+        <div className="flex items-center gap-3">
           <AppSwitcher currentApp="operator" />
-          <h1 className="app-title" style={{ margin: 0 }}>
-              Hypergrid Operator
+          <h1 className="text-xl font-semibold text-gray-800 m-0">
+            Hypergrid Operator
           </h1>
         </div>
-        <div className="account-header-section" style={{ flexGrow: 1, display: 'flex', justifyContent: 'center', alignItems: 'center' }}>
-          <HeaderSearch /> 
+        <div className="flex-grow flex justify-center items-center">
+          <HeaderSearch />
         </div>
-        <div style={{ marginLeft: 'auto' }}>
+        <div className="ml-auto">
           <ConnectButton />
         </div>
       </header>
 
-      <div className="main-wrapper">
-        <main className="main-content">
-          <BackendDrivenHypergridVisualizerWrapper 
-            // TODO: perhaps show the latest fetched graph state until the new one comes in?
+      <div className="flex flex-col flex-grow overflow-hidden">
+        <main className="flex-grow flex flex-col overflow-y-auto">
+          <BackendDrivenHypergridVisualizerWrapper
+          // TODO: perhaps show the latest fetched graph state until the new one comes in?
           />
         </main>
       </div>

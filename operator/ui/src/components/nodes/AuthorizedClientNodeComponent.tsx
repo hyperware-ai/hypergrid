@@ -1,9 +1,9 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import classNames from 'classnames';
 import { NodeProps, Handle, Position } from 'reactflow';
 import { IAuthorizedClientNodeData } from '../../logic/types';
 import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
-import styles from '../AuthorizedClientNode.module.css';
 
 // Helper to truncate text (can be moved to a utils file)
 const truncate = (str: string | undefined, startLen = 6, endLen = 4) => {
@@ -44,7 +44,7 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
             return;
         }
         console.log(`Saving new client name: "${editedName.trim()}" for client ID: ${clientId}`);
-        await new Promise(resolve => setTimeout(resolve, 300)); 
+        await new Promise(resolve => setTimeout(resolve, 300));
         setCurrentClientName(editedName.trim());
         setIsEditingName(false);
     }, [editedName, clientId, currentClientName]);
@@ -75,61 +75,66 @@ const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeDat
     };
 
     return (
-        <div 
-            className={styles.nodeContainer} 
-            style={{ 
+        <div
+            className="p-3 border border-cyan rounded-lg bg-gray-800 text-gray-100 box-border font-sans flex flex-col gap-2 text-left cursor-pointer"
+            style={{
                 maxWidth: NODE_WIDTH,
                 cursor: 'pointer'
             }}
             title="Click to view configuration"
         >
             <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            
-            <div className={styles.header}>
-                <div className={styles.nodeTitle}>Authorized Client</div>
-                <div className={styles.nodeSubtitle}>
-                {isEditingName ? (
-                    <input 
-                        ref={nameInputRef}
-                        type="text" 
-                        value={editedName}
-                        onChange={handleNameChange}
-                        onBlur={handleNameInputBlur}
-                        onKeyDown={handleNameInputKeyDown}
-                        className={styles.nameInputEditing}
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                ) : (
-                    <span 
-                        title={currentClientName} 
-                        onClick={handleNameClick} 
-                        className={styles.nameDisplay}
-                        style={{cursor: 'text'}}
-                    >
-                        {currentClientName}
-                    </span>
-                )}
+
+            <div className="mb-2 text-center">
+                <div className="text-base font-bold mb-0.5" style={{ color: '#ff00ff' }}>Authorized Client</div>
+                <div className="text-sm text-gray-400 break-words leading-tight flex justify-center items-center">
+                    {isEditingName ? (
+                        <input
+                            ref={nameInputRef}
+                            type="text"
+                            value={editedName}
+                            onChange={handleNameChange}
+                            onBlur={handleNameInputBlur}
+                            onKeyDown={handleNameInputKeyDown}
+                            className="bg-gray-700 text-gray-100 border border-gray-600 rounded px-2 py-1 text-sm w-full min-w-0 mt-0.5 box-border"
+                            style={{
+                                backgroundColor: '#3a3a3a',
+                                color: '#f0f0f0',
+                                borderColor: '#555',
+                                width: 'calc(100% - 16px)'
+                            }}
+                            onClick={(e) => e.stopPropagation()}
+                        />
+                    ) : (
+                        <span
+                            title={currentClientName}
+                            onClick={handleNameClick}
+                            className="cursor-text"
+                        >
+                            {currentClientName}
+                        </span>
+                    )}
                 </div>
             </div>
 
-            <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Client ID:</span>
-                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
-                    <CopyToClipboardText textToCopy={clientId} className={styles.infoValueClickable}>
+            <div className="flex justify-between items-center text-sm leading-relaxed">
+                <span className="text-gray-400 mr-2 whitespace-nowrap">Client ID:</span>
+                <span className="text-gray-300 break-all" onClick={(e) => e.stopPropagation()}>
+                    <CopyToClipboardText textToCopy={clientId} className="text-blue-400 cursor-pointer no-underline hover:underline">
                         {truncate(clientId, 8, 8)}
                     </CopyToClipboardText>
                 </span>
             </div>
 
-            <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Hot Wallet:</span>
-                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
-                     <CopyToClipboardText textToCopy={associatedHotWalletAddress} className={styles.infoValueClickable}>
+            <div className="flex justify-between items-center text-sm leading-relaxed">
+                <span className="text-gray-400 mr-2 whitespace-nowrap">Hot Wallet:</span>
+                <span className="text-gray-300 break-all" onClick={(e) => e.stopPropagation()}>
+                    <CopyToClipboardText textToCopy={associatedHotWalletAddress} className="text-blue-400 cursor-pointer no-underline hover:underline">
                         {truncate(associatedHotWalletAddress)}
                     </CopyToClipboardText>
                 </span>
             </div>
-            
+
             <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
         </div>
     );

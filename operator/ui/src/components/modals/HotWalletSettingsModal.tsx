@@ -1,15 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import classNames from 'classnames';
 import { IHotWalletNodeData, SpendingLimits } from '../../logic/types';
 import type { Address } from 'viem';
 import CopyToClipboardText from '../CopyToClipboardText'; // If needed for displaying info within modal
-import styles from './HotWalletSettingsModal.module.css'; // We'll create this CSS file
 
 interface HotWalletSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    walletData: IHotWalletNodeData | null; 
+    walletData: IHotWalletNodeData | null;
     // Callback to inform parent that an update happened so graph can be refreshed
-    onWalletUpdate: (walletAddress: Address) => void; 
+    onWalletUpdate: (walletAddress: Address) => void;
 }
 
 // Helper function to truncate text (can be moved to a utils file)
@@ -49,13 +49,13 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
 }) => {
     const [limitPerCall, setLimitPerCall] = useState<string>('');
     // const [limitCurrency, setLimitCurrency] = useState<string>('USDC'); // Currency is now fixed
-    
+
     const [editedName, setEditedName] = useState<string>('');
     const [isEditingName, setIsEditingName] = useState<boolean>(false);
 
     const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
     const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-    
+
     const [currentLimits, setCurrentLimits] = useState<SpendingLimits | null>(null);
     const [currentName, setCurrentName] = useState<string | null>(null);
     const [isEncrypted, setIsEncrypted] = useState<boolean>(false);
@@ -95,7 +95,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         showToast('success', msg);
         if (actionCallback) actionCallback();
         if (walletData) {
-            onWalletUpdate(walletData.address); 
+            onWalletUpdate(walletData.address);
         }
     };
 
@@ -103,11 +103,11 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         const errorMessage = err instanceof Error ? err.message : 'An unknown API error occurred';
         showToast('error', actionContext ? `${actionContext}: ${errorMessage}` : errorMessage);
     };
-    
+
     const selectAndExecute = async (
         actionNameForContext: string,
-        actionPayload: any, 
-        successMessage: string, 
+        actionPayload: any,
+        successMessage: string,
         successCallback?: () => void
     ) => {
         if (!walletData) return;
@@ -138,7 +138,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
                 setCurrentName(editedName.trim());
                 setIsEditingName(false);
             });
-        } catch (err: any) { 
+        } catch (err: any) {
             handleError(err, 'Rename Wallet');
             setEditedName(currentName || ''); // Revert on error
             setIsEditingName(false); // Exit editing mode on error too
@@ -173,7 +173,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         if (!walletData) return;
         const limitsToSet: SpendingLimits = {
             maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
-            maxTotal: null, 
+            maxTotal: null,
             currency: 'USDC', // Currency is now fixed to USDC
         };
         const payload = { SetWalletLimits: { limits: limitsToSet } };
@@ -194,33 +194,39 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     const limitsDisabled = isActionLoading || (isEncrypted && !isUnlocked);
 
     return (
-        <div className={styles.modalOverlay} onClick={onClose}>
-            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                <button className={styles.closeButton} onClick={onClose}>&times;</button>
-                <h3>Hot Wallet Settings: {truncate(currentName || walletData.address, 15, 6)}</h3>
-                
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex items-center justify-center z-50" onClick={onClose}>
+            <div className="bg-gray-700 text-gray-100 p-6 rounded-lg w-[90%] max-w-2xl max-h-[85vh] overflow-y-auto relative shadow-xl border border-gray-600" onClick={(e) => e.stopPropagation()}>
+                <button className="absolute top-2 right-4 bg-transparent border-none text-gray-100 text-3xl cursor-pointer leading-none" onClick={onClose}>&times;</button>
+                <h3 className="mt-0 text-gray-400 border-b border-gray-600 pb-2 mb-5 text-xl">Hot Wallet Settings: {truncate(currentName || walletData.address, 15, 6)}</h3>
+
                 {toastMessage && (
-                    <div className={`${styles.toastNotification} ${toastMessage.type === 'success' ? styles.toastSuccess : styles.toastError}`}>
+                    <div className={classNames(
+                        "px-4 py-3 my-4 rounded text-sm text-center",
+                        {
+                            "bg-green-600 text-white border border-green-700": toastMessage.type === 'success',
+                            "bg-red-600 text-white border border-red-700": toastMessage.type === 'error'
+                        }
+                    )}>
                         {toastMessage.text}
                     </div>
                 )}
 
                 {/* Rename Form - Click-to-edit */}
-                <div className={styles.configSection}>
-                    <h4>Rename Wallet</h4>
+                <div className="mb-5 pb-4 border-b border-gray-600">
+                    <h4 className="mt-0 mb-3 text-lg text-gray-300">Rename Wallet</h4>
                     {isEditingName ? (
-                        <input 
-                            ref={nameInputRef} 
-                            type="text" 
-                            value={editedName} 
-                            onChange={(e) => setEditedName(e.target.value)} 
-                            onBlur={handleNameInputBlur} 
-                            onKeyDown={handleNameInputKeyDown} 
-                            className={styles.inputField} // Use general input field style
-                            disabled={isActionLoading} 
+                        <input
+                            ref={nameInputRef}
+                            type="text"
+                            value={editedName}
+                            onChange={(e) => setEditedName(e.target.value)}
+                            onBlur={handleNameInputBlur}
+                            onKeyDown={handleNameInputKeyDown}
+                            className="px-2 py-2 rounded border border-gray-600 bg-gray-800 text-gray-100 text-sm"
+                            disabled={isActionLoading}
                         />
                     ) : (
-                        <div className={styles.inlineDisplay} title="Click to edit name" onClick={handleNameDisplayClick} style={{cursor: 'text'}}>
+                        <div className="flex justify-between items-center py-1 cursor-text" title="Click to edit name" onClick={handleNameDisplayClick}>
                             <span>Name: <strong>{currentName || '(No name set)'}</strong></span>
                             {/* Edit button removed, click text instead */}
                         </div>
@@ -228,26 +234,26 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
                 </div>
 
                 {/* Spending Limits - Compact UI */}
-                <div className={styles.configSection}>
-                    <h4>Spending Limits (USDC)</h4>
+                <div className="mb-5 pb-4 border-b border-gray-600">
+                    <h4 className="mt-0 mb-3 text-lg text-gray-300">Spending Limits (USDC)</h4>
                     {(isEncrypted && !isUnlocked) && (
-                        <p className={styles.warningText}>Wallet is locked. Unlock to change spending limits.</p>
+                        <p className="text-orange-400 text-sm mb-2">Wallet is locked. Unlock to change spending limits.</p>
                     )}
-                    <form onSubmit={handleSetLimits} className={styles.spendingLimitFormCompact}>
-                        <input 
-                            type="number" 
-                            step="any" 
+                    <form onSubmit={handleSetLimits} className="flex items-center gap-2">
+                        <input
+                            type="number"
+                            step="any"
                             min="0"
                             placeholder="Max Per Call"
                             value={limitPerCall}
-                            onChange={e => setLimitPerCall(e.target.value)} 
-                            className={styles.limitInputFieldCompact}
+                            onChange={e => setLimitPerCall(e.target.value)}
+                            className="flex-grow px-2 py-2 rounded border border-gray-600 bg-gray-800 text-gray-100 text-sm min-w-24"
                             disabled={limitsDisabled}
                             onClick={(e) => e.stopPropagation()} // Good to have on inputs too
                         />
-                        <button 
-                            type="submit" 
-                            className={styles.limitButtonOk}
+                        <button
+                            type="submit"
+                            className="px-5 py-2 rounded border-none cursor-pointer text-sm bg-green-600 text-white transition-colors hover:bg-green-700 disabled:bg-gray-600 disabled:opacity-60 disabled:cursor-not-allowed"
                             disabled={limitsDisabled}
                             onClick={(e) => e.stopPropagation()} // Prevent modal close if form is part of a clickable area
                         >
