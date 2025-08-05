@@ -14,7 +14,7 @@ use alloy_primitives::{U256, Address as EthAddress};
 use crate::structs::{State, PaymentAttemptResult};
 
 // Hyperwallet service address
-const HYPERWALLET_ADDRESS: (&str, &str, &str, &str) = ("our", "hyperwallet", "hyperwallet", "hallman.hypr");
+const HYPERWALLET_ADDRESS: (&str, &str, &str, &str) = ("our", "hyperwallet", "hyperwallet", "sys");
 
 /// Asset types for withdrawals
 #[derive(Debug, Clone, Copy)]
