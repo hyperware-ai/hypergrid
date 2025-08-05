@@ -7,12 +7,8 @@ import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
 import PaymasterApprovalButton from '../PaymasterApprovalButton';
 import { useApprovePaymaster } from '../../logic/hypermapHelpers';
-
-const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
-    if (!str) return '';
-    if (str.length <= startLen + endLen + 3) return str;
-    return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-};
+import { truncate } from '../../utils/truncate';
+import { useErrorLogStore } from '../../store/errorLog';
 
 interface PaymasterToggleButtonProps {
     operatorTbaAddress: Address;
@@ -146,6 +142,7 @@ const PaymasterToggleButton: React.FC<PaymasterToggleButtonProps> = ({
 };
 
 const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> = ({ data }) => {
+    const { addError } = useErrorLogStore();
     const {
         name: operatorName,
         tbaAddress,
@@ -169,11 +166,16 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
     const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
 
     const showToast = useCallback((type: 'success' | 'error', text: string, duration: number = 3000) => {
+        // Log errors to the error store
+        if (type === 'error') {
+            addError(text);
+        }
+
         setToastMessage({ type, text });
         setTimeout(() => {
             setToastMessage(null);
         }, duration);
-    }, []);
+    }, [addError]);
 
 
 

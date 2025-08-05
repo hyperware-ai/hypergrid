@@ -18,6 +18,7 @@ const BASE_URL = `/${manifest[0].process_name}:${metadata.properties.package_nam
 
 // This is the proxy URL, it must match the node you are developing against
 const PROXY_URL = (
+  //@ts-ignore
   process.env.VITE_NODE_URL || "http://127.0.0.1:8080"
 ).replace("localhost", "127.0.0.1");
 

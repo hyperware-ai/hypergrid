@@ -23,7 +23,37 @@
   --color-black: var(--black);
 }
 
-/* Override hyperware.css hover effect */
-section:hover {
-  transform: none !important;
+@font-face {
+  font-family: 'Neue Haas Grotesk';
+  src: url('/NHaasGroteskTXPro-55Rg.woff') format('woff');
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: 'Neue Haas Grotesk';
+  src: url('/NHaasGroteskTXPro-75Bd.woff') format('woff');
+  font-weight: 700;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  font-family: 'Neue Haas Grotesk', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--dark-gray);
+  background-color: var(--gray);
+  overflow-x: hidden;
+}
+
+.font-sans {
+  font-family: 'Neue Haas Grotesk', sans-serif;
+}
+
+button,
+.button {
+  @apply flex items-center gap-2 cursor-pointer transition-colors duration-200 disabled:opacity-75 disabled:cursor-not-allowed;
 }

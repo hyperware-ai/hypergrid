@@ -1,6 +1,7 @@
 import React from 'react';
 import CallHistory from '../CallHistory'; // Assuming CallHistory is in ../components/
 import type { Address } from 'viem';
+import { truncate } from '../../utils/truncate';
 
 interface CallHistoryModalProps {
     isOpen: boolean;
@@ -16,13 +17,6 @@ const CallHistoryModal: React.FC<CallHistoryModalProps> = ({
     if (!isOpen) {
         return null;
     }
-
-    // Helper to truncate the address for the title
-    const truncate = (str: string | null | undefined, startLen = 8, endLen = 6) => {
-        if (!str) return '';
-        if (str.length <= startLen + endLen + 3) return str;
-        return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-    };
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-45 flex items-center justify-center z-50" onClick={onClose}>

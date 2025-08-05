@@ -12,6 +12,10 @@ import { type Address as ViemAddress, parseAbi, namehash as viemNamehash } from 
 import { useConfig, useContractRead } from 'wagmi';
 // Import ConnectButton from RainbowKit
 import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { ToastContainer } from "react-toastify";
+import NotificationBell from './components/NotificationBell';
+
+const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 
 function App() {
@@ -26,8 +30,8 @@ function App() {
   const derivedNodeName = useMemo(() => {
     const windowNodeName = (window as any).our?.node;
     if (windowNodeName) return windowNodeName;
-    if (onboardingData?.checks?.operatorEntry && onboardingData.checks.operatorEntry.startsWith("grid-beta-wallet-aa-final.")) {
-      const namePart = onboardingData.checks.operatorEntry.substring("grid-beta-wallet-aa-final.".length);
+    if (onboardingData?.checks?.operatorEntry && onboardingData.checks.operatorEntry.startsWith("grid-wallet.")) {
+      const namePart = onboardingData.checks.operatorEntry.substring("grid-wallet.".length);
       if (namePart) return namePart;
     }
     return null;
@@ -75,28 +79,31 @@ function App() {
 
   return (
     <div className="flex h-screen">
-      <header className="flex flex-col px-6 py-3 bg-white shadow-md relative flex-shrink-0">
-        <div className="flex items-center gap-3">
-          <AppSwitcher currentApp="operator" />
-          <h1 className="text-xl font-semibold text-gray-800 m-0">
-            Hypergrid Operator
-          </h1>
-        </div>
-        <div className="flex-grow flex justify-center items-center">
-          <HeaderSearch />
-        </div>
-        <div className="ml-auto">
-          <ConnectButton />
-        </div>
+      <header className="flex flex-col py-8 px-6  bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
+        <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
+        <HeaderSearch />
+        <AppSwitcher currentApp="operator" />
       </header>
 
-      <div className="flex flex-col flex-grow overflow-hidden">
+      <div className="flex flex-col flex-grow overflow-hidden relative">
+        <div className="flex items-center gap-3 absolute top-4 right-4 z-10">
+          <NotificationBell />
+          <ConnectButton />
+        </div>
         <main className="flex-grow flex flex-col overflow-y-auto">
           <BackendDrivenHypergridVisualizerWrapper
-          // TODO: perhaps show the latest fetched graph state until the new one comes in?
           />
         </main>
       </div>
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+      />
     </div>
   );
 }

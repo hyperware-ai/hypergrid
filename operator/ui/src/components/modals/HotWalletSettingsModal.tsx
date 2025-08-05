@@ -2,7 +2,8 @@ import React, { useState, useCallback, useEffect, useRef } from 'react';
 import classNames from 'classnames';
 import { IHotWalletNodeData, SpendingLimits } from '../../logic/types';
 import type { Address } from 'viem';
-import CopyToClipboardText from '../CopyToClipboardText'; // If needed for displaying info within modal
+import { truncate } from '../../utils/truncate';
+import { useErrorLogStore } from '../../store/errorLog';
 
 interface HotWalletSettingsModalProps {
     isOpen: boolean;
@@ -12,12 +13,6 @@ interface HotWalletSettingsModalProps {
     onWalletUpdate: (walletAddress: Address) => void;
 }
 
-// Helper function to truncate text (can be moved to a utils file)
-const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
-    if (!str) return '';
-    if (str.length <= startLen + endLen + 3) return str;
-    return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-};
 
 // Define getApiBasePath and callMcpApi locally 
 const getApiBasePath = () => {
@@ -47,6 +42,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     walletData,
     onWalletUpdate,
 }) => {
+    const { addError } = useErrorLogStore();
     const [limitPerCall, setLimitPerCall] = useState<string>('');
     // const [limitCurrency, setLimitCurrency] = useState<string>('USDC'); // Currency is now fixed
 
@@ -84,12 +80,17 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     }, [isEditingName]);
 
     const showToast = useCallback((type: 'success' | 'error', text: string, duration: number = 3000) => {
+        // Log errors to the error store
+        if (type === 'error') {
+            addError(text);
+        }
+
         setToastMessage({ type, text });
         const timer = setTimeout(() => {
             setToastMessage(null);
         }, duration);
         return () => clearTimeout(timer);
-    }, []);
+    }, [addError]);
 
     const handleSuccess = (msg: string, actionCallback?: () => void) => {
         showToast('success', msg);

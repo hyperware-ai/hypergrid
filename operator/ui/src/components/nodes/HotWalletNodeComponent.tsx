@@ -5,13 +5,8 @@ import { IHotWalletNodeData, SpendingLimits } from '../../logic/types';
 import type { Address } from 'viem';
 import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer'; // Assuming NODE_WIDTH is exported
 import CopyToClipboardText from '../CopyToClipboardText';
-
-// Helper to truncate text (can be moved to a utils file)
-const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
-    if (!str) return '';
-    if (str.length <= startLen + endLen + 3) return str;
-    return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-};
+import { truncate } from '../../utils/truncate';
+import { useErrorLogStore } from '../../store/errorLog';
 
 // Define getApiBasePath and callMcpApi locally
 const getApiBasePath = () => {
@@ -45,6 +40,7 @@ interface HotWalletNodeComponentProps extends NodeProps<IHotWalletNodeData> {
 }
 
 const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, id: nodeId, onWalletDataUpdate, onOpenHistoryModal, onUnlockWallet, onLockWallet, isUnlockingOrLocking }) => {
+    const { addError } = useErrorLogStore();
     const {
         address,
         statusDescription,
@@ -123,11 +119,16 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     }, [isEditingLimit]);
 
     const showToast = useCallback((type: 'success' | 'error', text: string, duration: number = 3000) => {
+        // Log errors to the error store
+        if (type === 'error') {
+            addError(text);
+        }
+
         setToastMessage({ type, text });
         setTimeout(() => {
             setToastMessage(null);
         }, duration);
-    }, []);
+    }, [addError]);
 
     const handleUnlockWalletAttempt = async () => {
         // For unencrypted wallets that need activation, we don't require a password

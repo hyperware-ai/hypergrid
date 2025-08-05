@@ -4,13 +4,7 @@ import { NodeProps, Handle, Position } from 'reactflow';
 import { IAuthorizedClientNodeData } from '../../logic/types';
 import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
-
-// Helper to truncate text (can be moved to a utils file)
-const truncate = (str: string | undefined, startLen = 6, endLen = 4) => {
-    if (!str) return '';
-    if (str.length <= startLen + endLen + 3) return str;
-    return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-};
+import { truncate } from '../../utils/truncate';
 
 const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeData>> = ({ data }) => {
     const { clientId, clientName: initialClientName, associatedHotWalletAddress } = data;
