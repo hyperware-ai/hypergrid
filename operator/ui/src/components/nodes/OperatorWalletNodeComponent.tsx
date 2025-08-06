@@ -182,10 +182,10 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
         const processIdPart = pathParts.find(part => part.includes(':'));
         return processIdPart ? `/${processIdPart}/api` : '/api';
     };
-    const MCP_ENDPOINT_LOCAL = `${getApiBasePathLocal()}/mcp`;
+    const API_ACTIONS_ENDPOINT_LOCAL = `${getApiBasePathLocal()}/actions`;
 
-    const callMcpApiLocal = async (body: any) => {
-        const response = await fetch(MCP_ENDPOINT_LOCAL, {
+    const callApiActionsLocal = async (body: any) => {
+        const response = await fetch(API_ACTIONS_ENDPOINT_LOCAL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
@@ -243,7 +243,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                     amount_usdc_units_str: amountUsdcUnitsStr
                 }
             };
-            await callMcpApiLocal(payload);
+            await callApiActionsLocal(payload);
             showToast('success', 'USDC withdrawal initiated!');
             setShowUsdcWithdrawInput(false);
             setUsdcWithdrawAddress('');

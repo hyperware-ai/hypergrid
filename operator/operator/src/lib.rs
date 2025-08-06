@@ -36,9 +36,11 @@ fn init_http() -> anyhow::Result<HttpServer> {
         .secure_subdomain(false);
 
     // REST API endpoints
-    http_server.bind_http_path("/api/state", http_config_authenticated.clone())?;
-    http_server.bind_http_path("/api/all", http_config_authenticated.clone())?;
     http_server.bind_http_path("/api/search", http_config_authenticated.clone())?;
+    http_server.bind_http_path("/api/state", http_config_authenticated.clone())?;
+    http_server.bind_http_path("/api/actions", http_config_authenticated.clone())?;
+
+    http_server.bind_http_path("/api/all", http_config_authenticated.clone())?;
     http_server.bind_http_path("/api/setup-status", http_config_authenticated.clone())?;
     http_server.bind_http_path("/api/onboarding-status", http_config_authenticated.clone())?;
     http_server.bind_http_path("/api/verify-delegation-and-funding", http_config_authenticated.clone())?;

@@ -59,10 +59,12 @@ export const HYPERGRID_ACCESS_LIST_NOTE_KEY = "~access-list";
 export const HYPERGRID_SIGNERS_NOTE_KEY = "~grid-beta-signers";
 
 // ERC-4337 Constants
+export const HYPERWARE_PAYMASTER_ADDRESS: Address = '0x861a1Be40c595db980341e41A7a5D09C772f7c2b'; // Circle's USDC paymaster on Base
 export const CIRCLE_PAYMASTER_ADDRESS: Address = '0x0578cFB241215b77442a541325d6A4E6dFE700Ec'; // Circle's USDC paymaster on Base
 //export const PIMLICO_PAYMASTER_ADDRESS: Address = '0x888888888888Ec68A58AB8094Cc1AD20Ba3D2402'; // Pimlico's USDC paymaster on Base
 export const USDC_ADDRESS_BASE: Address = '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913'; // USDC on Base
 export const DEFAULT_PAYMASTER_APPROVAL_AMOUNT = 100n * 10n ** 6n; // 100 USDC (with 6 decimals)
+export const PAYMASTER_ADDRESS: Address = CIRCLE_PAYMASTER_ADDRESS;
 
 // -------------------------------------------------------------------------------------------------
 // Encoding Helpers
@@ -427,7 +429,7 @@ export function useApprovePaymaster(props?: UseWriteHypermapContractProps) {
 
     const approvePaymasterInternal = useCallback(({
         operatorTbaAddress,
-        paymasterAddress = CIRCLE_PAYMASTER_ADDRESS,
+        paymasterAddress = PAYMASTER_ADDRESS,
         usdcAddress = USDC_ADDRESS_BASE,
         approvalAmount = DEFAULT_PAYMASTER_APPROVAL_AMOUNT,
     }: {
@@ -475,7 +477,7 @@ export function useApprovePaymaster(props?: UseWriteHypermapContractProps) {
 
     const revokePaymasterInternal = useCallback(({
         operatorTbaAddress,
-        paymasterAddress = CIRCLE_PAYMASTER_ADDRESS,
+        paymasterAddress = PAYMASTER_ADDRESS,
         usdcAddress = USDC_ADDRESS_BASE,
     }: {
         operatorTbaAddress: Address;

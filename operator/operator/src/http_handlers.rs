@@ -492,7 +492,7 @@ fn handle_search_providers(db: &Sqlite, params: &HashMap<String, String>) -> any
     send_json_response(StatusCode::OK, &json!(data))
 }
 
-fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
+fn handle_get_managed_wallets(state: &mut State) -> anyhow::Result<()> {
     info!("Getting managed wallets");
     let (selected_id, summaries) = hyperwallet_service::get_wallet_summary_list(state);
     
@@ -502,7 +502,7 @@ fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
     }))
 }
 
-fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
+fn handle_get_linked_wallets(state: &mut State) -> anyhow::Result<()> {
     info!("Getting linked wallets");
     
     // Get on-chain linked wallets if operator is configured
@@ -714,7 +714,7 @@ fn handle_get_call_history(state: &State) -> anyhow::Result<()> {
 
 // --- Wallet Management Operations ---
 
-fn handle_get_wallet_summary_list(state: &State) -> anyhow::Result<()> {
+fn handle_get_wallet_summary_list(state: &mut State) -> anyhow::Result<()> {
     info!("Getting wallet summary list");
     let (selected_id, summaries) = hyperwallet_service::get_wallet_summary_list(state);
     send_json_response(StatusCode::OK, &json!({ 

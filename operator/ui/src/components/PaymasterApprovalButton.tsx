@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Address } from 'viem';
-import { useApprovePaymaster, CIRCLE_PAYMASTER_ADDRESS, USDC_ADDRESS_BASE, DEFAULT_PAYMASTER_APPROVAL_AMOUNT } from '../logic/hypermapHelpers';
+import { useApprovePaymaster, PAYMASTER_ADDRESS, USDC_ADDRESS_BASE, DEFAULT_PAYMASTER_APPROVAL_AMOUNT } from '../logic/hypermapHelpers';
 
 interface PaymasterApprovalButtonProps {
     operatorTbaAddress: Address;
@@ -65,7 +65,7 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
         
         approvePaymaster({
             operatorTbaAddress,
-            paymasterAddress: CIRCLE_PAYMASTER_ADDRESS,
+            paymasterAddress: PAYMASTER_ADDRESS,
             usdcAddress: USDC_ADDRESS_BASE,
             approvalAmount: DEFAULT_PAYMASTER_APPROVAL_AMOUNT,
         });
@@ -124,7 +124,7 @@ const PaymasterApprovalButton: React.FC<PaymasterApprovalButtonProps> = ({
                         This will allow Circle's paymaster to spend up to {approvalAmountDisplay} from this TBA for gas fees, enabling gasless transactions.
                     </p>
                     <p style={{ margin: '0 0 8px 0', fontSize: '11px', color: '#888' }}>
-                        Paymaster: {CIRCLE_PAYMASTER_ADDRESS.slice(0, 6)}...{CIRCLE_PAYMASTER_ADDRESS.slice(-4)}
+                        Paymaster: {PAYMASTER_ADDRESS.slice(0, 6)}...{PAYMASTER_ADDRESS.slice(-4)}
                     </p>
                     <p style={{ margin: '0 0 12px 0', fontSize: '11px', color: '#888', fontStyle: 'italic' }}>
                         ⚠️ Important: This is a one-time setup required for gasless functionality. Once approved, you can sign transactions without needing ETH for gas.

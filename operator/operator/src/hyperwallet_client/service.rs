@@ -77,7 +77,7 @@ pub fn initialize_wallet(state: &mut State) {
     }
 }
 
-pub fn generate_initial_wallet(state: &State) -> Result<String, String> {
+pub fn generate_initial_wallet(state: &mut State) -> Result<String, String> {
     info!("Generating initial wallet via hyperwallet");
     
     let session = get_session_from_state(state)?;
@@ -88,6 +88,11 @@ pub fn generate_initial_wallet(state: &State) -> Result<String, String> {
     ).map_err(convert_error)?;
     
     info!("Hyperwallet created wallet: {}", wallet.address);
+    
+    // Auto-select the newly created wallet
+    select_wallet(state, wallet.address.clone())?;
+    info!("Auto-selected newly generated wallet: {}", wallet.address);
+    
     Ok(wallet.address)
 }
 
@@ -110,12 +115,14 @@ pub fn import_new_wallet(
     
     info!("Hyperwallet imported wallet: {}", wallet.address);
     
-    // Note: We no longer need to manage local wallet state since hyperwallet handles it
-    state.save();
+    // Auto-select the newly imported wallet
+    select_wallet(state, wallet.address.clone())?;
+    info!("Auto-selected newly imported wallet: {}", wallet.address);
+    
     Ok(wallet.address)
 }
 
-pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSummary>) {
+pub fn get_wallet_summary_list(state: &mut State) -> (Option<String>, Vec<WalletSummary>) {
     info!("Getting wallet summary list from hyperwallet");
     
     let session = match get_session_from_state(state) {
@@ -129,6 +136,17 @@ pub fn get_wallet_summary_list(state: &State) -> (Option<String>, Vec<WalletSumm
     match hyperwallet_client::list_wallets(&session.session_id) {
         Ok(wallets) => {
             info!("Retrieved {} wallets from hyperwallet", wallets.total);
+            
+            // Auto-select first wallet if none is currently selected and wallets exist
+            if state.selected_wallet_id.is_none() && !wallets.wallets.is_empty() {
+                let first_wallet = &wallets.wallets[0];
+                info!("No wallet selected - auto-selecting first available wallet: {}", first_wallet.address);
+                
+                match select_wallet(state, first_wallet.address.clone()) {
+                    Ok(()) => info!("Successfully auto-selected wallet: {}", first_wallet.address),
+                    Err(e) => warn!("Failed to auto-select wallet {}: {}", first_wallet.address, e),
+                }
+            }
             
             let wallet_summaries = wallets
                 .wallets
