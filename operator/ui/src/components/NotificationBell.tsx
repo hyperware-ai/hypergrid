@@ -21,7 +21,7 @@ const NotificationBell: React.FC = () => {
         <>
             <button
                 onClick={handleBellClick}
-                className="relative p-2 rounded-lg bg-white border border-gray-300 hover:bg-gray-50 transition-colors"
+                className="relative p-2 rounded-xl self-stretch bg-white shadow-xl"
                 title="View error notifications"
             >
                 {/* Bell Icon */}

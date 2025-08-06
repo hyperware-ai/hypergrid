@@ -2,6 +2,7 @@ import React from 'react';
 import CallHistory from '../CallHistory'; // Assuming CallHistory is in ../components/
 import type { Address } from 'viem';
 import { truncate } from '../../utils/truncate';
+import Modal from './Modal';
 
 interface CallHistoryModalProps {
     isOpen: boolean;
@@ -19,15 +20,13 @@ const CallHistoryModal: React.FC<CallHistoryModalProps> = ({
     }
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-45 flex items-center justify-center z-50" onClick={onClose}>
-            <div className="bg-white text-gray-800 p-6 rounded-lg w-[90%] max-w-4xl max-h-[85vh] flex flex-col shadow-xl border border-gray-300" onClick={(e) => e.stopPropagation()}>
-                <button className="absolute top-4 right-5 bg-transparent border-none text-gray-500 text-3xl cursor-pointer leading-none p-1 hover:text-gray-800" onClick={onClose}>&times;</button>
-                <h3 className="mt-0 text-gray-800 pb-4 mb-5 border-b border-gray-200 text-2xl text-center">Call History for {walletAddress ? truncate(walletAddress) : 'Wallet'}</h3>
-                <div className="flex-grow overflow-y-auto pr-1">
-                    <CallHistory selectedAccountId={walletAddress} isNonCollapsible={true} />
-                </div>
-            </div>
-        </div>
+        <Modal
+            title={`Call History for ${walletAddress ? truncate(walletAddress) : 'Wallet'}`}
+            onClose={onClose}
+            preventAccidentalClose={true}
+        >
+            <CallHistory selectedAccountId={walletAddress} isNonCollapsible={true} />
+        </Modal>
     );
 };
 

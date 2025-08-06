@@ -9,6 +9,9 @@ import PaymasterApprovalButton from '../PaymasterApprovalButton';
 import { useApprovePaymaster } from '../../logic/hypermapHelpers';
 import { truncate } from '../../utils/truncate';
 import { useErrorLogStore } from '../../store/errorLog';
+import { FaArrowUpFromBracket } from 'react-icons/fa6';
+import { TbPencilCheck } from 'react-icons/tb';
+import BaseNodeComponent from './BaseNodeComponent';
 
 interface PaymasterToggleButtonProps {
     operatorTbaAddress: Address;
@@ -114,35 +117,38 @@ const PaymasterToggleButton: React.FC<PaymasterToggleButtonProps> = ({
     const disabled = isProcessing || approveHook.isSending || approveHook.isConfirming;
 
     return (
-        <div style={{ marginTop: '12px', marginBottom: '12px' }}>
-            <button
-                onClick={handleClick}
-                onMouseEnter={() => setIsHovered(true)}
-                onMouseLeave={() => setIsHovered(false)}
-                disabled={disabled}
-                style={{
-                    width: '100%',
-                    padding: '10px 16px',
-                    fontSize: '14px',
-                    fontWeight: '500',
-                    backgroundColor: buttonState.backgroundColor,
-                    color: buttonState.color,
-                    border: `1px solid ${buttonState.borderColor}`,
-                    borderRadius: '6px',
-                    cursor: disabled ? 'not-allowed' : 'pointer',
-                    opacity: disabled ? 0.7 : 1,
-                    transition: 'all 0.2s ease',
-                    outline: 'none'
-                }}
-            >
-                {buttonState.text}
-            </button>
-        </div>
+        <button
+            onClick={handleClick}
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            disabled={disabled}
+            style={{
+                width: '100%',
+                padding: '10px 16px',
+                fontSize: '14px',
+                fontWeight: '500',
+                backgroundColor: buttonState.backgroundColor,
+                color: buttonState.color,
+                border: `1px solid ${buttonState.borderColor}`,
+                borderRadius: '6px',
+                cursor: disabled ? 'not-allowed' : 'pointer',
+                opacity: disabled ? 0.7 : 1,
+                transition: 'all 0.2s ease',
+                outline: 'none'
+            }}
+            className={classNames("w-full text-sm font-bold rounded-lg justify-center", {
+                "bg-red-600 hover:bg-red-700 text-white": !isApproved,
+                "bg-green-600 hover:bg-green-700 text-white": isApproved,
+                "bg-mid-gray text-dark-gray": isProcessing || approveHook.isSending || approveHook.isConfirming
+            })}
+        >
+            {buttonState.text}
+        </button>
     );
 };
 
 const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> = ({ data }) => {
-    const { addError } = useErrorLogStore();
+    const { showToast } = useErrorLogStore();
     const {
         name: operatorName,
         tbaAddress,
@@ -162,22 +168,6 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
     const [usdcWithdrawAddress, setUsdcWithdrawAddress] = useState<string>('');
     const [isSendingUsdc, setIsSendingUsdc] = useState<boolean>(false);
     const [usdcWithdrawAmount, setUsdcWithdrawAmount] = useState<string>('');
-
-    const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-
-    const showToast = useCallback((type: 'success' | 'error', text: string, duration: number = 3000) => {
-        // Log errors to the error store
-        if (type === 'error') {
-            addError(text);
-        }
-
-        setToastMessage({ type, text });
-        setTimeout(() => {
-            setToastMessage(null);
-        }, duration);
-    }, [addError]);
-
-
 
     const getApiBasePathLocal = () => {
         const pathParts = window.location.pathname.split('/').filter(p => p);
@@ -287,64 +277,51 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
     const isProcessingNote = isCurrentlySettingAccessListNote || isCurrentlySettingSignersNote;
 
     return (
-        <div
-            className="p-3 border rounded-lg box-border font-sans flex flex-col gap-2 text-left border-cyan bg-gray"
-            style={{ maxWidth: NODE_WIDTH }}
+        <BaseNodeComponent
+            showHandles={{ target: true, source: true }}
         >
-            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            <div className="mb-2 text-center">
-                <div className="text-base font-bold mb-0.5" style={{ color: '#00ffff' }}>Operator Wallet</div>
-                <div className="text-sm text-gray-400 break-words leading-tight">{operatorName}</div>
+            <div>
+                <div className=" font-bold " >Operator Wallet:</div>
+                <div className="text-sm text-dark-gray break-words leading-tight">{operatorName}</div>
             </div>
 
-            {toastMessage && (
-                <div className={classNames(
-                    "px-3 py-3 my-4 rounded text-sm text-center",
-                    {
-                        "bg-green-600 text-white border border-green-800": toastMessage.type === 'success',
-                        "bg-red-600 text-white border border-red-800": toastMessage.type === 'error'
-                    }
-                )}>
-                    {toastMessage.text}
-                </div>
-            )}
-
-            <div className="text-sm mb-2">
-                <span className="text-gray-400 mr-1">Address:</span>
-                <span className="text-blue-400 break-all">
+            <div className="text-sm flex gap-1 self-stretch">
+                <span className="font-bold">Address:</span>
+                <span className="text-dark-gray wrap-anywhere">
                     {tbaAddress ? (
                         <CopyToClipboardText textToCopy={tbaAddress as string}>
-                            {truncate(tbaAddress as string)}
+                            {truncate(tbaAddress as string, 8, 6)}
                         </CopyToClipboardText>
                     ) : 'N/A'}
                 </span>
             </div>
 
-            <div className="mt-2 pt-2 border-t border-gray-600 flex flex-col gap-1.5">
-                <div className="flex justify-between items-center">
-                    <span className="text-gray-400 mr-auto">USDC Balance:</span>
-                    <span className="inline-flex items-center gap-2">
-                        <span className="text-gray-300">{(fundingStatus as IOperatorWalletFundingInfo)?.usdcBalanceStr ?? 'N/A'}</span>
+            <div className="border-y border-mid-gray flex flex-col gap-2 py-4 text-xs">
+                <div className="flex gap-1 items-center">
+                    <span className="font-bold text-dark-gray">USDC:</span>
+                    <span className="flex items-center gap-2 grow">
+                        <span className="grow p-2 bg-mid-gray/25 rounded-lg">{(fundingStatus as IOperatorWalletFundingInfo)?.usdcBalanceStr ?? 'N/A'} </span>
                         {!showUsdcWithdrawInput && (
                             <button
-                                className="bg-none border-none p-1 m-0 ml-2 text-base leading-none cursor-pointer text-gray-500 inline-flex items-center justify-center rounded transition-colors hover:text-blue-400 hover:bg-gray-800 disabled:text-gray-600 disabled:cursor-not-allowed disabled:bg-transparent"
+                                className="rounded-lg hover:bg-mid-gray p-2"
                                 onClick={handleToggleUsdcWithdraw}
                                 title="Withdraw USDC"
                                 disabled={isCurrentlySettingAccessListNote || isCurrentlySettingSignersNote || isSendingUsdc}
                             >
-                                💸
+                                <FaArrowUpFromBracket className="w-4 h-4" />
                             </button>
                         )}
                     </span>
                 </div>
                 {showUsdcWithdrawInput && (
-                    <div className="flex flex-col gap-2 mt-2 p-2 bg-gray-800 rounded border border-gray-600">
+                    <div className="flex flex-col gap-2 mt-2 p-2 bg-darkgray rounded ">
+                        <span className="font-bold">Withdraw USDC</span>
                         <input
                             type="text"
                             placeholder="Destination Address (0x...)"
                             value={usdcWithdrawAddress}
                             onChange={(e) => setUsdcWithdrawAddress(e.target.value)}
-                            className="px-2 py-1 border border-gray-600 rounded bg-gray-700 text-gray-100 text-sm placeholder-gray-400"
+                            className="px-2 py-1 bg-mid-gray/25 rounded"
                             onClick={(e) => e.stopPropagation()}
                             disabled={isSendingUsdc}
                         />
@@ -355,24 +332,24 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                             placeholder="Amount USDC"
                             value={usdcWithdrawAmount}
                             onChange={(e) => setUsdcWithdrawAmount(e.target.value)}
-                            className="px-2 py-1 border border-gray-600 rounded bg-gray-700 text-gray-100 text-sm placeholder-gray-400"
+                            className="px-2 py-1 bg-mid-gray/25 rounded"
                             onClick={(e) => e.stopPropagation()}
                             disabled={isSendingUsdc}
                         />
-                        <div className="flex gap-2">
+                        <div className="flex gap-2 font-bold">
                             <button
-                                className="flex-1 px-3 py-1.5 rounded text-sm bg-green-600 text-white transition-colors hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed"
-                                onClick={handleSendUsdc}
-                                disabled={isSendingUsdc || !usdcWithdrawAddress.trim() || !usdcWithdrawAmount.trim()}
-                            >
-                                {isSendingUsdc ? 'Sending...' : 'Send USDC'}
-                            </button>
-                            <button
-                                className="px-3 py-1.5 rounded text-sm bg-gray-600 text-white transition-colors hover:bg-gray-700 disabled:cursor-not-allowed"
+                                className="rounded-lg bg-mid-gray/25 text-dark-gray grow px-2 py-1 justify-center"
                                 onClick={handleToggleUsdcWithdraw}
                                 disabled={isSendingUsdc}
                             >
                                 Cancel
+                            </button>
+                            <button
+                                className="rounded-lg bg-cyan grow px-2 py-1 justify-center"
+                                onClick={handleSendUsdc}
+                                disabled={isSendingUsdc || !usdcWithdrawAddress.trim() || !usdcWithdrawAmount.trim()}
+                            >
+                                {isSendingUsdc ? 'Sending...' : 'Send USDC'}
                             </button>
                         </div>
                     </div>
@@ -384,35 +361,30 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
 
             {/* Only show notes section if either note is not set */}
             {(!accessListNoteInfo?.isSet || !signersNoteInfo?.isSet) && (
-                <div className="mt-2 pt-2 border-t border-gray-600 flex flex-col gap-1.5">
-                    <div className="text-sm leading-relaxed">
-                        <span className="text-gray-400 mr-1">Access List Note:</span>
-                        <span className={classNames(
-                            "text-gray-300",
-                            {
-                                "text-green-400": (accessListNoteInfo as INoteInfo)?.isSet,
-                                "text-orange-400": !(accessListNoteInfo as INoteInfo)?.isSet
-                            }
-                        )}>
-                            {(accessListNoteInfo as INoteInfo)?.statusText || 'Unknown'}
-                        </span>
+                <div className="flex flex-col gap-2">
+                    <span className="font-bold text-sm">Access List Note:</span>
+                    <div className={classNames("text-xs leading-relaxed p-2 rounded-xl",
+                        {
+                            "bg-green-400 text-dark-gray": (accessListNoteInfo as INoteInfo)?.isSet,
+                            "bg-red-100 text-red-500": !(accessListNoteInfo as INoteInfo)?.isSet
+                        }
+                    )}>
+                        {(accessListNoteInfo as INoteInfo)?.statusText || 'Unknown'}
                     </div>
-                    <div className="text-sm leading-relaxed">
-                        <span className="text-gray-400 mr-1">Signers Note:</span>
-                        <span className={classNames(
-                            "text-gray-300",
-                            {
-                                "text-green-400": (signersNoteInfo as INoteInfo)?.isSet,
-                                "text-orange-400": !(signersNoteInfo as INoteInfo)?.isSet
-                            }
-                        )}>
-                            {(signersNoteInfo as INoteInfo)?.statusText || 'Unknown'}
-                            {(signersNoteInfo as INoteInfo)?.isSet && (signersNoteInfo as INoteInfo).details &&
-                                <span className="text-xs text-gray-500 ml-1">
-                                    {(signersNoteInfo as INoteInfo).details}
-                                </span>
-                            }
-                        </span>
+                    <span className="font-bold text-sm">Signers Note:</span>
+                    <div className={classNames(
+                        "text-xs leading-relaxed p-2 rounded-xl flex flex-col gap-1",
+                        {
+                            "bg-green-400 text-dark-gray": (signersNoteInfo as INoteInfo)?.isSet,
+                            "text-red-500 bg-red-100": !(signersNoteInfo as INoteInfo)?.isSet
+                        }
+                    )}>
+                        <span>{(signersNoteInfo as INoteInfo)?.statusText || 'Unknown'}</span>
+                        {(signersNoteInfo as INoteInfo)?.isSet && (signersNoteInfo as INoteInfo).details &&
+                            <span>
+                                {(signersNoteInfo as INoteInfo).details}
+                            </span>
+                        }
                     </div>
                 </div>
             )}
@@ -453,14 +425,11 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                             onClick={handleSetAccessListNoteClick}
                             disabled={isProcessingNote || showUsdcWithdrawInput}
                             className={classNames(
-                                "w-full px-2 py-2 rounded text-white text-center text-sm border-none cursor-pointer transition-colors",
-                                {
-                                    "bg-red-600 hover:bg-red-700": !isProcessingNote && !showUsdcWithdrawInput,
-                                    "bg-gray-600 cursor-not-allowed opacity-70": isProcessingNote || showUsdcWithdrawInput
-                                }
+                                "bg-black hover:bg-dark-gray rounded-xl p-2 text-white",
                             )}
                         >
-                            {isCurrentlySettingAccessListNote ? 'Setting Access List...' : 'Set Access List Note'}
+                            <TbPencilCheck className="w-4 h-4" />
+                            <span className="text-sm">{isCurrentlySettingAccessListNote ? 'Setting Access List...' : 'Set Access List Note'}</span>
                         </button>
                     )}
                     {canSetSigners && (
@@ -485,8 +454,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                     )}
                 </div>
             )}
-            <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
-        </div>
+        </BaseNodeComponent>
     );
 };
 

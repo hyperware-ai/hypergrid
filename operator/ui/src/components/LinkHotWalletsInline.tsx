@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Address } from 'viem';
 import { useSetOperatorNote } from '../logic/hypermapHelpers';
+import { ImSpinner8 } from 'react-icons/im';
+import { truncate } from '../utils/truncate';
+import { FaPlus } from 'react-icons/fa6';
+import { FiCheck, FiCheckCircle, FiCircle, FiPlusCircle } from 'react-icons/fi';
+import classNames from 'classnames';
 
 // API Base Path Helper
 const getApiBasePath = () => {
@@ -50,7 +55,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
     const [selectedWallets, setSelectedWallets] = useState<Set<Address>>(new Set());
     const [isLoadingWallets, setIsLoadingWallets] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
-    
+
     // Wallet creation states
     const [showImportForm, setShowImportForm] = useState<boolean>(false);
     const [privateKeyToImport, setPrivateKeyToImport] = useState<string>('');
@@ -93,8 +98,8 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             console.log("Signers note transaction confirmed. Refreshing wallets/graph with delay. Tx:", transactionHash);
             // Add delay to allow backend to sync with blockchain
             setTimeout(() => {
-            onWalletsLinked();
-            fetchWallets(); // Refresh the wallet list too
+                onWalletsLinked();
+                fetchWallets(); // Refresh the wallet list too
             }, 2000);
         }
     }, [isConfirmed, transactionHash, onWalletsLinked]);
@@ -119,14 +124,14 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         setError(null);
         try {
             const response = await fetch(LINKED_WALLETS_ENDPOINT);
-            
+
             if (!response.ok) {
                 const errText = await response.text();
                 throw new Error(`Failed to fetch wallets: ${response.status} ${errText}`);
             }
-            
+
             const data = await response.json();
-            
+
             if (data && Array.isArray(data.linked_wallets)) {
                 const transformedWallets: LinkedWallet[] = data.linked_wallets.map((w: LinkedWalletFromApi) => ({
                     address: w.address as Address,
@@ -227,35 +232,28 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
     // Render import form
     if (showImportForm) {
         return (
-            <form onSubmit={handleImportWallet} style={{ padding: '10px' }}>
-                <h4 style={{ marginBottom: '10px' }}>Import Wallet</h4>
+            <form
+                onSubmit={handleImportWallet}
+                className="flex flex-col gap-2"
+            >
+                <span className="font-bold">Import Wallet</span>
                 <input
                     type="text"
                     placeholder="Private Key (0x...)"
                     value={privateKeyToImport}
                     onChange={e => setPrivateKeyToImport(e.target.value)}
                     required
-                    className="input-field"
-                    style={{ marginBottom: '8px', width: '100%' }}
+                    className="bg-dark-gray/5 rounded p-2 self-stretch"
                 />
                 <input
                     type="text"
                     placeholder="Name (Optional)"
                     value={walletNameToImport}
                     onChange={e => setWalletNameToImport(e.target.value)}
-                    className="input-field"
-                    style={{ marginBottom: '8px', width: '100%' }}
+                    className="bg-dark-gray/5 rounded p-2 self-stretch"
                 />
-                <div style={{ display: 'flex', gap: '8px' }}>
-                    <button 
-                        type="submit" 
-                        className="button primary-button" 
-                        disabled={isCreatingWallet}
-                        style={{ fontSize: '0.85em', padding: '4px 8px' }}
-                    >
-                        {isCreatingWallet ? 'Importing...' : 'Import'}
-                    </button>
-                    <button 
+                <div className="flex gap-2">
+                    <button
                         type="button"
                         onClick={() => {
                             setShowImportForm(false);
@@ -263,15 +261,21 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                             setWalletNameToImport('');
                             setError(null);
                         }}
-                        className="button"
                         disabled={isCreatingWallet}
-                        style={{ fontSize: '0.85em', padding: '4px 8px' }}
+                        className="grow p-2 hover:bg-dark-gray/25"
                     >
                         Cancel
                     </button>
+                    <button
+                        type="submit"
+                        disabled={isCreatingWallet}
+                        className="grow p-2 bg-cyan font-bold"
+                    >
+                        {isCreatingWallet ? 'Importing...' : 'Import'}
+                    </button>
                 </div>
                 {error && (
-                    <div style={{ color: 'red', fontSize: '0.85em', marginTop: '8px' }}>
+                    <div className="text-red-500 text-sm">
                         {error}
                     </div>
                 )}
@@ -279,67 +283,70 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         );
     }
 
-    // Main display
     return (
-        <div style={{ padding: '10px' }}>
+        <div className="flex flex-col gap-4">
             {isLoadingWallets ? (
-                <p style={{ fontSize: '0.85em' }}>Loading wallets...</p>
+                <div className="flex gap-2 flex-col grow self-stretch place-items-center place-content-center">
+                    <span className="text-lg">Loading wallets ...</span>
+                    <ImSpinner8 className="animate-spin" />
+                </div>
             ) : (
                 <>
-                    {/* Managed Wallets Section */}
-                    <div style={{ marginBottom: '15px' }}>
-                        <h5 style={{ marginBottom: '8px', color: '#a9c1ff' }}>Your Wallets:</h5>
-                        {managedWallets.length === 0 ? (
-                            <p style={{ fontSize: '0.85em', color: '#888' }}>No managed wallets found. Create one below.</p>
-                        ) : (
-                            managedWallets.map(wallet => {
-                                const isChecked = selectedWallets.has(wallet.address);
-                                return (
-                                    <div key={wallet.address} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
-                                        <input 
-                                            type="checkbox" 
-                                            id={`wallet-manage-${wallet.address}`}
-                                            checked={isChecked}
-                                            onChange={() => handleWalletSelectionToggle(wallet.address)}
-                                            style={{ marginRight: '6px' }}
-                                        />
-                                        <label 
-                                            htmlFor={`wallet-manage-${wallet.address}`} 
-                                            style={{ fontSize: '0.85em', cursor: 'pointer' }}
-                                        >
-                                            {wallet.name || 'Wallet'} ({wallet.address.substring(0,6)}...{wallet.address.substring(wallet.address.length - 4)})
-                                        </label>
+                    <div className="flex flex-col gap-1">
+                        <span className="font-bold">Your Wallets</span>
+                        {managedWallets.length === 0 && <p className="text-sm text-gray">No managed wallets found. Create one below.</p>}
+                        {managedWallets.map(wallet => {
+                            const isChecked = selectedWallets.has(wallet.address);
+                            return (
+                                <div
+                                    key={wallet.address}
+                                    className="flex items-center gap-2"
+                                >
+                                    <button
+                                        onClick={() => handleWalletSelectionToggle(wallet.address)}
+                                        className={classNames('!rounded-full', {
+                                            'bg-cyan': isChecked,
+                                            '!border-black': !isChecked,
+                                        })}
+                                    >
+                                        <FiCheck className={classNames("text-xl", {
+                                            'opacity-100': isChecked,
+                                            'opacity-0': !isChecked,
+                                        })} />
+                                    </button>
+                                    <div
+                                        className="text-xs cursor-pointer rounded-xl bg-mid-gray/25 py-2 px-4 grow"
+                                    >
+                                        {wallet.name || 'Wallet'} ({truncate(wallet.address, 6, 4)})
                                     </div>
-                                );
-                            })
-                        )}
+                                </div>
+                            );
+                        })}
                     </div>
 
-                    {/* External Wallets Section */}
                     {externalWallets.length > 0 && (
-                        <div style={{ marginBottom: '15px' }}>
-                            <h5 style={{ marginBottom: '8px', color: '#ffaa44' }}>Other Linked Wallets:</h5>
+                        <div className="flex flex-col gap-1">
+                            <span className="font-bold">Other Linked Wallets</span>
                             {externalWallets.map(wallet => {
                                 const isChecked = selectedWallets.has(wallet.address);
                                 return (
-                                    <div key={wallet.address} style={{ display: 'flex', alignItems: 'center', marginBottom: '6px' }}>
-                                        <input 
-                                            type="checkbox" 
-                                            id={`wallet-external-${wallet.address}`}
-                                            checked={isChecked}
-                                            onChange={() => handleWalletSelectionToggle(wallet.address)}
-                                            style={{ marginRight: '6px' }}
-                                        />
-                                        <label 
-                                            htmlFor={`wallet-external-${wallet.address}`} 
-                                            style={{ fontSize: '0.85em', cursor: 'pointer', color: '#ccc' }}
+                                    <div key={wallet.address} className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => handleWalletSelectionToggle(wallet.address)}
                                         >
-                                            {wallet.address.substring(0,6)}...{wallet.address.substring(wallet.address.length - 4)}
-                                        </label>
+                                            {isChecked
+                                                ? <FiCheckCircle className="text-2xl text-cyan" />
+                                                : <FiCircle className="text-2xl text-dark-gray" />}
+                                        </button>
+                                        <div
+                                            className="text-xs cursor-pointer rounded-xl bg-mid-gray/25 py-2 px-4 grow"
+                                        >
+                                            {truncate(wallet.address, 6)}...{truncate(wallet.address, 4)}
+                                        </div>
                                     </div>
                                 );
                             })}
-                            <p style={{ fontSize: '0.7em', color: '#666', marginTop: '4px' }}>
+                            <p className="text-sm text-gray">
                                 These wallets are linked on-chain but not managed by this operator.
                             </p>
                         </div>
@@ -347,111 +354,47 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
                 </>
             )}
 
-            {/* Add Wallet Section - right after wallet lists */}
-            <div style={{ marginTop: '15px' }}> 
-                    <div 
-                        className="add-wallet-container minimalist" 
-                        style={{ 
-                            width: '100%', 
-                            display: 'flex', 
-                            alignItems: 'center', 
-                            padding: '10px', 
-                            border: '1px solid #404552', 
-                            borderRadius: '8px', 
-                            backgroundColor: '#262930' 
-                        }}
-                    >
-                        <span className="add-wallet-plus" style={{ fontSize: '1.6em', color: '#8c92a3', marginRight: '12px' }}>+</span>
-                        <div 
-                            className="add-wallet-actions-inline" 
-                            style={{ 
-                                display: 'flex', 
-                                flexGrow: 1, 
-                                borderRadius: '6px', 
-                                overflow: 'hidden', 
-                                border: '1px solid #4a4f5c'
-                            }}
-                        >
-                            <button 
-                                onClick={handleGenerateWallet} 
-                                className="button generate-button action-button" 
-                                disabled={isCreatingWallet}
-                                style={{
-                                    flex: 1,
-                                    fontSize: '0.85em', 
-                                    padding: '10px 5px',
-                                    color: '#a9c1ff',
-                                    backgroundColor: isCreatingWallet ? '#30343e' : '#30343e',
-                                    border: 'none',
-                                    borderRadius: 0,
-                                    textAlign: 'center',
-                                    lineHeight: '1.3',
-                                    cursor: isCreatingWallet ? 'not-allowed' : 'pointer',
-                                    opacity: isCreatingWallet ? 0.6 : 1,
-                                }}
-                            >
-                                {isCreatingWallet ? 'Generating...' : 'Generate'}
-                            </button>
-                            <button 
-                                onClick={() => setShowImportForm(true)} 
-                                className="button import-toggle-button action-button" 
-                                disabled={isCreatingWallet}
-                                style={{
-                                    flex: 1,
-                                    fontSize: '0.85em', 
-                                    padding: '10px 5px',
-                                    color: '#a9c1ff',
-                                    backgroundColor: isCreatingWallet ? '#3c404a' : '#3c404a',
-                                    border: 'none',
-                                    borderLeft: '1px solid #4a4f5c',
-                                    borderRadius: 0,
-                                    textAlign: 'center',
-                                    lineHeight: '1.3',
-                                    cursor: isCreatingWallet ? 'not-allowed' : 'pointer',
-                                    opacity: isCreatingWallet ? 0.6 : 1,
-                                }}
-                            >
-                                Import
-                            </button>
-                        </div>
-                    </div>
-                </div>
+            <div
+                className="self-stretch flex items-center gap-2 text-sm font-bold"
+            >
+                <button
+                    onClick={handleGenerateWallet}
+                    className="p-2 bg-black text-white grow"
+                    disabled={isCreatingWallet}
+                >
+                    <FiPlusCircle className="text-xl" />
+                    <span>{isCreatingWallet ? 'Generating...' : 'Generate'}</span>
+                </button>
+                <button
+                    onClick={() => setShowImportForm(true)}
+                    className="p-2 hover:bg-cyan grow"
+                    disabled={isCreatingWallet}
+                >
+                    Import
+                </button>
+            </div>
 
-            {/* Error/Status Messages */}
             {(error || signersNoteError) && (
-                <div style={{ color: 'red', fontSize: '0.85em', marginBottom: '8px', marginTop: '10px' }}>
+                <div className="text-red-500 text-sm">
                     {error || signersNoteError?.message}
                 </div>
             )}
 
-            {isSending && <p style={{ fontSize: '0.85em', marginTop: '10px' }}>Updating signers...</p>}
-            {isConfirming && <p style={{ fontSize: '0.85em', marginTop: '10px' }}>Confirming update...</p>}
+            {isSending && <p className="text-sm">Updating signers...</p>}
+            {isConfirming && <p className="text-sm">Confirming update...</p>}
             {isConfirmed && transactionHash && (
-                <div style={{ color: 'green', fontSize: '0.85em', marginBottom: '8px', marginTop: '10px' }}>
-                    Signers updated! Tx: {transactionHash.substring(0,10)}...
+                <div className="text-green-500 text-sm">
+                    Signers updated! Tx: {transactionHash.substring(0, 10)}...
                 </div>
             )}
 
-            {/* Update Linked Wallets Button - moved to bottom */}
-            <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'center' }}>
-                <button 
-                    onClick={handleUpdateLinkedWallets} 
-                    disabled={isSending || isConfirming || isLoadingWallets}
-                    className="button primary-button"
-                    style={{ 
-                        fontSize: '0.9em', 
-                        padding: '12px 20px', 
-                        borderRadius: '6px',
-                        backgroundColor: '#007bff',
-                        border: 'none',
-                        color: 'white',
-                        cursor: (isSending || isConfirming || isLoadingWallets) ? 'not-allowed' : 'pointer',
-                        opacity: (isSending || isConfirming || isLoadingWallets) ? 0.6 : 1
-                    }}
-                >
-                    {isSending || isConfirming ? 'Processing...' : (allWallets.length === 0 ? 'Link Wallets' : 'Update Linked Wallets')}
-                </button>
-            </div>
+            <button
+                onClick={handleUpdateLinkedWallets}
+                disabled={isSending || isConfirming || isLoadingWallets}
+                className="bg-cyan text-black p-2 font-bold text-sm self-stretch"
+            >
+                {isSending || isConfirming ? 'Processing...' : (allWallets.length === 0 ? 'Link Wallets' : 'Update Linked Wallets')}
+            </button>
         </div>
     );
 };

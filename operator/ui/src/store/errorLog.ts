@@ -1,4 +1,6 @@
+import { toast } from 'react-toastify';
 import { create } from 'zustand';
+import { truncate } from '../utils/truncate';
 
 export interface ErrorLogEntry {
     id: string;
@@ -13,6 +15,7 @@ interface ErrorLogState {
     addError: (message: string) => void;
     markAllAsRead: () => void;
     clearErrors: () => void;
+    showToast: (type: 'success' | 'error', message: string, duration?: number) => void;
 }
 
 export const useErrorLogStore = create<ErrorLogState>((set, get) => ({
@@ -44,6 +47,25 @@ export const useErrorLogStore = create<ErrorLogState>((set, get) => ({
         set({
             errors: [],
             unreadCount: 0,
+        });
+    },
+
+    showToast: (type: 'success' | 'error', message: string, duration = 3000) => {
+        const { addError } = get();
+        // Log errors to the error store
+        if (type === 'error') {
+            addError(message);
+        }
+
+        toast(truncate(message, 280, 0), {
+            type,
+            position: "top-right",
+            autoClose: duration,
+            hideProgressBar: false,
+            closeOnClick: true,
+            pauseOnHover: true,
+            draggable: true,
+            progress: undefined,
         });
     },
 }));

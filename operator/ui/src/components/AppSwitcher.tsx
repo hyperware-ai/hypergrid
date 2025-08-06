@@ -29,7 +29,7 @@ const AppSwitcher: React.FC<AppSwitcherProps> = ({ currentApp = 'operator' }) =>
       <h3 className="font-semibold  text-xl">Switch mode</h3>
       <button
         onClick={() => handleSwitch('provider')}
-        className={classNames("text-xl self-stretch hover:underline", {
+        className={classNames("text-xl self-stretch hover:underline !justify-start", {
           'font-bold underline': currentApp === 'provider'
         })}
       >
@@ -49,7 +49,7 @@ const AppSwitcher: React.FC<AppSwitcherProps> = ({ currentApp = 'operator' }) =>
       </button>
       <button
         onClick={() => handleSwitch('operator')}
-        className={classNames("text-xl self-stretch hover:underline", {
+        className={classNames("text-xl self-stretch hover:underline !justify-start", {
           'font-bold underline': currentApp === 'operator'
         })}
       >

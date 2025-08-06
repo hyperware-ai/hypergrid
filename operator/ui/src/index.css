@@ -55,5 +55,13 @@ body {
 
 button,
 .button {
-  @apply flex items-center gap-2 cursor-pointer transition-colors duration-200 disabled:opacity-75 disabled:cursor-not-allowed;
+  @apply hover:opacity-75 flex items-center justify-center rounded-xl gap-2 cursor-pointer transition-all duration-200 disabled:opacity-75 disabled:cursor-not-allowed border border-transparent;
+
+  &[class*=react-flow] {
+    @apply shadow-xl;
+  }
+}
+
+div.react-flow__panel {
+  @apply !bg-transparent !shadow-none flex gap-1;
 }

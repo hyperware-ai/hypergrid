@@ -4,6 +4,7 @@ import CopyToClipboardText from '../components/CopyToClipboardText';
 import { callApiWithRouting } from '../utils/api-endpoints';
 // Import shared types
 import { WalletSummary, SpendingLimits, WalletListData } from '../logic/types';
+import { useErrorLogStore } from '../store/errorLog';
 
 type ToastMessage = {
     type: 'success' | 'error';
@@ -44,13 +45,13 @@ const callMcpApi = async (endpoint: string, body: any) => {
 
 // --- Component ---
 function AccountManager() {
+    const { showToast } = useErrorLogStore();
     // --- State ---
     // Restore state initialization
     const [wallets, setWallets] = useState<WalletSummary[]>([]);
     const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
-    const [toastMessage, setToastMessage] = useState<ToastMessage | null>(null);
 
     // Input states 
     const [currentPassword, setCurrentPassword] = useState<string>('');
@@ -81,7 +82,6 @@ function AccountManager() {
         setRevealedPrivateKey(null);
         setWalletToRename(null);
         setRenameInput('');
-        setToastMessage(null); // Clear toast on fetch
 
         try {
             const requestBody = { GetWalletSummaryList: {} };
@@ -112,7 +112,6 @@ function AccountManager() {
         setRevealedPrivateKey(null);
         setWalletToRename(null);
         setRenameInput('');
-        setToastMessage(null);
         setIsConfigExpanded(false);
         // Keep limit fields as they are
     }, [selectedWalletId]);
@@ -120,7 +119,6 @@ function AccountManager() {
     // Keep handleRefresa (could maybe use fetchWalletData directly?)
     const handleRefresh = () => {
         setIsActionLoading(true);
-        setToastMessage(null);
         fetchWalletData().finally(() => setIsActionLoading(false)); // Use internal fetch
     }
 
@@ -152,7 +150,7 @@ function AccountManager() {
             return;
         }
 
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             if (walletId !== selectedWalletId) {
                 await handleSelectWallet(walletId);
@@ -175,7 +173,7 @@ function AccountManager() {
             return;
         }
 
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { DeactivateWallet: {} };
             await callApiWithRouting(requestBody);
@@ -186,7 +184,7 @@ function AccountManager() {
 
     const handleSelectWallet = async (walletId: string) => {
         if (walletId === selectedWalletId) return;
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { SelectWallet: { wallet_id: walletId } };
             await callApiWithRouting(requestBody);
@@ -200,7 +198,7 @@ function AccountManager() {
 
     const handleDeleteWallet = async (walletId: string) => {
         if (!window.confirm(`Are you sure you want to delete account ${truncateString(walletId, 10)}? This cannot be undone.`)) return;
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { DeleteWallet: { wallet_id: walletId } };
             await callApiWithRouting(requestBody);
@@ -212,12 +210,11 @@ function AccountManager() {
     const startRename = (walletId: string) => {
         setWalletToRename(walletId);
         setRenameInput(wallets.find(w => w.id === walletId)?.name || '');
-        setToastMessage(null);
     }
     const handleRenameWallet = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!walletToRename || !renameInput) return;
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { RenameWallet: { wallet_id: walletToRename, new_name: renameInput } };
             await callApiWithRouting(requestBody);
@@ -228,7 +225,7 @@ function AccountManager() {
     }
 
     const handleGenerateWallet = async () => {
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { GenerateWallet: {} };
             const data = await callApiWithRouting(requestBody);
@@ -240,8 +237,12 @@ function AccountManager() {
     // Settings Handlers 
     const handleExportKey = async () => {
         const selectedWallet = getSelectedWalletSummary();
-        if (!selectedWallet) { showToast('error', "No account selected"); return; }
-        setIsActionLoading(true); setToastMessage(null); setRevealedPrivateKey(null);
+        if (!selectedWallet) {
+            showToast('error', "No account selected");
+            return;
+        }
+        setIsActionLoading(true);
+        setRevealedPrivateKey(null);
         try {
             const requestBody = {
                 ExportSelectedPrivateKey: {
@@ -265,7 +266,7 @@ function AccountManager() {
         if (!selectedWallet) { showToast('error', "No account selected"); return; }
         if (newPassword !== confirmPassword) { showToast('error', 'New passwords do not match.'); return; }
         if (!newPassword) { showToast('error', 'New password cannot be empty.'); return; }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = {
                 SetSelectedWalletPassword: {
@@ -289,7 +290,7 @@ function AccountManager() {
         e.preventDefault();
         if (!selectedWalletId) { showToast('error', "No account selected"); return; }
         if (!currentPassword) { showToast('error', 'Current password required.'); return; }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { RemoveSelectedWalletPassword: { current_password: currentPassword } };
             await callApiWithRouting(requestBody);
@@ -302,7 +303,7 @@ function AccountManager() {
     const handleSetLimits = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!selectedWalletId) { showToast('error', "No account selected"); return; }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         const limitsToSet: SpendingLimits = {
             maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
             maxTotal: null,
@@ -319,7 +320,7 @@ function AccountManager() {
     const handleImport = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!privateKeyToImport) { showToast('error', 'Private Key is required for import.'); return; }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = {
                 ImportWallet: {
@@ -348,13 +349,6 @@ function AccountManager() {
         const end = addressPart.substring(addressPart.length - Math.floor(visibleLen / 2));
         return `${start}...${end}`;
     }
-
-    const showToast = (type: 'success' | 'error', text: string, duration: number = 3000) => {
-        setToastMessage({ type, text });
-        setTimeout(() => {
-            setToastMessage(null);
-        }, duration);
-    };
 
     // Helper to get clearer status text
     const getWalletDisplayStatus = (wallet: WalletSummary): string => {
@@ -440,13 +434,9 @@ function AccountManager() {
     if (isLoading) {
         return <div className="loading-message">Loading account data...</div>;
     }
-    if (!isLoading && wallets.length === 0 && toastMessage?.type === 'error') {
+    if (!isLoading && wallets.length === 0) {
         return (
             <div className="operator-wallet-content">
-                <div className={`toast-notification ${toastMessage.type}`}>
-                    {toastMessage.text}
-                    <button onClick={() => setToastMessage(null)} className="toast-close-button">&times;</button>
-                </div>
                 <button onClick={handleRefresh} className="button refresh-button" disabled={isActionLoading}>
                     {isActionLoading ? 'Retrying...' : 'Retry'}
                 </button>
@@ -458,20 +448,6 @@ function AccountManager() {
 
     return (
         <div className="operator-wallet-content">
-            {toastMessage && (
-                <div className={classNames(
-                    "fixed bottom-6 left-1/2 transform -translate-x-1/2 px-5 py-3 rounded-md shadow-lg z-50 flex items-center gap-4 min-w-64 max-w-lg",
-                    {
-                        "bg-green-200 border border-green-300 text-green-800": toastMessage.type === 'success',
-                        "bg-red-200 border border-red-300 text-red-800": toastMessage.type === 'error'
-                    }
-                )}>
-                    {toastMessage.text}
-                    <button onClick={() => setToastMessage(null)} className="bg-none border-none text-inherit text-xl font-bold leading-none opacity-60 px-1 ml-auto hover:opacity-100">&times;</button>
-                </div>
-            )}
-
-            {/* --- Wallet List Section --- */}
             <section className="pt-6 mt-6 border-t border-gray-300">
                 {wallets.length === 0 && !isLoading && (
                     <p className="text-gray-500 text-base p-6 text-center">No accounts found. Generate or import one below.</p>
