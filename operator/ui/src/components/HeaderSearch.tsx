@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from "react";
 import { searchDB } from "../logic/calls";
 import { ProviderJson } from "../logic/types";
+import { PiMagnifyingGlass } from "react-icons/pi";
+import classNames from "classnames";
 
 const HeaderSearch: React.FC = () => {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -9,7 +11,7 @@ const HeaderSearch: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Track if a search has been actively performed
-  const [hasSearched, setHasSearched] = useState(false); 
+  const [hasSearched, setHasSearched] = useState(false);
 
   const searchRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -67,36 +69,41 @@ const HeaderSearch: React.FC = () => {
     // If user clears input, or types new text, reset "hasSearched" and error for "no results"
     // and optionally close dropdown or clear results
     if (hasSearched) {
-        setHasSearched(false);
+      setHasSearched(false);
     }
     if (error) { // Clear any error when user types
-        setError(null);
+      setError(null);
     }
     if (!e.target.value.trim()) {
-        setSearchResults([]); // Clear results if input is empty
-        setIsDropdownOpen(false); // Close dropdown if input is empty
+      setSearchResults([]); // Clear results if input is empty
+      setIsDropdownOpen(false); // Close dropdown if input is empty
     } else {
-        // Don't open dropdown just on typing, wait for focus or search action
+      // Don't open dropdown just on typing, wait for focus or search action
     }
   };
-  
+
   const handleInputFocus = () => {
     // Open dropdown on focus only if there's a search term and a search has been made, or if there are results
     if (searchTerm.trim() && (hasSearched || searchResults.length > 0 || error)) {
-        setIsDropdownOpen(true);
+      setIsDropdownOpen(true);
     }
   };
 
   return (
-    <div 
-        className="header-search" 
-        ref={searchRef} 
-        style={{ position: 'relative', display: 'inline-block' }} // For dropdown positioning
+    <div
+      className={classNames("relative flex flex-col gap-2 self-stretch",
+      )}
+      ref={searchRef}
     >
-      <div 
-        className="header-search-input-wrapper" 
-        style={{ display: 'flex', alignItems: 'center', border: '1px solid #ccc', borderRadius: '4px' }}
+      <div
+        className="flex grow items-stretch gap-1"
       >
+        <button
+          className="bg-gray rounded-full px-3 py-1 hover:bg-mid-gray text-xl"
+          onClick={executeSearch}
+        >
+          <PiMagnifyingGlass className="rotate-90" />
+        </button>
         <input
           ref={inputRef}
           type="text"
@@ -104,135 +111,71 @@ const HeaderSearch: React.FC = () => {
           value={searchTerm}
           onChange={handleInputChange}
           onFocus={handleInputFocus}
-          onKeyPress={(e) => {
+          onKeyUp={(e: React.KeyboardEvent<HTMLInputElement>) => {
             if (e.key === 'Enter') {
               executeSearch();
             }
           }}
-          className="header-search-input"
-          style={{ 
-            border: 'none', 
-            outline: 'none', 
-            boxShadow: 'none',
-            padding: '8px 10px', 
-            flexGrow: 1,
-            borderRadius: '4px 0 0 4px'
-          }}
+          className="border-none outline-none box-shadow-none py-2 px-4 flex-grow rounded-full bg-gray"
         />
-        <button 
-          className="header-search-button"
-          onClick={executeSearch}
-          style={{
-            padding: '8px 10px',
-            border: 'none',
-            background: '#f0f0f0',
-            cursor: 'pointer',
-            borderLeft: '1px solid #ccc',
-            borderRadius: '0 4px 4px 0'
-          }}
-        >
-          <svg 
-            width="16" height="16" viewBox="0 0 24 24" 
-            fill="none" stroke="currentColor" strokeWidth="2"
-            style={{ display: 'block' }} // Prevents extra space below SVG
-          >
-            <circle cx="11" cy="11" r="8"></circle>
-            <path d="m21 21-4.35-4.35"></path>
-          </svg>
-        </button>
       </div>
 
       {isDropdownOpen && (
-        <div 
-            className="header-search-dropdown"
-            style={{
-                position: 'absolute',
-                top: '100%', // Position below the input wrapper
-                left: 0,
-                right: 0, // Make it full width of the parent
-                backgroundColor: 'white',
-                border: '1px solid #ddd',
-                borderRadius: '0 0 4px 4px',
-                boxShadow: '0 4px 8px rgba(0,0,0,0.1)',
-                zIndex: 1000, // Ensure it's on top
-                maxHeight: '400px',
-                overflowY: 'auto',
-                marginTop: '2px' // Small gap
-            }}
+        <div
+          className="absolute top-full left-0 right-0 z-50 overflow-y-auto mt-2 bg-gray p-2 shadow-lg shadow-mid-gray rounded-xl min-h-0 max-h-[80vh]"
+          style={{
+            scrollbarWidth: 'thin',
+          }}
         >
           {loading && (
-            <div className="header-search-loading" style={{ padding: '10px', textAlign: 'center' }}>Searching...</div>
+            <div className="p-2 text-center">Searching...</div>
           )}
-          
+
           {!loading && error && ( // Display any error, including "No providers found" or "Please enter term"
-            <div className="header-search-error" style={{ padding: '10px', color: 'red', textAlign: 'center' }}>{error}</div>
+            <div className="p-2 text-center text-red-500">{error}</div>
           )}
-          
-          {!loading && !error && searchResults.length > 0 && (
-            <div className="header-search-results">
-              {searchResults.map((provider) => (
-                <div 
-                  key={provider.provider_id || provider.name}
-                  className="header-search-result"
-                  style={{
-                    padding: '10px 12px',
-                    borderBottom: '1px solid #eee'
-                  }}
-                >
-                  <div className="header-search-result-name" style={{ fontWeight: 'bold', marginBottom: '4px' }}>
-                    {provider.provider_name || provider.name}
-                  </div>
-                  {provider.provider_id && (
-                    <div style={{ fontSize: '0.8em', color: '#666', marginBottom: '4px' }}>
-                      Node ID: <code>{provider.provider_id}</code>
-                    </div>
-                  )}
-                  {provider.price && (
-                     <div className="header-search-result-details" style={{ fontSize: '0.9em', color: '#555', marginBottom: '4px' }}>
-                        <span className="header-search-result-price" style={{ fontWeight: '500' }}>
-                            {provider.price} USDC
-                        </span>
-                    </div>
-                  )}
-                  {provider.description && (
-                    <div className="header-search-result-description" style={{ fontSize: '0.85em', color: '#777', marginBottom: '6px' }}>
-                      {provider.description.length > 80 // Slightly shorter for more compact view with new fields
-                        ? provider.description.substring(0, 80) + "..." 
-                        : provider.description}
-                    </div>
-                  )}
-                  {provider.site && (
-                    <div style={{ marginTop: '6px' }}>
-                        <a 
-                            href={provider.site} 
-                            target="_blank" 
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                                e.stopPropagation(); // Prevent any parent click handlers if added later
-                                setIsDropdownOpen(false); // Close dropdown after clicking site link
-                                setSearchTerm(""); 
-                                setSearchResults([]); 
-                                setError(null);
-                                setHasSearched(false);
-                            }}
-                            style={{ 
-                                color: '#007bff', 
-                                textDecoration: 'none',
-                                fontSize: '0.9em'
-                            }}
-                        >
-                            Visit Site
-                        </a>
-                    </div>
-                  )}
-                </div>
-              ))}
+
+          {!loading && !error && searchResults.length > 0 && searchResults.map((provider, index) => <div
+            key={provider.provider_id || provider.name}
+            className={classNames("p-2 flex flex-col", {
+              'border-b border-gray-300': index !== searchResults.length - 1,
+            })}
+          >
+            <div className="font-bold">
+              {provider.provider_name || provider.name}
             </div>
-          )}
-          {/* This specific message "No results for..." might be redundant if error state handles it */}
-          {/* Considered removing, but kept for now if specific styling is needed later */}
-          {!loading && error === "No providers found" && searchTerm.trim() && searchResults.length === 0 && (
-             <div className="header-search-no-specific-results" style={{ padding: '10px', textAlign: 'center' }}>No results for "{searchTerm}"</div>
+            {provider.provider_id && <code className="text-sm text-gray-500 wrap-anywhere">{provider.provider_id}</code>}
+            {provider.price && (
+              <div className="font-medium text-sm text-gray-500">
+                {provider.price} USDC
+              </div>
+            )}
+            {provider.description && (
+              <div className="text-sm text-gray-500">
+                {provider.description.length > 80 // Slightly shorter for more compact view with new fields
+                  ? provider.description.substring(0, 80) + "..."
+                  : provider.description}
+              </div>
+            )}
+            {provider.site && (
+              <a
+                href={provider.site}
+                target="_blank"
+                rel="noopener noreferrer"
+                onClick={(e) => {
+                  e.stopPropagation(); // Prevent any parent click handlers if added later
+                  setIsDropdownOpen(false); // Close dropdown after clicking site link
+                  setSearchTerm("");
+                  setSearchResults([]);
+                  setError(null);
+                  setHasSearched(false);
+                }}
+                className="text-blue-500 text-sm mt-2"
+              >
+                Visit Site
+              </a>
+            )}
+          </div>
           )}
         </div>
       )}

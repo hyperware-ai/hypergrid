@@ -1,4 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import classNames from 'classnames';
+import Modal from './modals/Modal';
+import { useErrorLogStore } from '../store/errorLog';
+import { truncate } from '../utils/truncate';
 
 interface AuthorizedClientConfigModalProps {
     isOpen: boolean;
@@ -6,6 +10,7 @@ interface AuthorizedClientConfigModalProps {
     clientId: string;
     clientName: string;
     hotWalletAddress: string;
+    onClientUpdate: (clientId: string) => void;
 }
 
 // Helper function to generate a random API key
@@ -31,8 +36,10 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     onClose,
     clientId,
     clientName,
-    hotWalletAddress
+    hotWalletAddress,
+    onClientUpdate
 }) => {
+    const { showToast } = useErrorLogStore();
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [newToken, setNewToken] = useState<string | null>(null);
@@ -40,7 +47,29 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [copiedCommand, setCopiedCommand] = useState(false);
     const [hasChanges, setHasChanges] = useState(false);
-    
+
+    // Name editing state
+    const [editedName, setEditedName] = useState<string>(clientName);
+    const [isEditingName, setIsEditingName] = useState<boolean>(false);
+    const [currentName, setCurrentName] = useState<string>(clientName);
+    const nameInputRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (clientName) {
+            setCurrentName(clientName);
+            setEditedName(clientName);
+            setIsEditingName(false);
+        }
+    }, [clientName]);
+
+    // Focus input when isEditingName becomes true
+    useEffect(() => {
+        if (isEditingName && nameInputRef.current) {
+            nameInputRef.current.focus();
+            nameInputRef.current.select();
+        }
+    }, [isEditingName]);
+
     if (!isOpen) {
         return null;
     }
@@ -52,15 +81,75 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         setNewToken(null);
         setError(null);
         setConfirmDelete(false);
+        setIsEditingName(false);
+        setEditedName(currentName);
     };
+
+    // Name editing handlers
+    const handleRenameClient = async () => {
+        if (!editedName.trim() || editedName.trim() === currentName) {
+            setIsEditingName(false);
+            setEditedName(currentName);
+            return;
+        }
+
+        try {
+            const response = await fetch(`${getApiBasePath()}/actions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'include',
+                body: JSON.stringify({
+                    RenameAuthorizedClient: {
+                        client_id: clientId,
+                        new_name: editedName.trim()
+                    }
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error(`Failed to rename client: ${response.statusText}`);
+            }
+
+            showToast('success', `Client renamed to "${editedName.trim()}".`);
+            setCurrentName(editedName.trim());
+            setIsEditingName(false);
+            setHasChanges(true);
+            onClientUpdate(clientId);
+        } catch (err: any) {
+            showToast('error', err.message || 'Failed to rename client.');
+            setEditedName(currentName);
+            setIsEditingName(false);
+        }
+    };
+
+    const handleNameInputBlur = () => {
+        if (editedName.trim() !== currentName && editedName.trim() !== '') {
+            handleRenameClient();
+        } else {
+            setEditedName(currentName);
+            setIsEditingName(false);
+        }
+    };
+
+    const handleNameInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+        if (event.key === 'Enter') {
+            event.preventDefault();
+            handleRenameClient();
+        }
+        if (event.key === 'Escape') {
+            setEditedName(currentName);
+            setIsEditingName(false);
+        }
+    };
+
 
     const handleRegenerateToken = async () => {
         setIsRegenerating(true);
         setError(null);
         setNewToken(null);
-        
+
         const newApiKey = generateApiKey(32);
-        
+
         try {
             const response = await fetch(`${getApiBasePath()}/configure-authorized-client`, {
                 method: 'POST',
@@ -72,11 +161,11 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
                     hot_wallet_address_to_associate: hotWalletAddress
                 })
             });
-            
+
             if (!response.ok) {
                 throw new Error(`Failed to regenerate token: ${response.statusText}`);
             }
-            
+
             const responseData = await response.json();
             setNewToken(responseData.raw_token);
             setHasChanges(true); // Mark that changes were made
@@ -86,16 +175,16 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
             setIsRegenerating(false);
         }
     };
-    
+
     const handleDeleteClient = async () => {
         if (!confirmDelete) {
             setConfirmDelete(true);
             return;
         }
-        
+
         setIsDeleting(true);
         setError(null);
-        
+
         try {
             const response = await fetch(`${getApiBasePath()}/actions`, {
                 method: 'POST',
@@ -105,11 +194,11 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
                     DeleteAuthorizedClient: { client_id: clientId }
                 })
             });
-            
+
             if (!response.ok) {
                 throw new Error(`Failed to delete client: ${response.statusText}`);
             }
-            
+
             // Close modal with refresh flag
             onClose(true);
         } catch (err) {
@@ -130,169 +219,104 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         });
     };
 
-    const authCommand = newToken ? 
+    const authCommand = newToken ?
         `Use the authorize tool with url "${window.location.origin + window.location.pathname + '/shim/mcp'}", token "${newToken}", client_id "${clientId}", and node "${window.location.hostname}"` : '';
 
-    const modalStyle: React.CSSProperties = {
-        position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
-        alignItems: 'center', justifyContent: 'center', zIndex: 1010,
-    };
-    const contentStyle: React.CSSProperties = {
-        backgroundColor: '#2c3038', color: 'white', padding: '25px',
-        borderRadius: '8px', width: '90%', maxWidth: '700px',
-        maxHeight: '85vh', overflowY: 'auto', position: 'relative',
-        border: '1px solid #555',
-    };
-    const closeButtonStyle: React.CSSProperties = {
-        position: 'absolute', top: '10px', right: '15px', background: 'transparent',
-        border: 'none', color: 'white', fontSize: '1.8rem', cursor: 'pointer',
-    };
-
     return (
-        <div style={modalStyle} onClick={handleClose}>
-            <div style={contentStyle} onClick={(e) => e.stopPropagation()}>
-                <button style={closeButtonStyle} onClick={handleClose}>&times;</button>
-                
-                <h3>Client Configuration</h3>
-                <p style={{ fontSize: '0.9em', color: '#ddd', marginBottom: '20px' }}>
-                    {clientName} • Client ID: <code>{clientId.substring(0,16)}...</code>
-                </p>
+        <Modal
+            title={`Authorized Client Settings`}
+            onClose={handleClose}
+            preventAccidentalClose={true}
+        >
+            <h4 className="font-bold">Client Name</h4>
+            <input
+                ref={nameInputRef}
+                type="text"
+                value={editedName}
+                readOnly={!isEditingName}
+                onChange={(e) => setEditedName(e.target.value)}
+                onBlur={handleNameInputBlur}
+                onKeyDown={handleNameInputKeyDown}
+                onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
+                className={classNames("p-2 rounded bg-dark-gray/5", {
+                    "border border-black": isEditingName,
+                })}
+                disabled={isRegenerating || isDeleting}
+            />
 
-                {/* Current Status */}
-                <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
-                    <h4 style={{ margin: '0 0 10px 0' }}>Current Configuration</h4>
-                    <div style={{ fontSize: '0.85em', color: '#999' }}>
-                        <div style={{ marginBottom: '5px' }}>
-                            Client Name: <strong style={{ color: '#ddd' }}>{clientName}</strong>
-                        </div>
-                        <div style={{ marginBottom: '5px' }}>
-                            Hot Wallet: <code>{hotWalletAddress.substring(0,6)}...{hotWalletAddress.slice(-4)}</code>
-                        </div>
-                        <div>
-                            Status: <span style={{ color: '#4ade80' }}>Active</span>
-                        </div>
-                    </div>
-                </div>
-
-                {/* Regenerate Token Section */}
-                {newToken && (
-                    <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
-                        <h4 style={{ margin: '0 0 10px 0' }}>New Authorization Command</h4>
-                        <p style={{ fontSize: '0.9em', marginBottom: '10px' }}>
-                            Copy this command and paste it into Claude:
-                        </p>
-                        <div style={{ position: 'relative' }}>
-                            <pre style={{ 
-                                background: '#1a1c20', 
-                                padding: '10px 35px 10px 10px', 
-                                borderRadius: '4px', 
-                                overflowX: 'auto',
-                                fontSize: '0.85em',
-                                wordBreak: 'break-word',
-                                whiteSpace: 'pre-wrap'
-                            }}>
-                                {authCommand}
-                            </pre>
-                            <button
-                                onClick={() => copyToClipboard(authCommand)}
-                                style={{
-                                    position: 'absolute',
-                                    top: '5px',
-                                    right: '5px',
-                                    padding: '5px 10px',
-                                    fontSize: '0.8em',
-                                    background: '#3a3d42',
-                                    border: 'none',
-                                    borderRadius: '3px',
-                                    color: 'white',
-                                    cursor: 'pointer'
-                                }}
-                            >
-                                {copiedCommand ? '✓' : 'Copy'}
-                            </button>
-                        </div>
-                        <p style={{ fontSize: '0.8em', color: '#999', marginTop: '8px' }}>
-                            This will update the existing client with a new token.
-                        </p>
-                    </div>
-                )}
-
-                {/* Success Message */}
-                {newToken && (
-                    <div style={{ 
-                        padding: '15px', 
-                        backgroundColor: '#1e3a1e', 
-                        borderRadius: '6px',
-                        border: '1px solid #2e5a2e',
-                        marginBottom: '25px'
-                    }}>
-                        <p style={{ margin: 0, fontSize: '0.9em' }}>
-                            <strong>Token regenerated!</strong> The old token is now invalid. 
-                            Use the command above to update your MCP server.
-                        </p>
-                    </div>
-                )}
-
-                {/* Error Message */}
-                {error && (
-                    <div style={{ 
-                        padding: '15px', 
-                        backgroundColor: '#3a1a1a', 
-                        borderRadius: '6px',
-                        border: '1px solid #5a2a2a',
-                        marginBottom: '25px'
-                    }}>
-                        <p style={{ margin: 0, fontSize: '0.9em', color: '#ff8a8a' }}>
-                            {error}
-                        </p>
-                    </div>
-                )}
-
-                {/* Action Buttons */}
-                <div style={{ display: 'flex', gap: '10px' }}>
-                    <button
-                        onClick={handleRegenerateToken}
-                        disabled={isRegenerating || isDeleting}
-                        className="button secondary-button"
-                        style={{ 
-                            padding: '10px 15px', 
-                            fontSize: '1em',
-                            opacity: isRegenerating || isDeleting ? 0.6 : 1,
-                            cursor: isRegenerating || isDeleting ? 'not-allowed' : 'pointer'
-                        }}
-                    >
-                        {isRegenerating ? 'Regenerating...' : 'Regenerate Token'}
-                    </button>
-                    
-                    <button
-                        onClick={handleDeleteClient}
-                        disabled={isRegenerating || isDeleting}
-                        style={{
-                            padding: '10px 15px',
-                            fontSize: '1em',
-                            backgroundColor: confirmDelete ? '#dc2626' : '#4a3a3a',
-                            border: 'none',
-                            borderRadius: '4px',
-                            color: 'white',
-                            cursor: isRegenerating || isDeleting ? 'not-allowed' : 'pointer',
-                            opacity: isRegenerating || isDeleting ? 0.6 : 1
-                        }}
-                    >
-                        {isDeleting ? 'Deleting...' : (confirmDelete ? 'Click Again to Confirm' : 'Delete Client')}
-                    </button>
-                </div>
-
-                {/* Footer Note */}
-                <p style={{ 
-                    marginTop: '20px',
-                    fontSize: '0.8em', 
-                    color: '#999' 
-                }}>
-                    Multiple clients can use the same hot wallet for different environments.
-                </p>
+            <h4 className="font-bold">Client Information</h4>
+            <div className="space-y-2">
+                <div>Client ID: <code>{truncate(clientId, 16, 8)}</code></div>
+                <div>Hot Wallet: <code>{truncate(hotWalletAddress, 16, 8)}</code></div>
+                <div>Status: <span className="text-green-400">Active</span></div>
             </div>
-        </div>
+
+
+
+            {newToken && <>
+                <h4 className="font-bold">New Authorization Command</h4>
+                <p className="text-sm opacity-50">
+                    Copy this command and paste it into Claude:
+                </p>
+                <div className="relative">
+                    <pre className="p-2 rounded bg-dark-gray/5 text-sm overflow-x-auto break-words whitespace-pre-wrap">
+                        {authCommand}
+                    </pre>
+                    <button
+                        onClick={() => copyToClipboard(authCommand)}
+                        className="absolute top-2 right-2 px-2 py-1 text-xs bg-black text-white rounded hover:bg-gray-800"
+                    >
+                        {copiedCommand ? '✓' : 'Copy'}
+                    </button>
+                </div>
+                <p className="text-xs opacity-50">
+                    This will update the existing client with a new token.
+                </p>
+            </>}
+
+            {newToken && (
+                <div className="p-2 rounded bg-green-600/20">
+                    <p className="text-sm">
+                        <strong>Token regenerated!</strong> The old token is now invalid.
+                        Use the command above to update your MCP server.
+                    </p>
+                </div>
+            )}
+
+            {error && (
+                <div className="p-2 rounded bg-red-600/20">
+                    <p className="text-sm text-red-300">
+                        {error}
+                    </p>
+                </div>
+            )}
+
+            <h4 className="font-bold">Actions</h4>
+            <div className="flex gap-2">
+                <button
+                    onClick={handleRegenerateToken}
+                    disabled={isRegenerating || isDeleting}
+                    className="p-2 rounded bg-green-600 text-white hover:bg-green-700 grow "
+                >
+                    {isRegenerating ? 'Regenerating...' : 'Regenerate Token'}
+                </button>
+
+                <button
+                    onClick={handleDeleteClient}
+                    disabled={isRegenerating || isDeleting}
+                    className={`p-2 rounded  grow text-white ${confirmDelete
+                        ? 'bg-red-600 hover:bg-red-700'
+                        : 'bg-gray-600 hover:bg-gray-700'
+                        }`}
+                >
+                    {isDeleting ? 'Deleting...' : (confirmDelete ? 'Click Again to Confirm' : 'Delete Client')}
+                </button>
+            </div>
+
+            <p className="text-xs opacity-50">
+                Multiple clients can use the same hot wallet for different environments.
+            </p>
+        </Modal>
     );
 };
 

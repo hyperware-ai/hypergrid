@@ -38,11 +38,11 @@ const formatDuration = (ms: number): string => {
 
 const truncateString = (str: string | null | undefined, len: number = 10): string => {
     if (!str) return '-';
-    if (str.length <= len + 3) return str; 
+    if (str.length <= len + 3) return str;
     const prefix = str.startsWith('0x') ? '0x' : '';
     const addressPart = prefix ? str.substring(2) : str;
-    const visibleLen = len - prefix.length - 3; 
-    if (visibleLen <= 1) return prefix + '...'; 
+    const visibleLen = len - prefix.length - 3;
+    if (visibleLen <= 1) return prefix + '...';
     const start = prefix + addressPart.substring(0, Math.ceil(visibleLen / 2));
     const end = addressPart.substring(addressPart.length - Math.floor(visibleLen / 2));
     return `${start}...${end}`;
@@ -60,33 +60,33 @@ const renderPaymentResult = (result: PaymentAttemptResult | null | undefined) =>
 
         return (
             <span className="text-green-600">
-                Success ({successData.amount_paid} {successData.currency}, 
+                Success ({successData.amount_paid} {successData.currency},
                 {/* Make hash a link to Basescan */}
-                <a 
+                <a
                     href={txUrl}
                     target="_blank"
                     rel="noopener noreferrer"
                     title={`View Tx on Basescan: ${successData.tx_hash}`}
                     className="tx-hash-link"
                     style={{ marginLeft: '0.25em' }} // Add some spacing
-                 >
-                     <code className='text-xs'>{truncateString(successData.tx_hash, 10)}</code>
+                >
+                    <code className='text-xs'>{truncateString(successData.tx_hash, 10)}</code>
                 </a>
                 )
             </span>
         );
     }
-     if ('Failed' in result && result.Failed) {
-         const failedData = result.Failed;
-         return <span className="text-red-600" title={failedData.error}>Failed ({failedData.amount_attempted} {failedData.currency})</span>;
-     }
-     if ('LimitExceeded' in result && result.LimitExceeded) {
-         const limitData = result.LimitExceeded;
-         return <span className="text-yellow-600" title={`Attempted: ${limitData.amount_attempted} ${limitData.currency}`}>Limit Exceeded ({limitData.limit})</span>;
-     }
-     if ('Skipped' in result && result.Skipped) {
-         return <span className="text-gray-500">Skipped ({result.Skipped.reason})</span>;
-     }
+    if ('Failed' in result && result.Failed) {
+        const failedData = result.Failed;
+        return <span className="text-red-600" title={failedData.error}>Failed ({failedData.amount_attempted} {failedData.currency})</span>;
+    }
+    if ('LimitExceeded' in result && result.LimitExceeded) {
+        const limitData = result.LimitExceeded;
+        return <span className="text-yellow-600" title={`Attempted: ${limitData.amount_attempted} ${limitData.currency}`}>Limit Exceeded ({limitData.limit})</span>;
+    }
+    if ('Skipped' in result && result.Skipped) {
+        return <span className="text-gray-500">Skipped ({result.Skipped.reason})</span>;
+    }
     return <span className="text-gray-400">Unknown</span>;
 }
 
@@ -110,7 +110,7 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
     const [filteredHistory, setFilteredHistory] = useState<CallRecord[]>([]); // History filtered for selected account
     const [isLoading, setIsLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
-    const [isCollapsed, setIsCollapsed] = useState<boolean>(isNonCollapsible ? false : false); 
+    const [isCollapsed, setIsCollapsed] = useState<boolean>(isNonCollapsible ? false : false);
 
     // Fetch ALL history
     const fetchHistory = useCallback(async () => {
@@ -118,15 +118,15 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
         setError(null);
         // setAllHistory([]); // Don't clear immediately, wait for fetch
         try {
-            const requestBody = { GetCallHistory: {} }; 
+            const requestBody = { GetCallHistory: {} };
             const response = await fetch(API_ACTIONS_ENDPOINT, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody), 
+                body: JSON.stringify(requestBody),
             });
             if (!response.ok) {
-                 const errData = await response.json().catch(() => ({ error: `HTTP error! Status: ${response.status}` }));
-                 throw new Error(errData.error || `Failed to fetch history: ${response.statusText}`);
+                const errData = await response.json().catch(() => ({ error: `HTTP error! Status: ${response.status}` }));
+                throw new Error(errData.error || `Failed to fetch history: ${response.statusText}`);
             }
             const data: CallRecord[] = await response.json();
             console.log('CallHistory data:', data);
@@ -182,7 +182,7 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
                 <div className="history-header" onClick={() => setIsCollapsed(!isCollapsed)}>
                     <h3>
                         Call History {selectedAccountId ? `for ${truncateString(selectedAccountId, 12)}` : ''}
-                        <span className="collapse-indicator" style={{ marginLeft: '0.5em' }}> 
+                        <span className="collapse-indicator" style={{ marginLeft: '0.5em' }}>
                             {isCollapsed ? '[+]' : '[-]'}
                         </span>
                     </h3>
@@ -190,8 +190,7 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
                         <button
                             onClick={(e) => { e.stopPropagation(); fetchHistory(); }}
                             disabled={isLoading}
-                            className="button refresh-button icon-button"
-                            style={{padding: '0.2rem 0.5rem', fontSize: '1rem'}}
+                            className="button refresh-button icon-button px-2 py-1 text-sm"
                             title="Refresh History"
                         >
                             {isLoading ? '...' : '↻'}
@@ -200,54 +199,54 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
                 </div>
             )}
 
-             {/* Content rendering logic now respects isCollapsed OR isNonCollapsible */}
-             {(isNonCollapsible || !isCollapsed) && (
-                 <div className={isNonCollapsible ? "history-content-non-collapsible" : "history-content"}>
-                     {error && <div className="error-message">{error}</div>}
+            {/* Content rendering logic now respects isCollapsed OR isNonCollapsible */}
+            {(isNonCollapsible || !isCollapsed) && (
+                <div className={isNonCollapsible ? "history-content-non-collapsible" : "history-content"}>
+                    {error && <div className="text-red-900 bg-red-200 border border-red-300 rounded p-6 text-center">{error}</div>}
 
-                     {/* Loading/Empty checks based on filteredHistory */}
-                     {isLoading ? (
-                         <p className="loading-message">Loading history...</p>
-                     ) : filteredHistory.length === 0 && !error ? (
-                         <p className="info-message">
-                             {selectedAccountId 
-                                 ? 'No call history recorded for this account.' 
-                                 : (isNonCollapsible ? 'No call history available for this wallet.' : 'Select an account to view its history.')}
-                         </p>
-                     ) : (
-                         <div className="table-container">
-                            <table className="history-table">
+                    {/* Loading/Empty checks based on filteredHistory */}
+                    {isLoading ? (
+                        <p className="text-gray-500 text-base p-6 text-center">Loading history...</p>
+                    ) : filteredHistory.length === 0 && !error ? (
+                        <p className="text-gray-500 text-base p-6 text-center">
+                            {selectedAccountId
+                                ? 'No call history recorded for this account.'
+                                : (isNonCollapsible ? 'No call history available for this wallet.' : 'Select an account to view its history.')}
+                        </p>
+                    ) : (
+                        <div className="overflow-x-auto">
+                            <table className="w-full border-collapse mt-4 text-sm">
                                 <thead>
                                     <tr>
-                                        <th>Time</th>
-                                        <th>Provider</th>
-                                        <th>Args</th>
-                                        <th>Duration</th>
-                                        <th>Status</th>
-                                        <th>Payment</th>
+                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Time</th>
+                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Provider</th>
+                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Args</th>
+                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Duration</th>
+                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Status</th>
+                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Payment</th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {/* Map over filteredHistory */} 
+                                    {/* Map over filteredHistory */}
                                     {filteredHistory.map((record, index) => (
-                                        <tr key={`${record.timestamp_start_ms}-${index}-${record.operator_wallet_id}`}> {/* Add account to key */} 
-                                            <td title={`Start: ${record.timestamp_start_ms}, End: ${record.response_timestamp_ms}`}>{formatTimestamp(record.timestamp_start_ms)}</td>
-                                            <td title={record.target_provider_id}>{truncateString(record.provider_lookup_key, 25)}</td>
-                                            <td>{formatArgs(record.call_args_json)}</td>
-                                            <td>{formatDuration(record.duration_ms)}</td>
-                                            <td>
-                                                <span className={record.call_success ? 'status-success' : 'status-fail'}>
+                                        <tr key={`${record.timestamp_start_ms}-${index}-${record.operator_wallet_id}`} className="even:bg-gray-50"> {/* Add account to key */}
+                                            <td className="border border-gray-300 px-3 py-2 text-left align-top" title={`Start: ${record.timestamp_start_ms}, End: ${record.response_timestamp_ms}`}>{formatTimestamp(record.timestamp_start_ms)}</td>
+                                            <td className="border border-gray-300 px-3 py-2 text-left align-top" title={record.target_provider_id}>{truncateString(record.provider_lookup_key, 25)}</td>
+                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">{formatArgs(record.call_args_json)}</td>
+                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">{formatDuration(record.duration_ms)}</td>
+                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">
+                                                <span className={record.call_success ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
                                                     {record.call_success ? 'Success' : 'Failed'}
                                                 </span>
                                             </td>
-                                            <td>{renderPaymentResult(record.payment_result)}</td>
+                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">{renderPaymentResult(record.payment_result)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
                             </table>
-                         </div>
-                     )}
-                 </div>
+                        </div>
+                    )}
+                </div>
             )}
         </div>
     );
