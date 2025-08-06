@@ -1,8 +1,8 @@
 import React from 'react';
-import { NodeProps, Handle, Position } from 'reactflow';
+import { NodeProps } from 'reactflow';
 import { IAddHotWalletActionNodeData } from '../../logic/types';
 import LinkHotWalletsInline from '../LinkHotWalletsInline';
-import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
+import BaseNodeComponent from './BaseNodeComponent';
 import type { Address } from 'viem';
 
 // Define a more specific type for the data prop including what LinkHotWalletsInline expects
@@ -24,22 +24,10 @@ const AddHotWalletActionNodeComponent: React.FC<NodeProps<ExtendedAddHotWalletAc
     } = data;
 
     return (
-        <div style={{
-            padding: '10px',
-            border: '1px solid #444',
-            borderRadius: '8px',
-            background: '#2d2d2d',
-            color: '#f0f0f0',
-            width: '100%',
-            maxWidth: NODE_WIDTH, // Use imported NODE_WIDTH
-            minHeight: '100px', // Ensure some minimum height for the inline content
-            boxSizing: 'border-box',
-            display: 'flex', // Added for centering content
-            flexDirection: 'column' // Added for centering content
-        }}>
-            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            
-            <div style={{ marginBottom: '10px', fontWeight: 'bold', color: '#ffff00', textAlign: 'center'}}>
+        <BaseNodeComponent
+            showHandles={{ target: true, source: false }}
+        >
+            <div className="font-bold border-b border-mid-gray/50 pb-1">
                 {label}
             </div>
 
@@ -51,13 +39,11 @@ const AddHotWalletActionNodeComponent: React.FC<NodeProps<ExtendedAddHotWalletAc
                     onWalletsLinked={onWalletsLinked}
                 />
             ) : (
-                <div style={{ textAlign: 'center', fontSize: '0.9em', color: 'orange', flexGrow: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <div className="text-center text-sm text-warning flex-grow flex items-center justify-center">
                     Operator details not fully loaded for linking.
                 </div>
             )}
-            {/* Hidden source handle if this node can be a source for edges */}
-            {/* <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} /> */}
-        </div>
+        </BaseNodeComponent>
     );
 };
 

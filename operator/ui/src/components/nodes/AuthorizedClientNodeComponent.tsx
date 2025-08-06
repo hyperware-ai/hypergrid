@@ -1,137 +1,61 @@
-import React, { useState, useCallback, useEffect, useRef } from 'react';
-import { NodeProps, Handle, Position } from 'reactflow';
+import React from 'react';
+import { NodeProps } from 'reactflow';
 import { IAuthorizedClientNodeData } from '../../logic/types';
-import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
-import styles from '../AuthorizedClientNode.module.css';
+import { truncate } from '../../utils/truncate';
+import BaseNodeComponent from './BaseNodeComponent';
+import { SlPencil } from 'react-icons/sl';
 
-// Helper to truncate text (can be moved to a utils file)
-const truncate = (str: string | undefined, startLen = 6, endLen = 4) => {
-    if (!str) return '';
-    if (str.length <= startLen + endLen + 3) return str;
-    return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-};
+interface AuthorizedClientNodeComponentProps extends NodeProps<IAuthorizedClientNodeData> {
+    onOpenSettingsModal: () => void;
+}
 
-const AuthorizedClientNodeComponent: React.FC<NodeProps<IAuthorizedClientNodeData>> = ({ data }) => {
+const AuthorizedClientNodeComponent: React.FC<AuthorizedClientNodeComponentProps> = ({ data, onOpenSettingsModal }) => {
     const { clientId, clientName: initialClientName, associatedHotWalletAddress } = data;
 
-    const [currentClientName, setCurrentClientName] = useState(initialClientName);
-    const [isEditingName, setIsEditingName] = useState(false);
-    const [editedName, setEditedName] = useState(initialClientName);
-    const nameInputRef = useRef<HTMLInputElement>(null);
-
-    useEffect(() => {
-        setCurrentClientName(initialClientName);
-        setEditedName(initialClientName);
-        setIsEditingName(false);
-    }, [initialClientName]);
-
-    useEffect(() => {
-        if (isEditingName && nameInputRef.current) {
-            nameInputRef.current.focus();
-            nameInputRef.current.select();
-        }
-    }, [isEditingName]);
-
-    const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        setEditedName(event.target.value);
-    };
-
-    const handleSaveName = useCallback(async () => {
-        if (!editedName.trim() || editedName.trim() === currentClientName) {
-            setIsEditingName(false);
-            setEditedName(currentClientName);
-            return;
-        }
-        console.log(`Saving new client name: "${editedName.trim()}" for client ID: ${clientId}`);
-        await new Promise(resolve => setTimeout(resolve, 300)); 
-        setCurrentClientName(editedName.trim());
-        setIsEditingName(false);
-    }, [editedName, clientId, currentClientName]);
-
-    const handleNameInputBlur = () => {
-        if (editedName.trim() !== currentClientName && editedName.trim() !== '') {
-            handleSaveName();
-        } else {
-            setEditedName(currentClientName);
-            setIsEditingName(false);
-        }
-    };
-
-    const handleNameInputKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-        if (event.key === 'Enter') {
-            event.preventDefault();
-            handleSaveName();
-        }
-        if (event.key === 'Escape') {
-            setEditedName(currentClientName);
-            setIsEditingName(false);
-        }
-    };
-
-    const handleNameClick = (e: React.MouseEvent) => {
-        e.stopPropagation(); // Prevent node click when editing name
-        setIsEditingName(true);
-    };
-
     return (
-        <div 
-            className={styles.nodeContainer} 
-            style={{ 
-                maxWidth: NODE_WIDTH,
-                cursor: 'pointer'
-            }}
-            title="Click to view configuration"
+        <BaseNodeComponent
+            showHandles={{ target: true, source: true }}
         >
-            <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-            
-            <div className={styles.header}>
-                <div className={styles.nodeTitle}>Authorized Client</div>
-                <div className={styles.nodeSubtitle}>
-                {isEditingName ? (
-                    <input 
-                        ref={nameInputRef}
-                        type="text" 
-                        value={editedName}
-                        onChange={handleNameChange}
-                        onBlur={handleNameInputBlur}
-                        onKeyDown={handleNameInputKeyDown}
-                        className={styles.nameInputEditing}
-                        onClick={(e) => e.stopPropagation()}
-                    />
-                ) : (
-                    <span 
-                        title={currentClientName} 
-                        onClick={handleNameClick} 
-                        className={styles.nameDisplay}
-                        style={{cursor: 'text'}}
-                    >
-                        {currentClientName}
+            {/* Pencil icon for settings modal */}
+            <div className="absolute top-2 right-2 z-10">
+                <button
+                    onClick={(e) => { e.stopPropagation(); onOpenSettingsModal(); }}
+                    title="Open Settings"
+                    className="text-lg hover:text-gray-300"
+                >
+                    <SlPencil />
+                </button>
+            </div>
+
+            <div className="flex flex-col">
+                <div className="font-bold">
+                    <span>Authorized Client</span>
+                </div>
+
+                <span>
+                    {initialClientName || 'Unnamed Client'}
+                </span>
+
+                <div className="text-sm leading-relaxed flex justify-between items-center">
+                    <span className="text-gray-400 mr-2 whitespace-nowrap">Client ID:</span>
+                    <span className="text-gray-300 break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
+                        <CopyToClipboardText textToCopy={clientId} className="text-blue-400 cursor-pointer no-underline hover:underline">
+                            {truncate(clientId, 8, 8)}
+                        </CopyToClipboardText>
                     </span>
-                )}
+                </div>
+
+                <div className="text-sm leading-relaxed flex justify-between items-center">
+                    <span className="text-gray-400 mr-2 whitespace-nowrap">Hot Wallet:</span>
+                    <span className="text-gray-300 break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
+                        <CopyToClipboardText textToCopy={associatedHotWalletAddress} className="text-blue-400 cursor-pointer no-underline hover:underline">
+                            {truncate(associatedHotWalletAddress)}
+                        </CopyToClipboardText>
+                    </span>
                 </div>
             </div>
-
-            <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Client ID:</span>
-                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
-                    <CopyToClipboardText textToCopy={clientId} className={styles.infoValueClickable}>
-                        {truncate(clientId, 8, 8)}
-                    </CopyToClipboardText>
-                </span>
-            </div>
-
-            <div className={styles.infoRow}>
-                <span className={styles.infoLabel}>Hot Wallet:</span>
-                <span className={styles.infoValue} onClick={(e) => e.stopPropagation()}>
-                     <CopyToClipboardText textToCopy={associatedHotWalletAddress} className={styles.infoValueClickable}>
-                        {truncate(associatedHotWalletAddress)}
-                    </CopyToClipboardText>
-                </span>
-            </div>
-            
-            <Handle type="source" position={Position.Bottom} style={{ visibility: 'hidden' }} />
-        </div>
+        </BaseNodeComponent>
     );
 };
 

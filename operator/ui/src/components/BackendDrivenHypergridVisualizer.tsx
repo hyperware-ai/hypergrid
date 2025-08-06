@@ -17,6 +17,7 @@ import ReactFlow, {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import dagre from 'dagre';
+import { ImSpinner8 } from 'react-icons/im';
 
 import {
     IHypergridGraphResponse,
@@ -45,12 +46,15 @@ import {
 import ShimApiConfigModal from './ShimApiConfigModal';
 import CallHistoryModal from './modals/CallHistoryModal';
 import AuthorizedClientConfigModal from './AuthorizedClientConfigModal';
+import HotWalletSettingsModal from './modals/HotWalletSettingsModal';
+import { FiPlusCircle } from 'react-icons/fi';
 
 import OriginalOperatorWalletNodeComponent from './nodes/OperatorWalletNodeComponent';
 import OriginalAuthorizedClientNodeComponent from './nodes/AuthorizedClientNodeComponent';
 import OriginalOwnerNodeComponent from './nodes/OwnerNodeComponent';
 import OriginalHotWalletNodeComponent from './nodes/HotWalletNodeComponent';
 import AddHotWalletActionNodeComponent from './nodes/AddHotWalletActionNodeComponent';
+import { useErrorLogStore } from '../store/errorLog';
 
 const getApiBasePath = () => {
     const pathParts = window.location.pathname.split('/').filter(p => p);
@@ -63,13 +67,12 @@ const HYPERGRID_GRAPH_ENDPOINT = `${API_BASE_URL}/hypergrid-graph`;
 const dagreGraph = new dagre.graphlib.Graph();
 dagreGraph.setDefaultEdgeLabel(() => ({}));
 
-export const NODE_WIDTH = 320; // Increased from 270 to 320 for better text wrapping
+export const NODE_WIDTH = 320;
 export const NODE_HEIGHT = 150;
-const OPERATOR_WALLET_TO_MANAGE_HW_EDGE_MINLEN = 2;
 
 const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB') => {
-    dagreGraph.setGraph({ 
-        rankdir: direction, 
+    dagreGraph.setGraph({
+        rankdir: direction,
         nodesep: 100,
         ranksep: 100
     });
@@ -80,7 +83,7 @@ const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB'
         if (node.type === 'operatorWalletNode') height = 250;
         if (node.type === 'hotWalletNode') height = 270;
         if (node.type === 'addHotWalletActionNode') height = 300;
-        if (node.type === 'authorizedClientNode') {height = 280};
+        if (node.type === 'authorizedClientNode') { height = 280 };
         if (node.type === 'mintOperatorWalletActionNode') height = 60;
         dagreGraph.setNode(node.id, { width, height });
     });
@@ -108,44 +111,38 @@ const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB'
 };
 
 const MintOperatorWalletActionNodeComponent: React.FC<NodeProps<IMintOperatorWalletActionNodeData & { onClick?: () => void; disabled?: boolean }>> = ({ data }) => (
-    <button 
-        onClick={(data as any).onClick} 
+    <button
+        onClick={(data as any).onClick}
         disabled={(data as any).disabled}
         style={{
-            padding: 15, 
-            border: '2px dashed #28a745', 
-            borderRadius: '5px', 
-            background: (data as any).disabled ? '#555' : '#333', 
-            color: (data as any).disabled ? '#888' : '#28a745', 
-            cursor: (data as any).disabled ? 'not-allowed' : 'pointer',
-            width: '100%',
-            maxWidth: NODE_WIDTH, 
-            boxSizing: 'border-box',
-            textAlign: 'center' as 'center' 
+            maxWidth: NODE_WIDTH,
         }}
+        className="flex flex-col items-center justify-center"
     >
-        <Handle type="target" position={Position.Top} style={{visibility: 'hidden'}}/>
-        <strong>{(data as any)['label'] || "Create Operator Wallet"}</strong>
-        {(data as any)['ownerNodeName'] && <div style={{fontSize: '0.7em', color: (data as any).disabled ? '#777' : '#aaa'}}>For: {(data as any)['ownerNodeName']}</div>}
+        <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
+        <FiPlusCircle className="w-8 h-8" />
+        <div
+            className="border-2 border-transparent hover:border-black px-8 py-4 text-white bg-dark-gray hover:bg-white hover:text-dark-gray transition-all duration-300 rounded-full font-semibold"
+        >
+            {(data as any)['label'] || "Create Operator Wallet"}
+        </div>
+        {(data as any)['ownerNodeName'] && (
+            <div className="text-xs text-mid-gray">
+                For: {(data as any)['ownerNodeName']}
+            </div>
+        )}
     </button>
 );
 
 const SimpleAddAuthorizedClientActionNodeComponent: React.FC<NodeProps<IAddAuthorizedClientActionNodeData>> = ({ data }) => (
-    <div style={{ padding: 15, border: '2px dashed #ff00ff', borderRadius: '5px', background: '#333', color: '#ff00ff', cursor: 'pointer', maxWidth: NODE_WIDTH, boxSizing: 'border-box', textAlign: 'center' }}>
+    <button
+        className="p-4 px-8 font-bold !border-2 hover:!border-black !rounded-full bg-dark-gray text-white hover:bg-cyan hover:text-black"
+        style={{ maxWidth: NODE_WIDTH }}
+    >
         <Handle type="target" position={Position.Top} style={{ visibility: 'hidden' }} />
-        <strong>{(data as any)['label'] || "Authorize New Client"}</strong> 
-    </div>
+        {(data as any)['label'] || "Authorize New Client"}
+    </button>
 );
-
-const nodeTypes = {
-    ownerNode: OriginalOwnerNodeComponent,
-    operatorWalletNode: OriginalOperatorWalletNodeComponent,
-    hotWalletNode: OriginalHotWalletNodeComponent,
-    authorizedClientNode: OriginalAuthorizedClientNodeComponent,
-    addHotWalletActionNode: AddHotWalletActionNodeComponent,
-    mintOperatorWalletActionNode: MintOperatorWalletActionNodeComponent,
-    addAuthorizedClientActionNode: SimpleAddAuthorizedClientActionNodeComponent,
-};
 
 interface BackendDrivenHypergridVisualizerProps {
     initialGraphData?: IHypergridGraphResponse;
@@ -174,17 +171,16 @@ const convertKeysToCamelCase = (obj: any): any => {
 };
 
 const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVisualizerProps> = ({ initialGraphData }) => {
+    const { showToast } = useErrorLogStore();
     const [nodes, setNodes, onNodesChange] = useNodesState<Node[]>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState([]);
     const [isLoadingGraph, setIsLoadingGraph] = useState<boolean>(!initialGraphData);
     const [graphDataError, setGraphDataError] = useState<string | null>(null);
     const [isProcessingMintClick, setIsProcessingMintClick] = useState<boolean>(false);
-    const [mintDisplayError, setMintDisplayError] = useState<string | null>(null);
-    const [noteDisplayError, setNoteDisplayError] = useState<string | null>(null);
 
     const [isShimApiConfigModalOpen, setIsShimApiConfigModalOpen] = useState<boolean>(false);
     const [hotWalletAddressForShimModal, setHotWalletAddressForShimModal] = useState<Address | null>(null);
-    
+
     // New state for authorized client modal
     const [isAuthorizedClientModalOpen, setIsAuthorizedClientModalOpen] = useState<boolean>(false);
     const [selectedAuthorizedClient, setSelectedAuthorizedClient] = useState<{
@@ -196,32 +192,27 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
     const [isHistoryModalOpen, setIsHistoryModalOpen] = useState<boolean>(false);
     const [selectedWalletForHistory, setSelectedWalletForHistory] = useState<Address | null>(null);
 
+    // Hot Wallet Settings Modal state
+    const [isHotWalletSettingsModalOpen, setIsHotWalletSettingsModalOpen] = useState<boolean>(false);
+    const [selectedWalletForSettings, setSelectedWalletForSettings] = useState<IHotWalletNodeData | null>(null);
+
     // States for lock/unlock operations initiated from visualizer
     const [isUnlockingOrLockingWalletId, setIsUnlockingOrLockingWalletId] = useState<string | null>(null);
-    const [actionToast, setActionToast] = useState<{ type: 'success' | 'error', message: string } | null>(null);
 
     const { address: connectedAddress } = useAccount();
     const mintOperatorWalletHook = useMintOperatorSubEntry();
-    
-    const [isUnlockingOrLockingWallet, setIsUnlockingOrLockingWallet] = useState<string | null>(null);
-    const [actionError, setActionError] = useState<string | null>(null);
 
     // Paymaster revoke hook
     const revokePaymasterHook = useApprovePaymaster({
         onSuccess: (data) => {
             console.log("Paymaster revoke transaction sent:", data);
-            showActionToast('success', 'Paymaster revocation initiated!');
+            showToast('success', 'Paymaster revocation initiated!');
         },
         onError: (err) => {
             console.error("Paymaster revoke error:", err);
-            showActionToast('error', `Failed to revoke paymaster: ${err.message}`);
+            showToast('error', `Failed to revoke paymaster: ${err.message}`);
         },
     });
-
-    const showActionToast = useCallback((type: 'success' | 'error', message: string) => {
-        setActionToast({ type, message });
-        setTimeout(() => setActionToast(null), 3000);
-    }, []);
 
     const callMcpApiFromVisualizer = useCallback(async (mcpPayload: any) => {
         const apiBasePath = getApiBasePath(); // Ensure getApiBasePath is available or define it
@@ -244,8 +235,8 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
 
     const onSetNoteError = useCallback((error: Error) => {
         console.error("Set Note error via hook.onError:", error);
-        setNoteDisplayError(error.message || "An error occurred calling setAccessListNote (hook.onError).");
-    }, []); 
+        showToast('error', error.message || "An error occurred calling setAccessListNote (hook.onError).");
+    }, []);
 
     const onSetNoteSettled = useCallback((data: any, error: Error | null) => {
         console.log("Set Note settled via hook.onSettled. Data:", data, "Error:", error);
@@ -275,51 +266,49 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
 
     const handleSetAccessListNote = useCallback(async (operatorTbaAddress: Address, operatorEntryName: string) => {
         if (!operatorTbaAddress || !operatorEntryName) {
-            setNoteDisplayError("Operator TBA address or entry name not available to set note.");
+            showToast('error', "Operator TBA address or entry name not available to set note.");
             return;
         }
         console.log(`Attempting to set Access List Note for Operator TBA: ${operatorTbaAddress}, Entry: ${operatorEntryName}`);
-        
-        setNoteDisplayError(null); 
+
         try {
             if (typeof setAccessListNote === 'function') {
-                await setAccessListNote({ operatorTbaAddress, operatorEntryName });
+                setAccessListNote({ operatorTbaAddress, operatorEntryName });
             } else {
                 console.error('Critical: setAccessListNote is not a function before call!');
-                setNoteDisplayError('Internal error: setAccessListNote handler is not available.');
+                showToast('error', 'Internal error: setAccessListNote handler is not available.');
             }
         } catch (e: any) {
             console.error("Error invoking setAccessListNote directly in handler:", e);
-            setNoteDisplayError(e.message || "Failed to initiate set access list note transaction (catch block).");
+            showToast('error', e.message || "Failed to initiate set access list note transaction (catch block).");
         }
-    }, [setAccessListNote, setNoteDisplayError]);
+    }, [setAccessListNote, showToast]);
 
     const handleSetSignersNote = useCallback(async (operatorTbaAddress: Address, operatorEntryName: string, hotWalletAddress: Address) => {
         if (!operatorTbaAddress || !operatorEntryName || !hotWalletAddress) {
-            setNoteDisplayError("Missing required parameters to set signers note.");
+            showToast('error', "Missing required parameters to set signers note.");
             return;
         }
         console.log(`Attempting to set Signers Note for Operator TBA: ${operatorTbaAddress}, Entry: ${operatorEntryName}, with Hot Wallet: ${hotWalletAddress}`);
-        setNoteDisplayError(null); 
-        
+
         const setSignersNoteFn = setSignersNote;
         if (typeof setSignersNoteFn !== 'function') {
             console.error('Critical: setSignersNote is not a function!');
-            setNoteDisplayError('Internal error: setSignersNote handler is not available.');
+            showToast('error', 'Internal error: setSignersNote handler is not available.');
             return;
         }
 
         try {
-            await setSignersNoteFn({
+            setSignersNoteFn({
                 operatorTbaAddress,
                 operatorEntryName,
-                hotWalletAddresses: [hotWalletAddress] 
+                hotWalletAddresses: [hotWalletAddress]
             });
         } catch (e: any) {
             console.error("Error invoking setSignersNote directly in handler:", e);
-            setNoteDisplayError(e.message || "Failed to initiate set signers note transaction (catch block).");
+            showToast('error', e.message || "Failed to initiate set signers note transaction (catch block).");
         }
-    }, [setSignersNote, setNoteDisplayError]);
+    }, [setSignersNote, showToast]);
 
     const fetchGraphData = useCallback(async () => {
         setIsLoadingGraph(true);
@@ -331,7 +320,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                 throw new Error(`Graph Data Fetch Failed: ${response.status} - ${errText}`);
             }
             const rawData: IHypergridGraphResponse = await response.json(); // Raw data from backend
-            
+
             const processedNodes = rawData.nodes.map(backendNode => {
                 let processedData: any = {};
                 // The backend sends data like: { ownerNode: { name: "..." } } or { hotWalletNode: { address: "..." } }
@@ -348,7 +337,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     }
                 } else {
                     // Fallback if data structure is different, or just copy if no specific data
-                    processedData = convertKeysToCamelCase(backendNode.data); 
+                    processedData = convertKeysToCamelCase(backendNode.data);
                 }
 
                 return {
@@ -407,8 +396,8 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                 } else if (nodeTypeString === 'addHotWalletActionNode') {
                     finalNodeData.onWalletsLinked = fetchGraphData;
                     const opTBAForActionNode = finalNodeData.operatorTbaAddress as Address | undefined;
-                    finalNodeData.currentLinkedWallets = []; 
-                    finalNodeData.operatorEntryName = null; 
+                    finalNodeData.currentLinkedWallets = [];
+                    finalNodeData.operatorEntryName = null;
 
                     if (opTBAForActionNode) {
                         const operatorNode = layoutedNodes.find(ln => ln.type === 'operatorWalletNode' && (ln.data as IOperatorWalletNodeData)?.tbaAddress === opTBAForActionNode);
@@ -416,7 +405,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                             finalNodeData.operatorEntryName = (operatorNode.data as IOperatorWalletNodeData).name;
                             const operatorNodeId = operatorNode.id;
                             const linkedWalletsForThisOp: Address[] = [];
-                            layoutedEdges.forEach(edge => { 
+                            layoutedEdges.forEach(edge => {
                                 if (edge.source === operatorNodeId) {
                                     const targetNode = layoutedNodes.find(node => node.id === edge.target);
                                     if (targetNode && targetNode.type === 'hotWalletNode') {
@@ -443,7 +432,8 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         } catch (err) {
             const errorMsg = err instanceof Error ? err.message : 'Unknown error during graph data fetch';
             setGraphDataError(errorMsg);
-            setNodes([]); 
+            showToast('error', errorMsg);
+            setNodes([]);
             setEdges([]);
         } finally {
             setIsLoadingGraph(false);
@@ -468,7 +458,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     }
                 } else {
                     // Fallback if data structure is different, or just copy if no specific data
-                    processedData = convertKeysToCamelCase(n.data); 
+                    processedData = convertKeysToCamelCase(n.data);
                 }
 
                 return {
@@ -505,7 +495,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             }
 
             const transformedInitialNodes = layoutedInitialNodes.map((n) => {
-                const nodeTypeString = n.type as string; 
+                const nodeTypeString = n.type as string;
                 const finalNodeData = { ...n.data } as any;
                 finalNodeData.type = nodeTypeString;
 
@@ -517,7 +507,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     finalNodeData.isSettingAccessListNote = isOperatorNoteSending || isOperatorNoteConfirming;
                     finalNodeData.onSetSignersNote = handleSetSignersNote;
                     finalNodeData.isSettingSignersNote = isOperatorNoteSending || isOperatorNoteConfirming;
-                    finalNodeData.activeHotWalletAddressForNode = activeHotWalletAddressForInitial; 
+                    finalNodeData.activeHotWalletAddressForNode = activeHotWalletAddressForInitial;
                     finalNodeData.onWalletsLinked = fetchGraphData;
                     finalNodeData.onRevokePaymaster = handleRevokePaymaster;
                     finalNodeData.isRevokingPaymaster = revokePaymasterHook.isSending || revokePaymasterHook.isConfirming;
@@ -537,7 +527,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                             finalNodeData.operatorEntryName = (operatorNode.data as IOperatorWalletNodeData).name;
                             const operatorNodeId = operatorNode.id;
                             const linkedWalletsForThisOp: Address[] = [];
-                            layoutedInitialEdges.forEach(edge => { 
+                            layoutedInitialEdges.forEach(edge => {
                                 if (edge.source === operatorNodeId) {
                                     const targetNode = layoutedInitialNodes.find(node => node.id === edge.target);
                                     if (targetNode && targetNode.type === 'hotWalletNode') {
@@ -550,7 +540,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                             });
                             finalNodeData.currentLinkedWallets = linkedWalletsForThisOp;
                         } else {
-                             console.warn(`[Visualizer Initial] AddHotWalletActionNode: Could not find operator node for TBA ${opTBAForActionNode}`);
+                            console.warn(`[Visualizer Initial] AddHotWalletActionNode: Could not find operator node for TBA ${opTBAForActionNode}`);
                         }
                     } else {
                         console.warn("[Visualizer Initial] AddHotWalletActionNode is missing operatorTbaAddress in its data", finalNodeData);
@@ -566,26 +556,26 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
     }, [initialGraphData, fetchGraphData, setNodes, setEdges, handleSetAccessListNote, handleSetSignersNote, isOperatorNoteSending, isOperatorNoteConfirming]);
 
     useEffect(() => {
-        setNodes((nds: Node[]) => 
-            nds.map((n: Node) => { 
+        setNodes((nds: Node[]) =>
+            nds.map((n: Node) => {
                 if (n.type === 'mintOperatorWalletActionNode' && n.data?.actionId === 'trigger_mint_operator_wallet') {
                     return {
                         ...n,
                         data: {
                             ...n.data,
-                            disabled: isProcessingMintClick || mintOperatorWalletHook.isSending || mintOperatorWalletHook.isConfirming, 
+                            disabled: isProcessingMintClick || mintOperatorWalletHook.isSending || mintOperatorWalletHook.isConfirming,
                         },
                     };
                 }
                 if (n.type === 'operatorWalletNode') {
-                     return {
-                         ...n,
-                         data: {
-                             ...n.data,
-                             isSettingAccessListNote: isOperatorNoteSending || isOperatorNoteConfirming,
-                             isSettingSignersNote: isOperatorNoteSending || isOperatorNoteConfirming,
-                         }
-                     };
+                    return {
+                        ...n,
+                        data: {
+                            ...n.data,
+                            isSettingAccessListNote: isOperatorNoteSending || isOperatorNoteConfirming,
+                            isSettingSignersNote: isOperatorNoteSending || isOperatorNoteConfirming,
+                        }
+                    };
                 }
                 return n;
             })
@@ -604,12 +594,21 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         }
     }, [mintOperatorWalletHook.isConfirmed, fetchGraphData, mintOperatorWalletHook.reset]);
 
+    // Handle mint operation errors (including user cancellation)
+    useEffect(() => {
+        if (mintOperatorWalletHook.error) {
+            console.log("Mint operation error:", mintOperatorWalletHook.error.message);
+            setIsProcessingMintClick(false);
+            showToast('error', mintOperatorWalletHook.error.message);
+        }
+    }, [mintOperatorWalletHook.error]);
+
     useEffect(() => {
         if (isOperatorNoteConfirmed) {
             console.log("Set Note transaction confirmed (Tx: ", operatorNoteTxHash, "). Refetching graph data with delay.");
             // Add delay to allow backend to sync with blockchain
             setTimeout(() => {
-            fetchGraphData();
+                fetchGraphData();
             }, 2000);
             resetOperatorNoteHook();
         }
@@ -628,8 +627,6 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
 
     const handleNodeClick = useCallback(async (_event: React.MouseEvent, node: Node) => {
         console.log('Node clicked: ', node);
-        setMintDisplayError(null);
-        setNoteDisplayError(null);
 
         if (node.type === 'mintOperatorWalletActionNode' && node.data) {
             console.log("Mint Action Clicked. Data:", node.data);
@@ -637,32 +634,31 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             const subLabelToMintForGrid = "grid-beta-wallet-aa-final";
             if (!ownerNodeName) {
                 console.error("Mint Action: Owner node name not found in node data.");
-                setMintDisplayError("Configuration error: Owner node name missing.");
+                showToast('error', "Configuration error: Owner node name missing.");
                 return;
             }
             const parentOwnerNode = nodes.find(n => n.type === 'ownerNode' && (n.data as any)?.name === ownerNodeName);
             if (!parentOwnerNode) {
                 console.error(`Mint Action: OwnerNode for '${ownerNodeName}' not found in graph nodes. Current nodes:`, nodes);
-                setMintDisplayError(`Runtime error: Could not find graph data for parent ${ownerNodeName}.`);
+                showToast('error', `Runtime error: Could not find graph data for parent ${ownerNodeName}.`);
                 return;
             }
             const parentTbaAddress = (parentOwnerNode.data as any)?.tbaAddress as Address | undefined;
             if (!parentTbaAddress) {
                 console.error(`Mint Action: TBA for parent node '${ownerNodeName}' not found. Parent node data:`, parentOwnerNode.data);
-                setMintDisplayError(`Configuration error: TBA for parent node '${ownerNodeName}' is missing.`);
+                showToast('error', `Configuration error: TBA for parent node '${ownerNodeName}' is missing.`);
                 return;
             }
 
             // Now we have everything we need to mint
             console.log(`Mint Action: Ready to mint '${subLabelToMintForGrid}' under parent TBA ${parentTbaAddress}`);
-            
+
             if (!connectedAddress) {
-                setMintDisplayError("Please connect your wallet to mint.");
+                showToast('error', 'Please connect your wallet to mint.');
                 return;
             }
 
             setIsProcessingMintClick(true);
-            setMintDisplayError(null);
 
             // Call the mint function
             mintOperatorWalletHook.mint({
@@ -677,13 +673,13 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         } else if (node.type === 'addAuthorizedClientActionNode' && node.data) {
             const actionNodeData = node.data as any;
             const actionId = actionNodeData.actionId;
-            if (actionId === 'trigger_add_client_modal') { 
+            if (actionId === 'trigger_add_client_modal') {
                 const targetHotWallet = actionNodeData.targetHotWalletAddress as Address | undefined;
                 if (targetHotWallet) {
                     setHotWalletAddressForShimModal(targetHotWallet);
                     setIsShimApiConfigModalOpen(true);
                 } else {
-                    setNoteDisplayError("Configuration error: Action node for authorizing client is missing target_hot_wallet_address.");
+                    showToast('error', "Configuration error: Action node for authorizing client is missing target_hot_wallet_address.");
                 }
             }
         } else if (node.type === 'authorizedClientNode' && node.data) {
@@ -697,11 +693,11 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             });
             setIsAuthorizedClientModalOpen(true);
         }
-    }, [nodes, connectedAddress, mintOperatorWalletHook, setHotWalletAddressForShimModal, setMintDisplayError, setNoteDisplayError, setIsShimApiConfigModalOpen, DEFAULT_OPERATOR_TBA_IMPLEMENTATION, fetchGraphData]);
+    }, [nodes, connectedAddress, mintOperatorWalletHook, setHotWalletAddressForShimModal, setIsShimApiConfigModalOpen, DEFAULT_OPERATOR_TBA_IMPLEMENTATION, fetchGraphData, showToast]);
 
     const handleWalletNodeUpdate = useCallback((_walletAddress: Address) => {
         console.log(`Wallet ${_walletAddress} was updated, refreshing graph data.`);
-        fetchGraphData(); 
+        fetchGraphData();
     }, [fetchGraphData]);
 
     const handleOpenHistoryModal = useCallback((walletAddress: Address) => {
@@ -714,109 +710,123 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         setSelectedWalletForHistory(null);
     }, []);
 
+    const handleOpenHotWalletSettingsModal = useCallback((walletData: IHotWalletNodeData) => {
+        setSelectedWalletForSettings(walletData);
+        setIsHotWalletSettingsModalOpen(true);
+    }, []);
+
+    const handleCloseHotWalletSettingsModal = useCallback(() => {
+        setIsHotWalletSettingsModalOpen(false);
+        setSelectedWalletForSettings(null);
+    }, []);
+
+    const handleOpenAuthorizedClientSettingsModal = useCallback((clientData: IAuthorizedClientNodeData) => {
+        setSelectedAuthorizedClient({
+            clientId: clientData.clientId,
+            clientName: clientData.clientName,
+            hotWalletAddress: clientData.associatedHotWalletAddress
+        });
+        setIsAuthorizedClientModalOpen(true);
+    }, []);
+
     const handleUnlockWalletInVisualizer = useCallback(async (walletAddress: Address, passwordInput: string) => {
         // Note: passwordInput can be empty for unencrypted wallets
         setIsUnlockingOrLockingWalletId(walletAddress as string);
         try {
             await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
             await callMcpApiFromVisualizer({ ActivateWallet: { password: passwordInput || null } });
-            showActionToast('success', 'Wallet activated successfully!');
+            showToast('success', 'Wallet activated successfully!');
             fetchGraphData();
         } catch (err: any) {
-            showActionToast('error', err.message || 'Failed to activate wallet.');
-            throw err; 
+            showToast('error', err.message || 'Failed to activate wallet.');
+            throw err;
         } finally {
             setIsUnlockingOrLockingWalletId(null);
         }
-    }, [fetchGraphData, callMcpApiFromVisualizer, showActionToast]);
+    }, [fetchGraphData, callMcpApiFromVisualizer, showToast]);
 
     const handleLockWalletInVisualizer = useCallback(async (walletAddress: Address) => {
         setIsUnlockingOrLockingWalletId(walletAddress as string);
         try {
             await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
             await callMcpApiFromVisualizer({ DeactivateWallet: {} });
-            showActionToast('success', 'Wallet locked successfully!');
+            showToast('success', 'Wallet locked successfully!');
             fetchGraphData();
         } catch (err: any) {
-            showActionToast('error', err.message || 'Failed to lock wallet.');
-            throw err; 
+            showToast('error', err.message || 'Failed to lock wallet.');
+            throw err;
         } finally {
             setIsUnlockingOrLockingWalletId(null);
         }
-    }, [fetchGraphData, callMcpApiFromVisualizer, showActionToast]);
+    }, [fetchGraphData, callMcpApiFromVisualizer, showToast]);
 
     const handleRevokePaymaster = useCallback(async (operatorTbaAddress: Address) => {
         if (!operatorTbaAddress) {
-            showActionToast('error', 'No operator TBA address provided');
+            showToast('error', 'No operator TBA address provided');
             return;
         }
-        
+
         console.log('Revoking paymaster approval for TBA:', operatorTbaAddress);
         revokePaymasterHook.revokePaymaster({ operatorTbaAddress });
-    }, [revokePaymasterHook, showActionToast]);
+    }, [revokePaymasterHook, showToast]);
 
     const nodeTypes = useMemo(() => ({
         ownerNode: OriginalOwnerNodeComponent,
         operatorWalletNode: OriginalOperatorWalletNodeComponent,
         hotWalletNode: (props: NodeProps<IHotWalletNodeData>) => (
-            <OriginalHotWalletNodeComponent 
-                {...props} 
-                onWalletDataUpdate={handleWalletNodeUpdate} 
+            <OriginalHotWalletNodeComponent
+                {...props}
+                onWalletDataUpdate={handleWalletNodeUpdate}
                 onOpenHistoryModal={handleOpenHistoryModal}
+                onOpenSettingsModal={() => handleOpenHotWalletSettingsModal(props.data)}
                 onUnlockWallet={handleUnlockWalletInVisualizer}
                 onLockWallet={handleLockWalletInVisualizer}
                 isUnlockingOrLocking={isUnlockingOrLockingWalletId === props.data.address}
             />
         ),
-        authorizedClientNode: OriginalAuthorizedClientNodeComponent,
+        authorizedClientNode: (props: NodeProps<IAuthorizedClientNodeData>) => (
+            <OriginalAuthorizedClientNodeComponent
+                {...props}
+                onOpenSettingsModal={() => handleOpenAuthorizedClientSettingsModal(props.data)}
+            />
+        ),
         addHotWalletActionNode: AddHotWalletActionNodeComponent,
         addAuthorizedClientActionNode: SimpleAddAuthorizedClientActionNodeComponent,
         mintOperatorWalletActionNode: MintOperatorWalletActionNodeComponent,
     }), [
-        handleWalletNodeUpdate, 
-        handleOpenHistoryModal, 
-        handleUnlockWalletInVisualizer, 
-        handleLockWalletInVisualizer, 
+        handleWalletNodeUpdate,
+        handleOpenHistoryModal,
+        handleOpenHotWalletSettingsModal,
+        handleOpenAuthorizedClientSettingsModal,
+        handleUnlockWalletInVisualizer,
+        handleLockWalletInVisualizer,
         isUnlockingOrLockingWalletId
     ]);
 
     if (isLoadingGraph && !initialGraphData) {
-        return <p>Loading graph ...</p>;
+        return <div className="flex gap-2 flex-col grow self-stretch place-items-center place-content-center">
+            <span className="tetx-lg">Loading graph ...</span>
+            <ImSpinner8 className="animate-spin" />
+        </div>
     }
 
     if (graphDataError && !isLoadingGraph) {
-        return <p style={{ color: 'red' }}>Error loading graph: {graphDataError} <button onClick={fetchGraphData}>Retry</button></p>;
+        return <button
+            onClick={fetchGraphData}
+            className="place-self-center p-2 rounded bg-red-600 text-white hover:bg-red-700">
+            Reload Graph
+        </button>;
     }
 
     const proOptions = { hideAttribution: true };
 
     return (
         <ReactFlowProvider>
-            <div style={{ width: '100%', height: '94vh', border: '1px solid #ccc',  display: 'flex', flexDirection: 'column', flexGrow: 1, position: 'relative' }}>
-                {/* Toast Area */} 
-                {actionToast && (
-                    <div 
-                        style={{
-                            position: 'absolute',
-                            top: '10px',
-                            left: '50%',
-                            transform: 'translateX(-50%)',
-                            padding: '10px 20px',
-                            background: actionToast.type === 'success' ? 'mediumseagreen' : 'lightcoral',
-                            color: 'white',
-                            borderRadius: '5px',
-                            zIndex: 1000, // Ensure it's on top
-                            boxShadow: '0 2px 10px rgba(0,0,0,0.2)'
-                        }}
-                    >
-                        {actionToast.message}
-                    </div>
-                )}
+            <div
+                className="w-full h-screen flex flex-col grow self-stretch relative"
+            >
+                {isLoadingGraph && <div className="p-2 text-blue-500 absolute top-0 left-0 z-10">Updating graph...</div>}
 
-                {isLoadingGraph && <div style={{ padding: '10px', color: 'blue', position: 'absolute', top: 0, left: 0, zIndex:10  }}>Updating graph...</div>}
-                {mintDisplayError && <div style={{ padding: '10px', color: 'red'}}>Mint Error: {mintDisplayError}</div>}
-                {noteDisplayError && <div style={{ padding: '10px', color: 'red'}}>Note Error: {noteDisplayError}</div>}
-                
                 <ReactFlow
                     nodes={nodes}
                     edges={edges}
@@ -824,21 +834,24 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     onEdgesChange={onEdgesChange}
                     onConnect={onConnect}
                     nodeTypes={nodeTypes}
-                    onNodeClick={handleNodeClick} 
+                    onNodeClick={handleNodeClick}
                     fitView
                     proOptions={proOptions}
                     style={{ flexGrow: 1 }}
                 >
-                    <Controls />
+                    <Controls
+                        className="flex scale-150 -translate-x-1/4 -translate-y-1/4"
+                        position="bottom-right"
+                    />
                     <Background />
                 </ReactFlow>
             </div>
             {isShimApiConfigModalOpen && hotWalletAddressForShimModal && (
-                <ShimApiConfigModal 
+                <ShimApiConfigModal
                     isOpen={isShimApiConfigModalOpen}
-                    onClose={(shouldRefresh) => { 
-                        setIsShimApiConfigModalOpen(false); 
-                        setHotWalletAddressForShimModal(null); 
+                    onClose={(shouldRefresh) => {
+                        setIsShimApiConfigModalOpen(false);
+                        setHotWalletAddressForShimModal(null);
                         if (shouldRefresh) {
                             fetchGraphData();
                         }
@@ -847,18 +860,18 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                 />
             )}
             {isHistoryModalOpen && selectedWalletForHistory && (
-                <CallHistoryModal 
-                    isOpen={isHistoryModalOpen} 
-                    onClose={handleCloseHistoryModal} 
-                    walletAddress={selectedWalletForHistory} 
+                <CallHistoryModal
+                    isOpen={isHistoryModalOpen}
+                    onClose={handleCloseHistoryModal}
+                    walletAddress={selectedWalletForHistory}
                 />
             )}
             {isAuthorizedClientModalOpen && selectedAuthorizedClient && (
                 <AuthorizedClientConfigModal
                     isOpen={isAuthorizedClientModalOpen}
-                    onClose={(shouldRefresh) => { 
-                        setIsAuthorizedClientModalOpen(false); 
-                        setSelectedAuthorizedClient(null); 
+                    onClose={(shouldRefresh) => {
+                        setIsAuthorizedClientModalOpen(false);
+                        setSelectedAuthorizedClient(null);
                         if (shouldRefresh) {
                             fetchGraphData();
                         }
@@ -866,6 +879,18 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     clientId={selectedAuthorizedClient.clientId}
                     clientName={selectedAuthorizedClient.clientName}
                     hotWalletAddress={selectedAuthorizedClient.hotWalletAddress}
+                    onClientUpdate={() => fetchGraphData()}
+                />
+            )}
+            {isHotWalletSettingsModalOpen && selectedWalletForSettings && (
+                <HotWalletSettingsModal
+                    isOpen={isHotWalletSettingsModalOpen}
+                    onClose={handleCloseHotWalletSettingsModal}
+                    walletData={selectedWalletForSettings}
+                    onWalletUpdate={handleWalletNodeUpdate}
+                    onUnlockWallet={handleUnlockWalletInVisualizer}
+                    onLockWallet={handleLockWalletInVisualizer}
+                    isUnlockingOrLocking={isUnlockingOrLockingWalletId === selectedWalletForSettings.address}
                 />
             )}
         </ReactFlowProvider>

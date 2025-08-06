@@ -1,3 +1,4 @@
+import classNames from 'classnames';
 import React, { useState, useCallback } from 'react';
 
 interface CopyToClipboardTextProps {
@@ -7,11 +8,11 @@ interface CopyToClipboardTextProps {
     className?: string;
 }
 
-const CopyToClipboardText: React.FC<CopyToClipboardTextProps> = ({ 
-    textToCopy, 
-    children, 
-    style = {}, 
-    className = '' 
+const CopyToClipboardText: React.FC<CopyToClipboardTextProps> = ({
+    textToCopy,
+    children,
+    style = {},
+    className = ''
 }) => {
     const [showCheckmark, setShowCheckmark] = useState(false);
     const [isHovering, setIsHovering] = useState(false);
@@ -28,49 +29,27 @@ const CopyToClipboardText: React.FC<CopyToClipboardTextProps> = ({
     }, [textToCopy]);
 
     return (
-        <span 
-            className={`copy-to-clipboard ${className}`}
-            style={{ ...style, cursor: 'pointer', position: 'relative' }} 
+        <span
+            className={classNames(`copy-to-clipboard cursor-pointer relative`, className)}
+            style={{ ...style }}
             onClick={handleCopy}
             onMouseEnter={() => setIsHovering(true)}
             onMouseLeave={() => setIsHovering(false)}
             title={``} // Remove default browser title tooltip
         >
-            {children} 
+            {children}
             {showCheckmark && (
-                <span 
-                    className="copy-checkmark"
-                    style={{
-                        position: 'absolute', 
-                        right: '-1.2em', // Position relative to the text span
-                        top: '50%',
-                        transform: 'translateY(-50%)',
-                        color: 'green',
-                        fontSize: '0.9em'
-                    }}
+                <span
+                    className="copy-checkmark absolute -right-6 top-1/2 -translate-y-1/2 text-green-400"
                 >
                     ✓
                 </span>
             )}
-            {/* Custom Hover Tooltip */} 
             {isHovering && (
-                <span 
-                    className="hover-tooltip"
-                    style={{ 
-                        position: 'absolute',
-                        bottom: '125%', // Position above the text
-                        left: '50%',
-                        transform: 'translateX(-50%)',
-                        backgroundColor: '#333',
-                        color: 'white',
-                        padding: '4px 8px',
-                        borderRadius: '4px',
-                        fontSize: '0.85em',
-                        whiteSpace: 'nowrap',
-                        zIndex: 10 // Ensure it's above other elements
-                    }}
+                <span
+                    className="hover-tooltip absolute bottom-[125%] left-1/2 -translate-x-1/2 bg-dark-gray text-white px-2 py-1 rounded whitespace-nowrap z-10"
                 >
-                    {textToCopy} 
+                    {textToCopy}
                 </span>
             )}
         </span>
