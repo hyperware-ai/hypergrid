@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import Modal from './Modal';
 
 interface SelectionModalProps {
   isOpen: boolean;
@@ -29,22 +30,16 @@ const SelectionModal: React.FC<SelectionModalProps> = ({ isOpen, onClose, title,
     return null;
   }
 
-  const modalContentStyle = maxWidth ? { maxWidth: maxWidth } : {};
-
   return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" style={modalContentStyle} onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          {title && <h2 className="modal-title">{title}</h2>}
-          <button className="modal-close-button" onClick={onClose}>
-            &times;
-          </button>
-        </div>
-        <div className="modal-body">
-          {children}
-        </div>
+    <Modal
+      title={title || "Configuration"}
+      onClose={onClose}
+      preventAccidentalClose={true}
+    >
+      <div style={maxWidth ? { maxWidth } : {}}>
+        {children}
       </div>
-    </div>
+    </Modal>
   );
 };
 

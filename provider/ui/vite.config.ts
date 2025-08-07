@@ -1,5 +1,6 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
+import tailwindcss from '@tailwindcss/vite'
 
 /*
 If you are developing a UI outside of a Hyperware project,
@@ -21,7 +22,7 @@ const PROXY_URL = (process.env.VITE_NODE_URL || 'http://127.0.0.1:8080').replace
 console.log('process.env.VITE_NODE_URL', process.env.VITE_NODE_URL, PROXY_URL);
 
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
   base: BASE_URL,
   build: {
     rollupOptions: {

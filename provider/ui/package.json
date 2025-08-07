@@ -15,9 +15,13 @@
   "dependencies": {
     "@hyperware-ai/client-api": "^0.1.0",
     "@rainbow-me/rainbowkit": "^2.2.8",
+    "@tailwindcss/vite": "^4.1.11",
     "@tanstack/react-query": "^5.83.0",
+    "classnames": "^2.5.1",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "react-icons": "^5.5.0",
+    "tailwindcss": "^4.1.11",
     "viem": "^2.31.7",
     "wagmi": "^2.15.6",
     "zustand": "^4.4.7"

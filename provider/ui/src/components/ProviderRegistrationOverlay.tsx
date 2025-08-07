@@ -1,8 +1,8 @@
 import React from 'react';
 import { type Address } from 'viem';
-import { 
+import {
   ProviderRegistrationStep,
-  getRegistrationStepText 
+  getRegistrationStepText
 } from '../registration/hypermapUtils';
 
 interface ProviderRegistrationOverlayProps {
@@ -36,13 +36,13 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
     // Only trigger auto-close if the overlay is visible AND registration is complete
     if (isVisible && step === 'complete' && mintedProviderAddress) {
       console.log('🎉 Registration complete! TBA:', mintedProviderAddress);
-      
+
       // Auto-close after showing success briefly
       if (onClose) {
         const timer = setTimeout(() => {
           onClose();
         }, 2000); // Show success for 2 seconds then close
-        
+
         return () => clearTimeout(timer);
       }
     }
@@ -54,30 +54,30 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   const hasError = !!(mintError || notesError);
 
   return (
-    <div className="provider-registration-overlay">
-      <div className="provider-registration-content">
-        <h3 className="provider-registration-title">
+    <div className="fixed inset-0 bg-black/90 flex flex-col justify-center items-center z-50 p-5">
+      <div className="bg-gray/95 p-10 rounded-xl shadow-2xl max-w-md w-full text-center">
+        <h3 className="text-white mb-8 text-2xl font-medium">
           Blockchain Registration
         </h3>
-        
+
         {/* Progress Steps */}
-        <div className="provider-registration-steps">
-          <Step 
-            number={1} 
-            label="Mint" 
+        <div className="mb-8 flex justify-center gap-10">
+          <Step
+            number={1}
+            label="Mint"
             isActive={step === 'minting'}
             isComplete={step === 'notes' || step === 'complete'}
           />
-          <Step 
-            number={2} 
-            label="Metadata" 
+          <Step
+            number={2}
+            label="Metadata"
             isActive={step === 'notes'}
             isComplete={step === 'complete'}
           />
         </div>
 
         {/* Status Message */}
-        <div className="provider-registration-status">
+        <div className="text-gray-400 mb-5 text-sm">
           {step === 'minting' && 'Creating provider entry on blockchain...'}
           {step === 'notes' && 'Setting provider metadata...'}
           {step === 'complete' && 'Registration complete!'}
@@ -85,39 +85,39 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 
         {/* Loading Indicator */}
         {isLoading && !hasError && (
-          <div className="provider-registration-loader-container">
-            <div className="provider-registration-loader" />
+          <div className="mb-5">
+            <div className="w-10 h-10 mx-auto border-4 border-gray-600 border-t-green-400 rounded-full animate-spin" />
           </div>
         )}
 
         {/* Success State */}
         {step === 'complete' && mintedProviderAddress && (
-          <div className="provider-registration-success">
-            <div className="provider-registration-success-message">
+          <div className="mt-5">
+            <div className="text-green-400 mb-3 text-lg">
               ✓ Provider registered successfully
             </div>
-            <div className="provider-registration-address">
+            <div className="font-mono text-xs text-gray-500 break-all p-3 bg-white/5 rounded-md mb-4">
               {mintedProviderAddress}
             </div>
             {onClose && (
               <button
                 onClick={onClose}
-                className="provider-registration-continue-btn"
+                className="px-5 py-2 bg-green-400 text-black rounded-md cursor-pointer font-medium text-sm hover:bg-green-300 transition-colors"
               >
                 Continue to Dashboard
               </button>
             )}
           </div>
         )}
-        
+
         {/* Error Display */}
         {hasError && (
-          <div className="provider-registration-error">
+          <div className="text-red-400 mt-5 p-4 bg-red-400/10 rounded-md text-sm">
             {(mintError || notesError)?.message}
           </div>
         )}
       </div>
-      
+
     </div>
   );
 };
@@ -129,14 +129,26 @@ const Step: React.FC<{
   isActive: boolean;
   isComplete: boolean;
 }> = ({ number, label, isActive, isComplete }) => (
-  <div className="registration-step">
-    <div className={`registration-step-circle ${isComplete ? 'complete' : isActive ? 'active' : 'inactive'}`}>
+  <div className="flex flex-col items-center gap-2">
+    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
+      isComplete
+        ? 'bg-green-400 text-white'
+        : isActive
+          ? 'bg-blue-500 text-white'
+          : 'bg-gray-600 text-gray-400'
+    }`}>
       {isComplete ? '✓' : number}
     </div>
-    <span className={`registration-step-label ${isComplete ? 'complete' : isActive ? 'active' : 'inactive'}`}>
+    <span className={`text-xs transition-colors ${
+      isComplete
+        ? 'text-green-400'
+        : isActive
+          ? 'text-white'
+          : 'text-gray-400'
+    }`}>
       {label}
     </span>
   </div>
 );
 
-export default ProviderRegistrationOverlay; 
+export default ProviderRegistrationOverlay;
