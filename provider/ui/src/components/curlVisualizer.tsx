@@ -1,5 +1,6 @@
 import React from 'react';
-import {HttpMethod} from '../types/hypergrid_provider'; // Updated imports
+import { HttpMethod } from '../types/hypergrid_provider'; // Updated imports
+import { FaCopy } from 'react-icons/fa6';
 
 // Reinstating API Patterns
 // REMOVE apiPatterns array
@@ -75,7 +76,7 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
     exampleBody = bodyKeys.reduce((acc, key) => {
       acc[key] = exampleDynamicArgs[key] || `{${key}_value}`;
       return acc;
-    }, {} as {[key: string]: string});
+    }, {} as { [key: string]: string });
   }
 
   // Construct the cURL command
@@ -100,14 +101,19 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   curlCommand += ` \\\n  "${displayUrl}${displayQuery}"`;
 
   return (
-    <div className="api-scaffold-container form-section">
-      <h3>API Structure Preview</h3>
-      <div className="horizontal-scroll">
-        <pre className="api-scaffold-content">
+    <div className="flex self-stretch px-8 py-4 gap-4 bg-white rounded-lg">
+      <h3 className="text-lg font-bold w-1/2 text-right ">API Structure Preview</h3>
+      <div className="overflow-x-auto w-1/2 relative">
+        <pre className="font-mono whitespace-pre-wrap text-sm p-2 bg-gray">
           <code>
             {curlCommand}
           </code>
         </pre>
+        <button className="text-xs absolute top-1 right-1 bg-mid-gray rounded px-2 p-1" onClick={() => {
+          navigator.clipboard.writeText(curlCommand);
+        }}>
+          Copy
+        </button>
       </div>
     </div>
   );

@@ -24,11 +24,19 @@ console.log('process.env.VITE_NODE_URL', process.env.VITE_NODE_URL, PROXY_URL);
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   base: BASE_URL,
+  
   build: {
     rollupOptions: {
-      external: ['/our.js']
-    }
+      output: {
+        inlineDynamicImports: true,
+        manualChunks: undefined,
+        format: "iife",
+        entryFileNames: "bundle.js",
+      },
+      external: ["/our.js"]
+    },
   },
+
   server: {
     open: true,
     proxy: {

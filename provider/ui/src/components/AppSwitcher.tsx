@@ -1,4 +1,5 @@
 import classNames from 'classnames';
+import { FaArrowRightFromBracket } from 'react-icons/fa6';
 import React, { useRef } from 'react';
 
 interface AppSwitcherProps {
@@ -16,13 +17,13 @@ const AppSwitcher: React.FC<AppSwitcherProps> = ({ currentApp = 'operator' }) =>
 
 
     window.location.href = app === 'operator'
-      ? `${window.location.origin}/operator:hypergrid:ware.hypr/`
-      : `${window.location.origin}/provider:hypergrid:ware.hypr/`;
+      ? `${window.location.origin}/operator:hypergrid:grid-beta.hypr/`
+      : `${window.location.origin}/provider:hypergrid:grid-beta.hypr/`;
   };
 
   return (
     <div
-      className="relative mt-auto flex flex-col gap-4 self-center min-w-3/4"
+      className="relative mt-auto flex flex-col gap-4 min-w-3/4 self-center"
       ref={dropdownRef}
     >
       <div className="border-t border-gray-300 w-16 h-4 border-t-2"></div>

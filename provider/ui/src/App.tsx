@@ -1,8 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import HyperwareClientApi from "@hyperware-ai/client-api";
-import { FaPlus, FaBars } from "react-icons/fa6";
+import { FaPlus, FaBars, FaX } from "react-icons/fa6";
 
-// RainbowKit and wagmi imports
 import '@rainbow-me/rainbowkit/styles.css';
 import {
   getDefaultConfig,
@@ -21,19 +20,12 @@ import {
   RegisteredProvider
 } from "./types/hypergrid_provider";
 import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
-import CurlVisualizer from "./components/curlVisualizer";
-import ValidationPanel from "./components/ValidationPanel";
-import SelectionModal from "./components/SelectionModal";
-import APIConfigForm from "./components/APIConfigForm";
-import HypergridEntryForm from "./components/HypergridEntryForm";
+import ProviderConfigModal from "./components/ProviderConfigModal";
 import RegisteredProviderView from './components/RegisteredProviderView';
 import {
-  validateProviderConfig,
-  buildProviderPayload,
-  ProviderFormData,
   processRegistrationResponse,
   populateFormFromProvider,
-  buildUpdateProviderPayload,
+  ProviderFormData,
   processUpdateResponse,
   createSmartUpdatePlan
 } from "./utils/providerFormUtils";
@@ -42,7 +34,6 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { updateProviderApi } from "./utils/api";
 import { useProviderRegistration, useProviderUpdate } from "./registration/hypermapUtils";
 import { lookupProviderTbaAddressFromBackend } from "./registration/hypermap";
-import ProviderRegistrationOverlay from "./components/ProviderRegistrationOverlay";
 import AppSwitcher from "./components/AppSwitcher";
 
 // Import logos
@@ -62,9 +53,6 @@ const WEBSOCKET_URL = import.meta.env.DEV
   ? `${PROXY_TARGET.replace('http', 'ws')}/ws`
   : undefined;
 
-// Define top-level request types
-export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
-export type AuthChoice = "none" | "query" | "header";
 
 // RainbowKit configuration
 const config = getDefaultConfig({
@@ -97,6 +85,8 @@ function AppContent() {
           if (response.Ok) {
             console.log('Provider registered in backend after hypergrid registration success:', response.Ok);
             loadAndSetProviders();
+            resetEditState();
+            handleCloseAddNewModal();
           } else {
             console.error('Failed to register in backend after hypergrid registration success:', feedback.message);
             alert(`Blockchain registration succeeded but backend registration failed: ${feedback.message}`);
@@ -119,7 +109,7 @@ function AppContent() {
         console.log('Provider notes updated successfully on blockchain');
         // Reload providers to reflect changes
         loadAndSetProviders();
-        resetFormFields();
+        resetEditState();
         handleCloseAddNewModal();
         alert('Provider updated successfully!');
       }
@@ -129,40 +119,15 @@ function AppContent() {
     }
   });
 
-  // New Form State
+  // Modal state
   const [showForm, setShowForm] = useState(false);
-  const [apiCallFormatSelected, setApiCallFormatSelected] = useState(false);
-
-  // Validation state
-  const [showValidation, setShowValidation] = useState(false);
-  const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
   const [editingProvider, setEditingProvider] = useState<RegisteredProvider | null>(null);
-
-  // Step 1: Auth & Request Structure
-  const [topLevelRequestType, setTopLevelRequestType] = useState<TopLevelRequestType>("getWithPath");
-  const [authChoice, setAuthChoice] = useState<AuthChoice>("query");
-  const [apiKeyQueryParamName, setApiKeyQueryParamName] = useState("");
-  const [apiKeyHeaderName, setApiKeyHeaderName] = useState("");
-  const [endpointApiParamKey, setEndpointApiKey] = useState(""); // Actual API key value (Moved to Step 1 conceptually)
-
-  // Step 2: Details (some of these were previously Step 3 or derived)
-  const [providerName, setProviderName] = useState("");
-  const [providerDescription, setProviderDescription] = useState("");
-  const [instructions, setInstructions] = useState("");
-  const [registeredProviderWallet, setRegisteredProviderWallet] = useState("");
-  const [endpointBaseUrl, setEndpointBaseUrl] = useState("");
-
-  // Parameter Keys - now arrays
-  const [pathParamKeys, setPathParamKeys] = useState<string[]>([]);
-  const [queryParamKeys, setQueryParamKeys] = useState<string[]>([]);
-  const [headerKeys, setHeaderKeys] = useState<string[]>([]);
-  const [bodyKeys, setBodyKeys] = useState<string[]>([]); // For POST JSON body keys
-  const [price, setPrice] = useState<string>(""); // New state for Price
+  const [isLoadingProviders, setIsLoadingProviders] = useState(false);
 
   // Theme state
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
@@ -213,73 +178,26 @@ function AppContent() {
     setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
   };
 
-  const resetFormFields = () => {
-    setTopLevelRequestType("getWithPath");
-    setAuthChoice("query");
-    setApiKeyQueryParamName("");
-    setApiKeyHeaderName("");
-    setEndpointApiKey("");
-    setApiCallFormatSelected(false);
-
-    setProviderName("");
-    setProviderDescription("");
-    setInstructions("");
-    setEndpointBaseUrl("");
-    setPathParamKeys([]);
-    setQueryParamKeys([]);
-    setHeaderKeys([]);
-    setBodyKeys([]);
-    setRegisteredProviderWallet("");
-    setPrice("");
-
-    // Reset validation state
-    setShowValidation(false);
-    setProviderToValidate(null);
-
-    // Reset edit mode state
+  const resetEditState = () => {
     setIsEditMode(false);
     setEditingProvider(null);
   };
 
-  const populateFormWithProvider = (provider: RegisteredProvider) => {
-    const formData = populateFormFromProvider(provider);
-
-    setTopLevelRequestType(formData.topLevelRequestType || "getWithPath");
-    setAuthChoice(formData.authChoice || "query");
-    setApiKeyQueryParamName(formData.apiKeyQueryParamName || "");
-    setApiKeyHeaderName(formData.apiKeyHeaderName || "");
-    setEndpointApiKey(formData.endpointApiParamKey || "");
-    setApiCallFormatSelected(true);
-
-    setProviderName(formData.providerName || "");
-    setProviderDescription(formData.providerDescription || "");
-    setInstructions(formData.instructions || "");
-    setEndpointBaseUrl(formData.endpointBaseUrl || "");
-    setPathParamKeys(formData.pathParamKeys || []);
-    setQueryParamKeys(formData.queryParamKeys || []);
-    setHeaderKeys(formData.headerKeys || []);
-    setBodyKeys(formData.bodyKeys || []);
-    setRegisteredProviderWallet(formData.registeredProviderWallet || "");
-    setPrice(formData.price || "");
-  };
 
   const handleOpenAddNewModal = () => {
-    // Don't reset form fields here - preserve state for better UX
-    // Only reset when starting fresh (not when re-opening)
-    // If we're transitioning from edit mode to add mode, reset the form
     if (isEditMode) {
-      resetFormFields();
+      resetEditState();
     }
     setShowForm(true);
   };
 
   const handleCloseAddNewModal = () => {
     setShowForm(false);
-    setShowValidation(false);
-    setProviderToValidate(null);
+    resetEditState();
   };
 
   const loadAndSetProviders = useCallback(async () => {
+    setIsLoadingProviders(true);
     try {
       const providers = await fetchRegisteredProvidersApi();
       setRegisteredProviders(providers);
@@ -288,6 +206,8 @@ function AppContent() {
       console.error("Failed to load registered providers in App:", error);
       setRegisteredProviders([]);
       // alert(`Error fetching providers: ${(error as Error).message}`);
+    } finally {
+      setTimeout(() => setIsLoadingProviders(false), 1000);
     }
   }, [setRegisteredProviders]);
 
@@ -327,158 +247,93 @@ function AppContent() {
   const handleEditProvider = useCallback((provider: RegisteredProvider) => {
     setEditingProvider(provider);
     setIsEditMode(true);
-    populateFormWithProvider(provider);
     setShowForm(true);
   }, []);
 
-  const handleProviderRegistration = useCallback(async () => {
-    // Consolidate form data into an object matching ProviderFormData
-    const formData: ProviderFormData = {
-      providerName,
-      providerDescription,
-      providerId: isEditMode ? editingProvider?.provider_id || "" : (window.our?.node || ""), // Use node ID for new providers
-      instructions, // Add instructions field
-      registeredProviderWallet,
-      price,
-      topLevelRequestType,
-      endpointBaseUrl,
-      pathParamKeys,
-      queryParamKeys,
-      headerKeys,
-      bodyKeys,
-      endpointApiParamKey,
-      authChoice,
-      apiKeyQueryParamName,
-      apiKeyHeaderName,
-    };
+  const handleProviderRegistration = useCallback(async (provider: RegisteredProvider) => {
+    console.log("Starting registration for provider:", provider);
 
-    // Validate using the utility function
-    const validationResult = validateProviderConfig(formData);
-    if (!validationResult.isValid) {
-      alert(validationResult.error); // Display error from validation util
-      return;
-    }
-
-    // Check if wallet is connected for new registrations
-    if (!isEditMode && !isWalletConnected) {
-      alert('Please connect your wallet to register on the hypergrid');
-      return;
-    }
-
-    if (isEditMode && editingProvider) {
-      // Smart update system - handles both on-chain and off-chain updates automatically
-      try {
-        const updatePlan = createSmartUpdatePlan(editingProvider, formData);
-
-        // Warn about instructions if config changed but instructions weren't updated
-        if (updatePlan.shouldWarnAboutInstructions) {
-          const confirmUpdate = confirm(
-            'You\'ve made changes to the API configuration but haven\'t updated the instructions. ' +
-            'This might create a mismatch between your actual API and the instructions users see. ' +
-            'Do you want to continue with the update anyway?'
-          );
-          if (!confirmUpdate) {
-            return; // User cancelled the update
-          }
-        }
-
-        // Check if wallet is needed for on-chain updates
-        if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
-          alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
-          return;
-        }
-
-        console.log('Update plan:', updatePlan);
-
-        // Step 1: Update off-chain data (backend) if needed
-        if (updatePlan.needsOffChainUpdate) {
-          console.log('Updating off-chain data...');
-          const response = await updateProviderApi(editingProvider.provider_name, updatePlan.updatedProvider);
-          const feedback = processUpdateResponse(response);
-
-          if (!response.Ok) {
-            alert(feedback.message);
-            return;
-          }
-
-          // Update local state
-          handleProviderUpdated(response.Ok);
-        }
-
-        // Step 2: Update on-chain data (blockchain notes) if needed
-        if (updatePlan.needsOnChainUpdate) {
-          console.log('Updating on-chain notes...', updatePlan.onChainNotes);
-
-          try {
-            // Look up the actual TBA address for this provider from backend
-            const tbaAddress = await lookupProviderTbaAddressFromBackend(editingProvider.provider_name, publicClient);
-
-            if (!tbaAddress) {
-              alert(`No blockchain entry found for provider "${editingProvider.provider_name}". Please register on the hypergrid first.`);
-              return;
-            }
-
-            console.log(`Found TBA address: ${tbaAddress} for provider: ${editingProvider.provider_name}`);
-
-            // Execute the blockchain update
-            await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
-
-            // Success will be handled by the providerUpdate.onUpdateComplete callback
-          } catch (error) {
-            console.error('Error during blockchain update:', error);
-            alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
-          }
-        } else {
-          // Only off-chain updates needed
-          resetFormFields();
-          handleCloseAddNewModal();
-          alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
-        }
-      } catch (err) {
-        console.error('Failed to update provider: ', err);
-        alert('Failed to update provider.');
-      }
-    } else {
-      // Handle registration for new provider
-      const payload = buildProviderPayload(formData);
-      const providerToValidate = payload.RegisterProvider;
-
-      // Move to validation step instead of directly registering
-      setProviderToValidate(providerToValidate);
-      setShowValidation(true);
-    }
-  }, [
-    providerName, providerDescription, instructions, topLevelRequestType,
-    endpointBaseUrl, pathParamKeys, queryParamKeys, headerKeys, bodyKeys,
-    endpointApiParamKey, authChoice, apiKeyQueryParamName, apiKeyHeaderName,
-    registeredProviderWallet, price, isEditMode, editingProvider, handleProviderUpdated,
-    isWalletConnected
-  ]);
-
-  const handleValidationSuccess = useCallback(async (providerToRegister: RegisteredProvider) => {
-    console.log("Starting registration for provider:", providerToRegister);
-
-    // Start hypergrid registration if wallet is connected
     if (isWalletConnected) {
-      providerRegistration.startRegistration(providerToRegister);
+      providerRegistration.startRegistration(provider);
     } else {
-      // No wallet connected - show message and don't proceed
       alert('Please connect your wallet to complete provider registration on the hypergrid.');
-      // Reset back to config form so user can connect wallet and try again
-      setShowValidation(false);
-      setProviderToValidate(null);
     }
   }, [isWalletConnected, providerRegistration]);
 
-  const handleValidationError = useCallback((error: string) => {
-    console.error("Validation failed:", error);
-    alert(`Validation failed: ${error}`);
-  }, []);
+  const handleProviderUpdate = useCallback(async (provider: RegisteredProvider, formData: ProviderFormData) => {
+    // This will handle the smart update system
+    try {
+      const updatePlan = createSmartUpdatePlan(provider, formData);
 
-  const handleValidationCancel = useCallback(() => {
-    setShowValidation(false);
-    setProviderToValidate(null);
-  }, []);
+      // Warn about instructions if config changed but instructions weren't updated
+      if (updatePlan.shouldWarnAboutInstructions) {
+        const confirmUpdate = confirm(
+          'You\'ve made changes to the API configuration but haven\'t updated the instructions. ' +
+          'This might create a mismatch between your actual API and the instructions users see. ' +
+          'Do you want to continue with the update anyway?'
+        );
+        if (!confirmUpdate) {
+          return;
+        }
+      }
+
+      // Check if wallet is needed for on-chain updates
+      if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
+        alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
+        return;
+      }
+
+      console.log('Update plan:', updatePlan);
+
+      // Step 1: Update off-chain data (backend) if needed
+      if (updatePlan.needsOffChainUpdate) {
+        console.log('Updating off-chain data...');
+        const response = await updateProviderApi(provider.provider_name, updatePlan.updatedProvider);
+        const feedback = processUpdateResponse(response);
+
+        if (!response.Ok) {
+          alert(feedback.message);
+          return;
+        }
+
+        // Update local state
+        handleProviderUpdated(response.Ok);
+      }
+
+      // Step 2: Update on-chain data (blockchain notes) if needed
+      if (updatePlan.needsOnChainUpdate) {
+        console.log('Updating on-chain notes...', updatePlan.onChainNotes);
+
+        try {
+          // Look up the actual TBA address for this provider from backend
+          const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
+
+          if (!tbaAddress) {
+            alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
+            return;
+          }
+
+          console.log(`Found TBA address: ${tbaAddress} for provider: ${provider.provider_name}`);
+
+          // Execute the blockchain update
+          await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
+
+          // Success will be handled by the providerUpdate.onUpdateComplete callback
+        } catch (error) {
+          console.error('Error during blockchain update:', error);
+          alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
+        }
+      } else {
+        // Only off-chain updates needed
+        resetEditState();
+        handleCloseAddNewModal();
+        alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
+      }
+    } catch (err) {
+      console.error('Failed to update provider: ', err);
+      alert('Failed to update provider.');
+    }
+  }, [isWalletConnected, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal]);
 
 
 
@@ -520,11 +375,11 @@ function AppContent() {
       <main className="pt-20 pb-24 px-8 md:pb-8 flex flex-col grow self-stretch overflow-y-auto">
 
         <div className="flex items-center gap-3 absolute top-4 right-4 z-10">
-          <div className={classNames("flex items-center gap-2 rounded-xl px-4 py-2", {
+          <div className={classNames(" shadow-xl  flex items-center gap-2 rounded-xl px-4 py-2", {
             'bg-red-500 text-white': !nodeConnected,
-            'bg-dark-gray/25': nodeConnected
+            'bg-black text-cyan': nodeConnected
           })}>
-            <span className="font-bold">
+            <span className="font-bold ">
               {nodeConnected ? window.our?.node || "N/A" : "Node not connected"}
             </span>
           </div>
@@ -552,7 +407,10 @@ function AppContent() {
             className="px-6 py-3 bg-mid-gray/25 !rounded-full ml-auto mt-auto font-bold"
           >
             <span>Refresh list</span>
-            <BsArrowClockwise className="text-2xl" />
+            <BsArrowClockwise className={classNames("text-2xl", {
+              'animate-spin': isLoadingProviders
+            })}
+            />
           </button>
         </div>
 
@@ -560,7 +418,7 @@ function AppContent() {
 
           <button
             onClick={handleOpenAddNewModal}
-            className="px-6 py-3 !rounded-full bg-mid-gray font-bold"
+            className="px-6 py-3 !rounded-full bg-mid-gray font-bold animate-pulse"
           >
             <span>Add new provider</span>
             <FiPlusCircle className="text-2xl" />
@@ -599,7 +457,7 @@ function AppContent() {
                   className="p-2 text-gray-400 hover:text-gray-600"
                   onClick={() => setMobileMenuOpen(false)}
                 >
-                  ✕
+                  <FaX />
                 </button>
               </div>
               <div className="p-4 space-y-4">
@@ -640,123 +498,17 @@ function AppContent() {
           </div>
         )}
 
-        <SelectionModal
+        <ProviderConfigModal
           isOpen={showForm}
           onClose={handleCloseAddNewModal}
-          title={showValidation ? "Validate Provider Configuration" : (isEditMode ? "Edit API Provider" : "Configure New API Provider")}
-          maxWidth={showValidation ? "min(500px, 95vw)" : "min(1200px, 95vw)"}
-        >
-          <div className="relative">
-            {showValidation && providerToValidate ? (
-              <ValidationPanel
-                provider={providerToValidate}
-                onValidationSuccess={handleValidationSuccess}
-                onValidationError={handleValidationError}
-                onCancel={handleValidationCancel}
-              />
-            ) : (
-              <>
-                <div className="grid grid-cols-1  gap-6">
-                  <div className="space-y-6">
-                    <HypergridEntryForm
-                      nodeId={window.our?.node || "N/A"}
-                      providerName={providerName}
-                      setProviderName={setProviderName}
-                      providerDescription={providerDescription}
-                      setProviderDescription={setProviderDescription}
-                      instructions={instructions}
-                      setInstructions={setInstructions}
-                      registeredProviderWallet={registeredProviderWallet}
-                      setRegisteredProviderWallet={setRegisteredProviderWallet}
-                      price={price}
-                      setPrice={setPrice}
-                    />
-                    <CurlVisualizer
-                      providerName={providerName}
-                      endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
-                      endpointBaseUrl={endpointBaseUrl}
-                      pathParamKeys={pathParamKeys}
-                      queryParamKeys={queryParamKeys}
-                      headerKeys={headerKeys}
-                      bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
-                      apiKey={endpointApiParamKey}
-                      apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
-                      apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
-                    />
-                  </div>
-
-                  <div className="flex flex-col">
-                    <APIConfigForm
-                      topLevelRequestType={topLevelRequestType}
-                      setTopLevelRequestType={setTopLevelRequestType}
-                      authChoice={authChoice}
-                      setAuthChoice={setAuthChoice}
-                      apiKeyQueryParamName={apiKeyQueryParamName}
-                      setApiKeyQueryParamName={setApiKeyQueryParamName}
-                      apiKeyHeaderName={apiKeyHeaderName}
-                      setApiKeyHeaderName={setApiKeyHeaderName}
-                      endpointApiParamKey={endpointApiParamKey}
-                      setEndpointApiKey={setEndpointApiKey}
-                      endpointBaseUrl={endpointBaseUrl}
-                      setEndpointBaseUrl={setEndpointBaseUrl}
-                      pathParamKeys={pathParamKeys}
-                      setPathParamKeys={setPathParamKeys}
-                      queryParamKeys={queryParamKeys}
-                      setQueryParamKeys={setQueryParamKeys}
-                      headerKeys={headerKeys}
-                      setHeaderKeys={setHeaderKeys}
-                      bodyKeys={bodyKeys}
-                      setBodyKeys={setBodyKeys}
-                      apiCallFormatSelected={apiCallFormatSelected}
-                      setApiCallFormatSelected={setApiCallFormatSelected}
-                      onRegisterProvider={handleProviderRegistration}
-                      submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
-                      isWalletConnected={isWalletConnected}
-                    />
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Hypergrid Registration Progress Overlay - Outside conditional so it persists */}
-            <ProviderRegistrationOverlay
-              isVisible={providerRegistration.isRegistering}
-              step={providerRegistration.step}
-              currentNoteIndex={providerRegistration.currentNoteIndex}
-              mintedProviderAddress={providerRegistration.mintedProviderAddress}
-              isMinting={providerRegistration.isMinting}
-              isSettingNotes={providerRegistration.isSettingNotes}
-              isMintTxLoading={providerRegistration.isMintTxLoading}
-              isNotesTxLoading={providerRegistration.isNotesTxLoading}
-              mintError={providerRegistration.mintError}
-              notesError={providerRegistration.notesError}
-              onClose={() => {
-                // Close validation panel when registration overlay closes
-                setShowValidation(false);
-                setProviderToValidate(null);
-                resetFormFields();
-                handleCloseAddNewModal();
-              }}
-            />
-
-            {/* Simple Provider Update Progress Overlay */}
-            {providerUpdate.isUpdating && (
-              <div className="fixed inset-0 bg-black/90 flex flex-col justify-center items-center z-50 p-5">
-                <div className="bg-gray/95 p-10 rounded-xl shadow-2xl max-w-md w-full text-center">
-                  <h3 className="text-white mb-8 text-2xl font-medium">
-                    Updating Provider
-                  </h3>
-                  <div className="text-gray-400 mb-5 text-sm">
-                    Updating provider metadata on blockchain...
-                  </div>
-                  <div className="mb-5">
-                    <div className="w-10 h-10 mx-auto border-4 border-gray-600 border-t-green-400 rounded-full animate-spin" />
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </SelectionModal>
+          isEditMode={isEditMode}
+          editingProvider={editingProvider}
+          isWalletConnected={isWalletConnected}
+          onProviderRegistration={handleProviderRegistration}
+          onProviderUpdate={handleProviderUpdate}
+          providerRegistration={providerRegistration}
+          providerUpdate={providerUpdate}
+        />
       </main>
     </div>
   );

@@ -4,6 +4,7 @@ import {
   ProviderRegistrationStep,
   getRegistrationStepText
 } from '../registration/hypermapUtils';
+import { ImSpinner8 } from 'react-icons/im';
 
 interface ProviderRegistrationOverlayProps {
   isVisible: boolean;
@@ -54,14 +55,14 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   const hasError = !!(mintError || notesError);
 
   return (
-    <div className="fixed inset-0 bg-black/90 flex flex-col justify-center items-center z-50 p-5">
-      <div className="bg-gray/95 p-10 rounded-xl shadow-2xl max-w-md w-full text-center">
-        <h3 className="text-white mb-8 text-2xl font-medium">
+    <div className="fixed inset-0 bg-white flex flex-col justify-center items-center z-50 p-5">
+      <div className="bg-gray p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-4">
+        <h3 className="text-2xl font-bold">
           Blockchain Registration
         </h3>
 
         {/* Progress Steps */}
-        <div className="mb-8 flex justify-center gap-10">
+        <div className="flex justify-center gap-10">
           <Step
             number={1}
             label="Mint"
@@ -77,7 +78,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
         </div>
 
         {/* Status Message */}
-        <div className="text-gray-400 mb-5 text-sm">
+        <div className="text-sm">
           {step === 'minting' && 'Creating provider entry on blockchain...'}
           {step === 'notes' && 'Setting provider metadata...'}
           {step === 'complete' && 'Registration complete!'}
@@ -85,24 +86,22 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 
         {/* Loading Indicator */}
         {isLoading && !hasError && (
-          <div className="mb-5">
-            <div className="w-10 h-10 mx-auto border-4 border-gray-600 border-t-green-400 rounded-full animate-spin" />
-          </div>
+          <ImSpinner8 className="animate-spin" />
         )}
 
         {/* Success State */}
         {step === 'complete' && mintedProviderAddress && (
-          <div className="mt-5">
-            <div className="text-green-400 mb-3 text-lg">
+          <div className="flex flex-col gap-2">
+            <div className="text-green-400 text-lg">
               ✓ Provider registered successfully
             </div>
-            <div className="font-mono text-xs text-gray-500 break-all p-3 bg-white/5 rounded-md mb-4">
+            <div className="font-mono text-xs break-all p-3 bg-white/5 rounded-md">
               {mintedProviderAddress}
             </div>
             {onClose && (
               <button
                 onClick={onClose}
-                className="px-5 py-2 bg-green-400 text-black rounded-md cursor-pointer font-medium text-sm hover:bg-green-300 transition-colors"
+                className="px-5 py-2 bg-black text-cyan"
               >
                 Continue to Dashboard
               </button>
@@ -112,7 +111,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 
         {/* Error Display */}
         {hasError && (
-          <div className="text-red-400 mt-5 p-4 bg-red-400/10 rounded-md text-sm">
+          <div className="text-red-400 p-4 bg-red-400/10 rounded-md text-sm">
             {(mintError || notesError)?.message}
           </div>
         )}
@@ -130,22 +129,20 @@ const Step: React.FC<{
   isComplete: boolean;
 }> = ({ number, label, isActive, isComplete }) => (
   <div className="flex flex-col items-center gap-2">
-    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${
-      isComplete
+    <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold transition-all ${isComplete
         ? 'bg-green-400 text-white'
         : isActive
           ? 'bg-blue-500 text-white'
           : 'bg-gray-600 text-gray-400'
-    }`}>
+      }`}>
       {isComplete ? '✓' : number}
     </div>
-    <span className={`text-xs transition-colors ${
-      isComplete
+    <span className={`text-xs transition-colors ${isComplete
         ? 'text-green-400'
         : isActive
           ? 'text-white'
           : 'text-gray-400'
-    }`}>
+      }`}>
       {label}
     </span>
   </div>
