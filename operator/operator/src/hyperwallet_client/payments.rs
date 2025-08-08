@@ -140,9 +140,21 @@ pub fn execute_payment(
     };
 
     // Step 4: Submit UserOperation using new API
+    let signed_user_op_value = match serde_json::from_str(&build_response.signed_user_operation) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("Failed to parse signed user operation: {}", e);
+            return Some(PaymentAttemptResult::Failed {
+                error: format!("Parse signed user op failed: {}", e),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
+        }
+    };
+    
     let user_op_hash = match hyperwallet_client::submit_user_operation(
         &session.session_id,
-        build_response.signed_user_operation,
+        signed_user_op_value,
         &build_response.entry_point,
         None,
     ) {
@@ -166,13 +178,13 @@ pub fn execute_payment(
         &user_op_hash,
     ) {
         Ok(receipt_response) => {
-            // Extract tx_hash from typed response
+            // Extract tx_hash from typed response (receipt is a JSON string)
             let tx_hash = receipt_response
                 .receipt
                 .as_ref()
-                .and_then(|r| r.get("transactionHash"))
-                .and_then(|h| h.as_str())
-                .map(String::from)
+                .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
+                .and_then(|val| val.get("transactionHash").cloned())
+                .and_then(|h| h.as_str().map(String::from))
                 .unwrap_or(user_op_hash.clone()); // Fallback to userOp hash
                 
             info!("Payment receipt received: tx_hash = {}", tx_hash);

@@ -84,7 +84,7 @@ pub fn generate_initial_wallet(state: &mut State) -> Result<String, String> {
     let wallet = hyperwallet_client::create_wallet(
         &session.session_id,
         None,
-        None, // No password
+        None,
     ).map_err(convert_error)?;
     
     info!("Hyperwallet created wallet: {}", wallet.address);
@@ -106,11 +106,14 @@ pub fn import_new_wallet(
         if password.is_some() { "provided" } else { "none - will store unencrypted" });
     
     let session = get_session_from_state(state)?;
+    let sanitized_password = password
+        .as_deref()
+        .filter(|p| !p.trim().is_empty());
     let wallet = hyperwallet_client::import_wallet(
         &session.session_id,
         &name.unwrap_or_else(|| "imported-wallet".to_string()),
         &private_key,
-        password.as_deref(),
+        sanitized_password,
     ).map_err(convert_error)?;
     
     info!("Hyperwallet imported wallet: {}", wallet.address);

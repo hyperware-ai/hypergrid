@@ -18,7 +18,7 @@ use hyperware_process_lib::{await_message, call_init, Address, Message};
 use hyperware_process_lib::sqlite::Sqlite;
 // Import the new hyperwallet client library with alias to avoid naming conflict
 use hyperware_process_lib::hyperwallet_client as hw_lib;
-use hw_lib::{initialize, HandshakeConfig, Operation};
+use hw_lib::{initialize, HandshakeConfig, Operation, SpendingLimits};
 use structs::*;
 
 //use crate::wallet::{service as wallet_service};
@@ -79,6 +79,17 @@ fn init(our: Address) {
     }
 
     // Initialize hyperwallet connection using new handshake protocol
+    // Set up default spending limits for the operator
+    let default_limits = SpendingLimits {
+        per_tx_eth: Some("1.0".to_string()),      // 1 ETH per transaction
+        daily_eth: Some("10.0".to_string()),      // 10 ETH daily limit
+        per_tx_usdc: Some("100.0".to_string()), // 100 USDC per transaction  
+        daily_usdc: Some("1000.0".to_string()), // 1000 USDC daily limit
+        daily_reset_at: 0,                        // Will be set by hyperwallet
+        spent_today_eth: "0".to_string(),         // Will be tracked by hyperwallet
+        spent_today_usdc: "0".to_string(),        // Will be tracked by hyperwallet
+    };
+
     let config = HandshakeConfig::new()
         .with_operations(&[
             Operation::CreateWallet,
@@ -108,6 +119,7 @@ fn init(our: Address) {
             Operation::GetUserOperationReceipt,
             Operation::ConfigurePaymaster,
         ])
+        .with_spending_limits(default_limits)
         .with_name("hypergrid-operator");
 
     match initialize(config) {
@@ -118,7 +130,7 @@ fn init(our: Address) {
         Err(e) => {
             error!("FATAL: Hyperwallet initialization failed: {:?}", e);
             error!("The operator requires hyperwallet service to be running and accessible.");
-            error!("Please ensure hyperwallet:hyperwallet:hallman.hypr is installed and running.");
+            error!("Please ensure hyperwallet:hyperwallet:sys is installed and running.");
             panic!("Hyperwallet initialization failed - operator cannot function without it");
         }
     }

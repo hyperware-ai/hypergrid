@@ -55,6 +55,7 @@ import OriginalOwnerNodeComponent from './nodes/OwnerNodeComponent';
 import OriginalHotWalletNodeComponent from './nodes/HotWalletNodeComponent';
 import AddHotWalletActionNodeComponent from './nodes/AddHotWalletActionNodeComponent';
 import { useErrorLogStore } from '../store/errorLog';
+import { callApiWithRouting } from '../utils/api-endpoints';
 
 const getApiBasePath = () => {
     const pathParts = window.location.pathname.split('/').filter(p => p);
@@ -214,19 +215,9 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         },
     });
 
-    const callMcpApiFromVisualizer = useCallback(async (mcpPayload: any) => {
-        const apiBasePath = getApiBasePath(); // Ensure getApiBasePath is available or define it
-        const mcpEndpoint = `${apiBasePath}/mcp`;
-        const response = await fetch(mcpEndpoint, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(mcpPayload),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.error || `API Error: ${response.status}`);
-        }
-        return data;
+    // Centralized routing: only MCP ops will go to /api/mcp; others to /api/actions
+    const callApiRouted = useCallback(async (payload: any) => {
+        return callApiWithRouting(payload);
     }, []);
 
     const onSetNoteSuccess = useCallback((data: any) => {
@@ -733,8 +724,8 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         // Note: passwordInput can be empty for unencrypted wallets
         setIsUnlockingOrLockingWalletId(walletAddress as string);
         try {
-            await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
-            await callMcpApiFromVisualizer({ ActivateWallet: { password: passwordInput || null } });
+            await callApiRouted({ SelectWallet: { wallet_id: walletAddress } });
+            await callApiRouted({ ActivateWallet: { password: passwordInput || '' } });
             showToast('success', 'Wallet activated successfully!');
             fetchGraphData();
         } catch (err: any) {
@@ -743,13 +734,13 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         } finally {
             setIsUnlockingOrLockingWalletId(null);
         }
-    }, [fetchGraphData, callMcpApiFromVisualizer, showToast]);
+    }, [fetchGraphData, callApiRouted, showToast]);
 
     const handleLockWalletInVisualizer = useCallback(async (walletAddress: Address) => {
         setIsUnlockingOrLockingWalletId(walletAddress as string);
         try {
-            await callMcpApiFromVisualizer({ SelectWallet: { wallet_id: walletAddress } });
-            await callMcpApiFromVisualizer({ DeactivateWallet: {} });
+            await callApiRouted({ SelectWallet: { wallet_id: walletAddress } });
+            await callApiRouted({ DeactivateWallet: {} });
             showToast('success', 'Wallet locked successfully!');
             fetchGraphData();
         } catch (err: any) {
@@ -758,7 +749,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         } finally {
             setIsUnlockingOrLockingWalletId(null);
         }
-    }, [fetchGraphData, callMcpApiFromVisualizer, showToast]);
+    }, [fetchGraphData, callApiRouted, showToast]);
 
     const handleRevokePaymaster = useCallback(async (operatorTbaAddress: Address) => {
         if (!operatorTbaAddress) {
