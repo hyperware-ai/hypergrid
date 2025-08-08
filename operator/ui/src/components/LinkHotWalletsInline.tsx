@@ -6,6 +6,7 @@ import { truncate } from '../utils/truncate';
 import { FaPlus } from 'react-icons/fa6';
 import { FiCheck, FiCheckCircle, FiCircle, FiPlusCircle } from 'react-icons/fi';
 import classNames from 'classnames';
+import { callApiWithRouting } from '../utils/api-endpoints';
 
 // API Base Path Helper
 const getApiBasePath = () => {
@@ -104,19 +105,8 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         }
     }, [isConfirmed, transactionHash, onWalletsLinked]);
 
-    // Helper function for API calls
-    const callMcpApi = async (body: any) => {
-        const response = await fetch(MCP_ENDPOINT, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body),
-        });
-        const data = await response.json();
-        if (!response.ok) {
-            throw new Error(data.error || `API Error: ${response.status}`);
-        }
-        return data;
-    };
+    // Use centralized router for API calls; only MCP ops should hit /mcp
+    const callApi = async (body: any) => callApiWithRouting(body);
 
     // Fetch linked wallets (both managed and on-chain)
     const fetchWallets = useCallback(async () => {
@@ -187,7 +177,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
         setError(null);
         try {
             const requestBody = { GenerateWallet: {} };
-            await callMcpApi(requestBody);
+            await callApi(requestBody);
             await fetchWallets(); // Refresh wallet list
             setError(null);
         } catch (err: any) {
@@ -209,11 +199,12 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             const requestBody = {
                 ImportWallet: {
                     private_key: privateKeyToImport,
-                    password: null,  // No password for imported wallets
-                    name: walletNameToImport.trim() === '' ? null : walletNameToImport.trim()
+                    // Avoid null strings; send empty string or omit
+                    password: '',
+                    name: walletNameToImport.trim() === '' ? undefined : walletNameToImport.trim()
                 }
             };
-            await callMcpApi(requestBody);
+            await callApi(requestBody);
             setShowImportForm(false);
             setPrivateKeyToImport('');
             setWalletNameToImport('');

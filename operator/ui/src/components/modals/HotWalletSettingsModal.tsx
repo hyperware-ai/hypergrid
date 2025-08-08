@@ -6,6 +6,7 @@ import { truncate } from '../../utils/truncate';
 import { useErrorLogStore } from '../../store/errorLog';
 import { toast } from 'react-toastify';
 import Modal from './Modal';
+import { callApiWithRouting } from '../../utils/api-endpoints';
 import { HiLockClosed, HiLockOpen } from 'react-icons/hi';
 import { BsFillLockFill, BsUnlockFill } from 'react-icons/bs';
 
@@ -22,26 +23,8 @@ interface HotWalletSettingsModalProps {
 }
 
 
-// Define getApiBasePath and callMcpApi locally 
-const getApiBasePath = () => {
-    const pathParts = window.location.pathname.split('/').filter(p => p);
-    const processIdPart = pathParts.find(part => part.includes(':'));
-    return processIdPart ? `/${processIdPart}/api` : '/api';
-};
-const MCP_ENDPOINT = `${getApiBasePath()}/mcp`;
-
-const callMcpApi = async (endpoint: string, body: any) => {
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-        throw new Error(data.error || `API Error: ${response.statusText}`);
-    }
-    return data;
-};
+// Use centralized router for API calls
+const callApi = async (body: any) => callApiWithRouting(body);
 
 
 const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
@@ -117,8 +100,8 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         if (!walletData) return;
         setIsActionLoading(true);
         try {
-            await callMcpApi(MCP_ENDPOINT, { SelectWallet: { wallet_id: walletData.address } });
-            await callMcpApi(MCP_ENDPOINT, actionPayload);
+            await callApi({ SelectWallet: { wallet_id: walletData.address } });
+            await callApi(actionPayload);
             handleSuccess(successMessage, successCallback);
         } catch (err: any) {
             handleError(err, actionNameForContext);
@@ -136,7 +119,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         setIsActionLoading(true);
         try {
             const requestBody = { RenameWallet: { wallet_id: walletData.address, new_name: editedName.trim() } };
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApi(requestBody);
             handleSuccess(`Wallet renamed to "${editedName.trim()}".`, () => {
                 setCurrentName(editedName.trim());
                 setIsEditingName(false);

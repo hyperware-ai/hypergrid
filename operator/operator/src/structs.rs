@@ -329,6 +329,7 @@ pub enum ApiRequest {
     },
     
     // Authorized client management
+    RenameAuthorizedClient { client_id: String, new_name: String },
     DeleteAuthorizedClient { client_id: String },
     
     // ERC-4337 configuration

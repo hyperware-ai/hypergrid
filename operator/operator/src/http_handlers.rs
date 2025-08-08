@@ -318,7 +318,8 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 ApiRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => handle_withdraw_usdc(state, to_address, amount_usdc_units_str),
                 
                 // Authorized client management
-                ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
+        ApiRequest::RenameAuthorizedClient { client_id, new_name } => handle_rename_authorized_client(state, client_id, new_name),
+        ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
                 
                 // ERC-4337 configuration
                 ApiRequest::SetGaslessEnabled { enabled } => handle_set_gasless_enabled(state, enabled),
@@ -1654,6 +1655,24 @@ fn handle_delete_authorized_client(state: &mut State, client_id: String) -> anyh
             "success": false, 
             "error": "Client not found" 
         }))
+    }
+}
+
+fn handle_rename_authorized_client(state: &mut State, client_id: String, new_name: String) -> anyhow::Result<()> {
+    info!("Renaming authorized client {} to '{}'", client_id, new_name);
+
+    match state.authorized_clients.get_mut(&client_id) {
+        Some(client) => {
+            client.name = new_name;
+            state.save();
+            send_json_response(StatusCode::OK, &json!({ "success": true }))
+        }
+        None => {
+            send_json_response(StatusCode::NOT_FOUND, &json!({
+                "success": false,
+                "error": "Client not found"
+            }))
+        }
     }
 }
 
