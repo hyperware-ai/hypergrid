@@ -7,8 +7,7 @@ import { useErrorLogStore } from '../../store/errorLog';
 import { toast } from 'react-toastify';
 import Modal from './Modal';
 import { callApiWithRouting } from '../../utils/api-endpoints';
-import { HiLockClosed, HiLockOpen } from 'react-icons/hi';
-import { BsFillLockFill, BsUnlockFill } from 'react-icons/bs';
+// lock icons removed
 
 interface HotWalletSettingsModalProps {
     isOpen: boolean;
@@ -16,10 +15,6 @@ interface HotWalletSettingsModalProps {
     walletData: IHotWalletNodeData | null;
     // Callback to inform parent that an update happened so graph can be refreshed
     onWalletUpdate: (walletAddress: Address) => void;
-    // Unlock/lock wallet functionality
-    onUnlockWallet: (walletAddress: Address, passwordInput: string) => Promise<void>;
-    onLockWallet: (walletAddress: Address) => Promise<void>;
-    isUnlockingOrLocking?: boolean;
 }
 
 
@@ -32,12 +27,10 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     onClose,
     walletData,
     onWalletUpdate,
-    onUnlockWallet,
-    onLockWallet,
-    isUnlockingOrLocking,
 }) => {
     const { showToast } = useErrorLogStore();
     const [limitPerCall, setLimitPerCall] = useState<string>('');
+    const [limitTotal, setLimitTotal] = useState<string>('');
     // const [limitCurrency, setLimitCurrency] = useState<string>('USDC'); // Currency is now fixed
 
     const [editedName, setEditedName] = useState<string>('');
@@ -48,25 +41,19 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     const [currentLimits, setCurrentLimits] = useState<SpendingLimits | null>(null);
     const [currentName, setCurrentName] = useState<string | null>(null);
     const [isEncrypted, setIsEncrypted] = useState<boolean>(false);
-    const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
     const nameInputRef = useRef<HTMLInputElement>(null); // Ref for focusing the input
 
-    // Unlock/Lock wallet state
-    const [passwordInput, setPasswordInput] = useState<string>('');
-    const [showPasswordInputForUnlock, setShowPasswordInputForUnlock] = useState<boolean>(false);
 
     useEffect(() => {
         if (walletData) {
             setCurrentLimits(walletData.limits);
             setLimitPerCall(walletData.limits?.maxPerCall || '');
+            setLimitTotal(walletData.limits?.maxTotal || '');
             // setLimitCurrency(walletData.limits?.currency || 'USDC'); // Removed
             setCurrentName(walletData.name);
             setEditedName(walletData.name || '');
             setIsEditingName(false);
             setIsEncrypted(walletData.isEncrypted);
-            setIsUnlocked(walletData.isUnlocked);
-            setPasswordInput('');
-            setShowPasswordInputForUnlock(false);
         }
     }, [walletData]);
 
@@ -159,14 +146,18 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         if (!walletData) return;
         const limitsToSet: SpendingLimits = {
             maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
-            maxTotal: null,
-            currency: 'USDC', // Currency is now fixed to USDC
+            maxTotal: limitTotal.trim() === '' ? null : limitTotal.trim(),
+            currency: 'USDC',
         };
         const payload = { SetWalletLimits: { limits: limitsToSet } };
         await selectAndExecute(
             'Set Limits', payload,
             'Spending limits updated successfully.',
-            () => setCurrentLimits(limitsToSet)
+            () => {
+                setCurrentLimits(limitsToSet);
+                // Close settings after successful save to avoid reopening modal on refresh
+                onClose();
+            }
         );
     };
 
@@ -175,44 +166,11 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         setIsEditingName(true);
     };
 
-    // Unlock/Lock wallet handlers
-    const handleUnlockWalletAttempt = async () => {
-        if (isEncrypted && !passwordInput) {
-            showToast('error', 'Password is required to unlock encrypted wallet.');
-            return;
-        }
-        try {
-            await onUnlockWallet(walletData!.address, passwordInput);
-            setPasswordInput('');
-            setShowPasswordInputForUnlock(false);
-            showToast('success', 'Unlock request sent.');
-        } catch (err: any) {
-            showToast('error', err.message || 'Failed to send unlock request');
-        }
-    };
 
-    const handleLockWallet = async () => {
-        try {
-            await onLockWallet(walletData!.address);
-            showToast('success', 'Lock request sent.');
-        } catch (err: any) {
-            showToast('error', err.message || 'Failed to send lock request');
-        }
-    };
-
-    const handleLockIconClick = () => {
-        if (isEncrypted && !isUnlocked) {
-            setShowPasswordInputForUnlock(true);
-        } else if (isUnlocked) {
-            handleLockWallet();
-        }
-    };
-
-    const isWalletLocked = isEncrypted && !isUnlocked;
 
     if (!isOpen || !walletData) return null;
 
-    const limitsDisabled = isActionLoading || (isEncrypted && !isUnlocked);
+    const limitsDisabled = isActionLoading; // no lock gating in UI
 
     return (
         <Modal
@@ -237,13 +195,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
             />
 
             <h4 className="font-bold">Spending Limits (USDC)</h4>
-            {(isEncrypted && !isUnlocked) && (
-                <p className="text-orange-400 text-sm">Wallet is locked. Unlock to change spending limits.</p>
-            )}
-            <form
-                onSubmit={handleSetLimits}
-                className="flex items-center gap-2"
-            >
+            <form onSubmit={handleSetLimits} className="flex items-center gap-2">
                 <input
                     type="number"
                     step="any"
@@ -253,76 +205,29 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
                     onChange={e => setLimitPerCall(e.target.value)}
                     className="p-2 rounded bg-dark-gray/5 grow"
                     disabled={limitsDisabled}
-                    onClick={(e) => e.stopPropagation()} // Good to have on inputs too
+                    onClick={(e) => e.stopPropagation()}
+                />
+                <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Max Total (USDC)"
+                    value={limitTotal}
+                    onChange={e => setLimitTotal(e.target.value)}
+                    className="p-2 rounded bg-dark-gray/5 grow"
+                    disabled={limitsDisabled}
+                    onClick={(e) => e.stopPropagation()}
                 />
                 <button
                     type="submit"
                     className="p-2 rounded bg-green-600 text-white hover:bg-green-700"
                     disabled={limitsDisabled}
-                    onClick={(e) => e.stopPropagation()} // Prevent modal close if form is part of a clickable area
+                    onClick={(e) => e.stopPropagation()}
                 >
-                    OK
+                    Save
                 </button>
             </form>
-            <h4 className="text-lg flex justify-between items-center gap-2">
-                <p>
-                    Status: {isWalletLocked ? 'Locked' : 'Unlocked'}
-                    {isEncrypted && !isUnlocked && ' (Encrypted)'}
-                </p>
-                <button
-                    onClick={handleLockIconClick}
-                    title={isWalletLocked ? "Wallet Locked. Click to Unlock." : "Wallet Unlocked. Click to Lock."}
-                    disabled={isActionLoading || isUnlockingOrLocking}
-                    className="p-2 bg-black text-white hover:bg-white hover:!border-black hover:text-black"
-                >
-                    {isWalletLocked ? <BsFillLockFill /> : <BsUnlockFill />}
-                    <span className="text-sm">{isWalletLocked ? 'Unlock' : 'Lock'} wallet</span>
-                </button>
-            </h4>
 
-            {showPasswordInputForUnlock && isWalletLocked && <>
-                <h5 className="text-sm font-medium text-yellow-400">
-                    {isEncrypted ? 'Unlock' : 'Activate'} Wallet
-                </h5>
-                {isEncrypted && (
-                    <input
-                        type="password"
-                        placeholder="Enter Password"
-                        value={passwordInput}
-                        onChange={(e) => setPasswordInput(e.target.value)}
-                        className="p-2 rounded bg-dark-gray/5"
-                        disabled={isActionLoading || isUnlockingOrLocking}
-                        autoFocus
-                        onKeyDown={(e) => {
-                            if (e.key === 'Enter') {
-                                e.preventDefault();
-                                handleUnlockWalletAttempt();
-                            }
-                        }}
-                    />
-                )}
-                {!isEncrypted && (
-                    <p className=" text-sm opacity-50">
-                        This wallet needs to be activated for use.
-                    </p>
-                )}
-                <div className="flex gap-2">
-                    <button
-                        onClick={handleUnlockWalletAttempt}
-                        disabled={isActionLoading || isUnlockingOrLocking || (isEncrypted && !passwordInput)}
-                        className="px-3 py-1 bg-green-600 text-white hover:bg-green-700"
-                    >
-                        {isUnlockingOrLocking ? (isEncrypted ? 'Unlocking...' : 'Activating...') : (isEncrypted ? 'Unlock' : 'Activate')}
-                    </button>
-                    <button
-                        onClick={() => { setShowPasswordInputForUnlock(false); setPasswordInput(''); }}
-                        className="px-3 py-1 bg-gray-600 text-white hover:bg-gray-700"
-                        disabled={isActionLoading || isUnlockingOrLocking}
-                    >
-                        Cancel
-                    </button>
-                </div>
-            </>}
         </Modal>
     );
 };

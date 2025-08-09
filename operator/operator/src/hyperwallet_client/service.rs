@@ -592,15 +592,51 @@ pub fn set_wallet_spending_limits(
     max_total: Option<String>,
     currency: Option<String>,
 ) -> Result<(), String> {
-    info!("Setting wallet spending limits for {}: max_per_call={:?}, max_total={:?}, currency={:?}", 
-          wallet_id, max_per_call, max_total, currency);
-    
-    // Note: set_wallet_limits function doesn't exist in the new API
-    warn!("Wallet spending limits not yet supported in new hyperwallet API");
-    
+    info!(
+        "Setting wallet spending limits for {}: max_per_call={:?}, max_total={:?}, currency={:?}",
+        wallet_id, max_per_call, max_total, currency
+    );
+
+    let session = get_session_from_state(state)?;
+
+    // Prepare cached limits first so we can reuse/cloned values
+    let currency_final = currency.clone().unwrap_or_else(|| "USDC".to_string());
+    let cached = SpendingLimits {
+        max_per_call: max_per_call.clone(),
+        max_total: max_total.clone(),
+        currency: Some(currency_final.clone()),
+        total_spent: Some("0".to_string()),
+    };
+
+    // Build hyperwallet's WalletSpendingLimits type (consumes the original owned values)
+    let limits = hyperware_process_lib::hyperwallet_client::types::WalletSpendingLimits {
+        max_per_call,
+        max_total,
+        currency: currency_final,
+        total_spent: "0".to_string(),
+        set_at: None,
+        updated_at: None,
+    };
+
+    // Send SetWalletLimits to hyperwallet
+    match hyperware_process_lib::hyperwallet_client::api::set_wallet_limits(&session.session_id, &wallet_id, limits) {
+        Ok(response) => {
+            if response.success {
+                info!("SetWalletLimits succeeded for {}", wallet_id);
+                // Update local cache immediately so UI reflects changes without waiting for hyperwallet propagation
+                let wallet_key = wallet_id.to_lowercase();
+                state.wallet_limits_cache.insert(wallet_key, cached);
+            } else {
+                warn!("SetWalletLimits reported failure for {}: {}", wallet_id, response.message);
+            }
+        }
+        Err(e) => {
+            return Err(convert_error(e));
+        }
+    }
+
     // Clear any cached details to force refresh
     state.cached_active_details = None;
-    
     Ok(())
 }
 
@@ -609,20 +645,30 @@ pub fn get_wallet_spending_limits(state: &State, wallet_id: String) -> Result<Op
     info!("Getting wallet spending limits for {} from hyperwallet", wallet_id);
     
     let session = get_session_from_state(state)?;
-    
-    match hyperwallet_client::get_wallet_info(&session.session_id, &wallet_id) {
-        Ok(_wallet_info) => {
-            info!("Retrieved wallet info for {}", wallet_id);
-            
-            // Note: The typed API returns a Wallet struct, but spending limits might not be included
-            // You might need to add a separate get_wallet_limits function to hyperwallet_client
-            // For now, return None since the Wallet struct doesn't contain spending limits
-            info!("Spending limits extraction from typed API not yet implemented");
+    // If we have a freshly-set cache entry, prefer it for immediate UI feedback
+    let key_lower = wallet_id.to_lowercase();
+    if let Some(cached) = state.wallet_limits_cache.get(&wallet_id).or_else(|| state.wallet_limits_cache.get(&key_lower)) {
+        return Ok(Some(cached.clone()));
+    }
+
+    // Prefer ListWallets, which returns wallet objects with optional spending_limits
+    match hyperwallet_client::list_wallets(&session.session_id) {
+        Ok(list) => {
+            if let Some(found) = list.wallets.into_iter().find(|w| w.address.eq_ignore_ascii_case(&wallet_id)) {
+                if let Some(limits) = found.spending_limits {
+                    let mapped = SpendingLimits {
+                        max_per_call: limits.max_per_call,
+                        max_total: limits.max_total,
+                        currency: Some(limits.currency),
+                        total_spent: Some(limits.total_spent),
+                    };
+                    return Ok(Some(mapped));
+                }
+            }
             Ok(None)
         }
         Err(e) => {
-            warn!("Failed to get wallet info for {}: {}", wallet_id, convert_error(e));
-            // Don't fail the whole operation, just return None for limits
+            warn!("Failed to list wallets while fetching limits for {}: {}", wallet_id, convert_error(e));
             Ok(None)
         }
     }

@@ -720,36 +720,9 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         setIsAuthorizedClientModalOpen(true);
     }, []);
 
-    const handleUnlockWalletInVisualizer = useCallback(async (walletAddress: Address, passwordInput: string) => {
-        // Note: passwordInput can be empty for unencrypted wallets
-        setIsUnlockingOrLockingWalletId(walletAddress as string);
-        try {
-            await callApiRouted({ SelectWallet: { wallet_id: walletAddress } });
-            await callApiRouted({ ActivateWallet: { password: passwordInput || '' } });
-            showToast('success', 'Wallet activated successfully!');
-            fetchGraphData();
-        } catch (err: any) {
-            showToast('error', err.message || 'Failed to activate wallet.');
-            throw err;
-        } finally {
-            setIsUnlockingOrLockingWalletId(null);
-        }
-    }, [fetchGraphData, callApiRouted, showToast]);
+    // Unlock flow removed from UI
 
-    const handleLockWalletInVisualizer = useCallback(async (walletAddress: Address) => {
-        setIsUnlockingOrLockingWalletId(walletAddress as string);
-        try {
-            await callApiRouted({ SelectWallet: { wallet_id: walletAddress } });
-            await callApiRouted({ DeactivateWallet: {} });
-            showToast('success', 'Wallet locked successfully!');
-            fetchGraphData();
-        } catch (err: any) {
-            showToast('error', err.message || 'Failed to lock wallet.');
-            throw err;
-        } finally {
-            setIsUnlockingOrLockingWalletId(null);
-        }
-    }, [fetchGraphData, callApiRouted, showToast]);
+    // Lock flow removed from UI
 
     const handleRevokePaymaster = useCallback(async (operatorTbaAddress: Address) => {
         if (!operatorTbaAddress) {
@@ -757,8 +730,12 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
             return;
         }
 
-        console.log('Revoking paymaster approval for TBA:', operatorTbaAddress);
-        revokePaymasterHook.revokePaymaster({ operatorTbaAddress });
+        try {
+            console.log('Revoking paymaster approval for TBA:', operatorTbaAddress);
+            revokePaymasterHook.revokePaymaster({ operatorTbaAddress });
+        } catch (err: any) {
+            showToast('error', err.message || 'Failed to revoke paymaster.');
+        }
     }, [revokePaymasterHook, showToast]);
 
     const nodeTypes = useMemo(() => ({
@@ -770,9 +747,6 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                 onWalletDataUpdate={handleWalletNodeUpdate}
                 onOpenHistoryModal={handleOpenHistoryModal}
                 onOpenSettingsModal={() => handleOpenHotWalletSettingsModal(props.data)}
-                onUnlockWallet={handleUnlockWalletInVisualizer}
-                onLockWallet={handleLockWalletInVisualizer}
-                isUnlockingOrLocking={isUnlockingOrLockingWalletId === props.data.address}
             />
         ),
         authorizedClientNode: (props: NodeProps<IAuthorizedClientNodeData>) => (
@@ -788,10 +762,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
         handleWalletNodeUpdate,
         handleOpenHistoryModal,
         handleOpenHotWalletSettingsModal,
-        handleOpenAuthorizedClientSettingsModal,
-        handleUnlockWalletInVisualizer,
-        handleLockWalletInVisualizer,
-        isUnlockingOrLockingWalletId
+        handleOpenAuthorizedClientSettingsModal
     ]);
 
     if (isLoadingGraph && !initialGraphData) {
@@ -879,9 +850,6 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
                     onClose={handleCloseHotWalletSettingsModal}
                     walletData={selectedWalletForSettings}
                     onWalletUpdate={handleWalletNodeUpdate}
-                    onUnlockWallet={handleUnlockWalletInVisualizer}
-                    onLockWallet={handleLockWalletInVisualizer}
-                    isUnlockingOrLocking={isUnlockingOrLockingWalletId === selectedWalletForSettings.address}
                 />
             )}
         </ReactFlowProvider>

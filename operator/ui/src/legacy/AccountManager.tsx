@@ -144,42 +144,17 @@ function AccountManager() {
         const wallet = wallets.find(w => w.id === walletId);
         if (!wallet) return;
 
-        const requiredPassword = wallet.is_encrypted ? activationPassword[walletId] : null;
-        if (wallet.is_encrypted && (!requiredPassword || requiredPassword === '')) {
-            showToast('error', 'Password required to activate this encrypted wallet.');
-            return;
-        }
+        // Locking/unlocking disabled in UI
+        showToast('error', 'Wallet locking is disabled in this UI.');
+        return;
 
-        setIsActionLoading(true);
-        try {
-            if (walletId !== selectedWalletId) {
-                await handleSelectWallet(walletId);
-            }
-            const requestBody = { ActivateWallet: { password: requiredPassword } };
-            await callApiWithRouting(requestBody);
-            handleSuccess(`Account ${truncateString(walletId, 10)} activated.`);
-            setActivationPassword(prev => ({ ...prev, [walletId]: '' }));
-        } catch (err: any) { handleError(err); }
-        finally { setIsActionLoading(false); }
+        // no-op
     };
 
     const handleDeactivate = async (walletId: string) => {
-        if (walletId !== selectedWalletId) {
-            await handleSelectWallet(walletId);
-        }
-        const currentSelectedId = selectedWalletId ?? walletId;
-        if (currentSelectedId !== walletId) {
-            showToast('error', "Account must be selected to deactivate.");
-            return;
-        }
-
-        setIsActionLoading(true);
-        try {
-            const requestBody = { DeactivateWallet: {} };
-            await callApiWithRouting(requestBody);
-            handleSuccess(`Account ${truncateString(walletId, 10)} deactivated.`);
-        } catch (err: any) { handleError(err); }
-        finally { setIsActionLoading(false); }
+        // Locking/unlocking disabled in UI
+        showToast('error', 'Wallet locking is disabled in this UI.');
+        return;
     };
 
     const handleSelectWallet = async (walletId: string) => {

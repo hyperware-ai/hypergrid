@@ -199,8 +199,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             const requestBody = {
                 ImportWallet: {
                     private_key: privateKeyToImport,
-                    // Avoid null strings; send empty string or omit
-                    password: '',
+                    // Do not send password at all
                     name: walletNameToImport.trim() === '' ? undefined : walletNameToImport.trim()
                 }
             };

@@ -157,6 +157,8 @@ pub struct State {
     pub selected_wallet_id: Option<String>,
     pub operator_entry_name: Option<String>,
     pub operator_tba_address: Option<String>,
+    #[serde(default)]
+    pub wallet_limits_cache: HashMap<String, SpendingLimits>,
     #[serde(skip)]
     pub active_signer_cache: Option<LocalSigner>,
     #[serde(skip)]
@@ -211,6 +213,7 @@ impl State {
             selected_wallet_id: None,
             operator_entry_name: None,
             operator_tba_address: None,
+            wallet_limits_cache: HashMap::new(),
             active_signer_cache: None,
             cached_active_details: None,
             call_history: Vec::new(),

@@ -77,9 +77,11 @@ const PaymasterToggleButton: React.FC<PaymasterToggleButtonProps> = ({
     };
 
     const getButtonState = () => {
-        if (isProcessing || approveHook.isSending || approveHook.isConfirming) {
+        const approvingInFlight = !isApproved && (approveHook.isSending || approveHook.isConfirming);
+        const revokingInFlight = isApproved && isProcessing; // isProcessing now means revoke-in-flight only
+        if (approvingInFlight || revokingInFlight) {
             return {
-                text: isApproved ? 'Revoking...' : 'Approving...',
+                text: revokingInFlight ? 'Revoking...' : 'Approving...',
                 backgroundColor: '#6c757d',
                 color: 'white',
                 borderColor: '#6c757d'
@@ -114,13 +116,13 @@ const PaymasterToggleButton: React.FC<PaymasterToggleButtonProps> = ({
     };
 
     const buttonState = getButtonState();
-    const disabled = isProcessing || approveHook.isSending || approveHook.isConfirming;
+    const disabled = (isApproved && isProcessing) || approveHook.isSending || approveHook.isConfirming;
 
     return (
         <button
             onClick={handleClick}
-            onMouseEnter={() => setIsHovered(true)}
-            onMouseLeave={() => setIsHovered(false)}
+            onMouseEnter={() => { if (!disabled) setIsHovered(true); }}
+            onMouseLeave={() => { if (!disabled) setIsHovered(false); }}
             disabled={disabled}
             style={{
                 width: '100%',
@@ -394,7 +396,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                 <PaymasterToggleButton
                     operatorTbaAddress={tbaAddress as Address}
                     isApproved={data.paymasterApproved || false}
-                    isProcessing={(data as any).isRevokingPaymaster || isProcessingNote || showUsdcWithdrawInput || isSendingUsdc}
+                    isProcessing={(data as any).isRevokingPaymaster}
                     onApprove={() => {
                         console.log('Paymaster approval initiated...');
                         if (typeof onDataRefreshNeeded === 'function') {
