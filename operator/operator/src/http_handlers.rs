@@ -693,10 +693,6 @@ fn execute_provider_flow(
     }
 }
 
-// ===========================================================================================
-// MCP HANDLER FUNCTIONS - Individual operation implementations
-// ===========================================================================================
-
 // --- Registry Operations ---
 
 fn handle_search_registry(db: &Sqlite, query: String) -> anyhow::Result<()> {
@@ -1317,7 +1313,6 @@ pub fn handle_authorize_shim_request(
     let mut extracted_node_name: Option<String> = None;
     let mut extracted_token_value: Option<String> = None;
 
-    // Use .as_deref() to borrow &str from Option<String>
     if let Some(cookies) = cookies_header_str.as_deref() { 
         for cookie_pair in cookies.split(';') {
             let parts: Vec<&str> = cookie_pair.trim().splitn(2, '=').collect();
