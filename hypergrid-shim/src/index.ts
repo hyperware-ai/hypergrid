@@ -103,7 +103,7 @@ async function main() {
     server.tool(
         "authorize",
         {
-            url: z.string().describe("The base URL for the Hypergrid API (e.g., http://localhost:8080/operator:hypergrid:ware.hypr/shim/mcp)"),
+            url: z.string().describe("The base URL for the Hypergrid API (e.g., http://localhost:8080/operator:hypergrid:ware.hypr/shim/mcp or http://localhost:8080/operator:hypergrid:test.hypr/shim/mcp)"),
             token: z.string().describe("The authentication token"),
             client_id: z.string().describe("The unique client ID"),
             node: z.string().describe("The Hyperware node name")

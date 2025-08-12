@@ -8,7 +8,7 @@ use hyperware_process_lib::{
     wallet};
 use serde::{Deserialize, Serialize};
 use alloy_primitives::U256;
-use crate::constants::USDC_BASE_ADDRESS;
+use crate::constants::{USDC_BASE_ADDRESS, PUBLISHER};
 
 use crate::structs::{State, PaymentAttemptResult};
 use super::account_abstraction;
@@ -43,7 +43,7 @@ fn call_hyperwallet_payment(
         "wallet_id": wallet_id,
         "chain_id": crate::structs::CHAIN_ID,
         "auth": {
-            "process_address": format!("{}@operator:hypergrid:ware.hypr", hyperware_process_lib::our().node()),
+            "process_address": format!("{}@operator:hypergrid:{}", hyperware_process_lib::our().node(), PUBLISHER),
             "signature": null
         },
         "request_id": null,

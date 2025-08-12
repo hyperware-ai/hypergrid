@@ -7,6 +7,7 @@ use serde_json::json;
 use chrono;
 use uuid;
 use crate::hyperwallet_client::service::call_hyperwallet;
+use crate::constants::PUBLISHER;
 
 // Hyperwallet service address
 const HYPERWALLET_ADDRESS: (&str, &str, &str, &str) = ("our", "hyperwallet", "hyperwallet", "hallman.hypr");
@@ -56,7 +57,7 @@ pub fn build_user_operation_with_metadata(
         "wallet_id": wallet_id,
         "chain_id": chain_id.unwrap_or(crate::structs::CHAIN_ID),
         "auth": {
-            "process_address": format!("{}@operator:hypergrid:ware.hypr", hyperware_process_lib::our().node()),
+            "process_address": format!("{}@operator:hypergrid:{}", hyperware_process_lib::our().node(), PUBLISHER),
             "signature": null
         },
         "request_id": null,

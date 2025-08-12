@@ -11,6 +11,7 @@ use hyperware_app_common::hyperware_process_lib::{
     vfs::{create_drive, create_file, open_file},
     Address,
 };
+use crate::constants::HYPR_SUFFIX;
 use hyperware_app_common::{source, SaveOptions};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
@@ -556,8 +557,7 @@ impl HypergridProviderState {
 
         // Use the hypermap library to calculate the correct namehash
         // This ensures consistency with the on-chain registration
-        // TODO: Make this configurable via environment variable or config
-        let namespace = "grid.hypr"; // Replace with your actual namespace
+        let namespace = &HYPR_SUFFIX[1..]; // Remove the leading dot from ".grid.hypr" to get "grid.hypr"
         let full_name = format!("{}.{}", provider.provider_name, namespace);
         let namehash = hypermap::namehash(&full_name);
         

@@ -6,8 +6,9 @@ import type {
   ProviderJson,
   Result,
 } from "./types";
+import { PUBLISHER } from "../constants";
 
-export const API_PATH = "/operator:hypergrid:ware.hypr/api";
+export const API_PATH = `/operator:hypergrid:${PUBLISHER}/api`;
 
 export async function fetchState(): AsyncRes<ProcessState> {
   try {

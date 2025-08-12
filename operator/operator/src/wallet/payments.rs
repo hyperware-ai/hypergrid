@@ -10,6 +10,7 @@
 use crate::structs::{State, PaymentAttemptResult, TbaFundingDetails, ProviderRequest, DelegationStatus};
 use crate::http_handlers::send_request_to_provider;
 use crate::wallet::service::{get_decrypted_signer_for_wallet};
+use crate::constants::PUBLISHER;
 
 use anyhow::Result;
 use hyperware_process_lib::{
@@ -364,7 +365,7 @@ fn check_provider_availability(provider_id: &str) -> Result<(), String> {
 
     let target_address = HyperwareAddress::new(
         provider_id,
-        ("hypergrid-provider", "hypergrid-provider", "ware.hypr")
+        ("hypergrid-provider", "hypergrid-provider", PUBLISHER)
     );
     //let provider_name = format!("{}", provider_id); 
     //let arguments = vec![]; 

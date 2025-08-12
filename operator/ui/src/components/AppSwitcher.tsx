@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { PUBLISHER } from '../constants';
 
 interface AppSwitcherProps {
   currentApp?: 'operator' | 'provider';
@@ -28,8 +29,8 @@ const AppSwitcher: React.FC<AppSwitcherProps> = ({ currentApp = 'operator' }) =>
     // Use the current origin and construct the URL dynamically
     const origin = window.location.origin;
     const url = app === 'operator' 
-      ? `${origin}/operator:hypergrid:ware.hypr/`
-      : `${origin}/provider:hypergrid:ware.hypr/`;
+      ? `${origin}/operator:hypergrid:${PUBLISHER}/`
+      : `${origin}/provider:hypergrid:${PUBLISHER}/`;
     
     window.location.href = url;
   };
