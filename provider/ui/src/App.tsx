@@ -23,8 +23,6 @@ import {
 import { 
   fetchRegisteredProvidersApi, 
   registerProviderApi,
-  fetchAllIndexedProvidersApi,
-  searchIndexedProvidersApi,
   getProviderSyncStatusApi
 } from "./utils/api";
 import ProviderConfigModal from "./components/ProviderConfigModal";
@@ -45,6 +43,7 @@ import { updateProviderApi } from "./utils/api";
 import { useProviderRegistration, useProviderUpdate } from "./registration/hypermapUtils";
 import { lookupProviderTbaAddressFromBackend } from "./registration/hypermap";
 import AppSwitcher from "./components/AppSwitcher";
+import ProviderSearch from "./components/ProviderSearch";
 
 // Import logos
 import logoGlow from './assets/logo_glow.png';
@@ -145,11 +144,8 @@ function AppContent() {
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
 
-  // Provider view state
-  const [viewMode, setViewMode] = useState<'my-providers' | 'search-all'>('my-providers');
-  const [searchQuery, setSearchQuery] = useState('');
+  // Provider view state (keeping for potential future use)
   const [indexedProviders, setIndexedProviders] = useState<IndexedProvider[]>([]);
-  const [searchLoading, setSearchLoading] = useState(false);
   
   // Provider loading state
   const [providersLoading, setProvidersLoading] = useState(false);
@@ -244,46 +240,7 @@ function AppContent() {
     console.log("Provider updated locally:", updatedProvider);
   }, [registeredProviders, setRegisteredProviders]);
 
-  const handleSearchIndexedProviders = useCallback(async (query: string) => {
-    if (!query.trim()) {
-      setIndexedProviders([]);
-      return;
-    }
-    
-    setSearchLoading(true);
-    try {
-      const results = await searchIndexedProvidersApi(query);
-      setIndexedProviders(results);
-      console.log("Fetched indexed providers:", results);
-    } catch (error) {
-      console.error("Failed to search indexed providers:", error);
-      setIndexedProviders([]);
-    } finally {
-      setSearchLoading(false);
-    }
-  }, []);
 
-  const handleViewModeChange = useCallback((mode: 'my-providers' | 'search-all') => {
-    setViewMode(mode);
-    if (mode === 'my-providers') {
-      setSearchQuery('');
-      setIndexedProviders([]);
-    }
-  }, []);
-
-  // Effect to handle search when query changes
-  useEffect(() => {
-    if (viewMode === 'search-all' && searchQuery.trim()) {
-      // Debounce the search
-      const timeoutId = setTimeout(() => {
-        handleSearchIndexedProviders(searchQuery);
-      }, 300);
-      
-      return () => clearTimeout(timeoutId);
-    } else if (viewMode === 'search-all' && !searchQuery.trim()) {
-      setIndexedProviders([]);
-    }
-  }, [searchQuery, viewMode, handleSearchIndexedProviders]);
 
   // Effect to auto-refresh providers
   useEffect(() => {
@@ -436,6 +393,7 @@ function AppContent() {
     <div className={`min-h-screen bg-gray flex grow self-stretch w-full h-screen overflow-hidden`}>
       <header className="flex flex-col py-8 px-6  bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
+        <ProviderSearch />
         <AppSwitcher currentApp="provider" />
 
         {/* Mobile node info */}
