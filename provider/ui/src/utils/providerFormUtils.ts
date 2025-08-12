@@ -1,5 +1,5 @@
 import { HttpMethod, EndpointDefinition, RegisteredProvider, RegisterProviderResponse, RequestStructureType, UpdateProviderResponse } from '../types/hypergrid_provider';
-import { TopLevelRequestType, AuthChoice } from '../App'; // Assuming types are exported
+import { TopLevelRequestType, AuthChoice } from '../types/hypergrid_provider';
 
 // Interface for the data object passed to utility functions
 // This collects all relevant form state needed by the utils
