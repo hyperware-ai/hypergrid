@@ -1,271 +1,60 @@
+@import "tailwindcss";
+
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
-  line-height: 1.5;
-  font-weight: 400;
-
-  color-scheme: light dark;
-  color: rgba(255, 255, 255, 0.87);
-  background-color: #242424;
-
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
+  --white: #fcfcfc;
+  --black: #000;
+  --dark-gray: #4b4847;
+  --gray: #f5f5f5;
+  --mid-gray: #cbcccc;
+  --cyan: #27ffff;
+  --warning: #c24e0f;
+  --warning-background: #fff3cd;
 }
 
-a {
+@theme {
+  --color-cyan: var(--cyan);
+  --color-warning: var(--warning);
+  --color-warning-background: var(--warning-background);
+  --color-dark-gray: var(--dark-gray);
+  --color-gray: var(--gray);
+  --color-mid-gray: var(--mid-gray);
+  --color-white: var(--white);
+  --color-black: var(--black);
+}
+
+@font-face {
+  font-family: 'Neue Haas Grotesk';
+  src: url('/NHaasGroteskTXPro-55Rg.woff') format('woff');
   font-weight: 500;
-  color: #646cff;
-  text-decoration: inherit;
-}
-a:hover {
-  color: #535bf2;
 }
 
+@font-face {
+  font-family: 'Neue Haas Grotesk';
+  src: url('/NHaasGroteskTXPro-75Bd.woff') format('woff');
+  font-weight: 700;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
 body {
-  margin: 0;
-  display: flex;
-  place-items: center;
-  min-width: 320px;
-  min-height: 100vh;
+  font-family: 'Neue Haas Grotesk', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--dark-gray);
+  background-color: var(--gray);
+  overflow-x: hidden;
 }
 
-h1 {
-  font-size: 3.2em;
-  line-height: 1.1;
+.font-sans {
+  font-family: 'Neue Haas Grotesk', sans-serif;
 }
 
-ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
+button,
+.button {
+  @apply hover:opacity-75 flex items-center justify-center rounded-xl gap-2 cursor-pointer transition-all duration-200 disabled:opacity-75 disabled:cursor-not-allowed border border-transparent;
 }
 
-button {
-  border-radius: 8px;
-  border: 1px solid transparent;
-  padding: 0.6em 1.2em;
-  background-color: darkblue;
-  color: white;
-  font-size: 1em;
-  font-weight: 500;
-  font-family: inherit;
-  cursor: pointer;
-  transition: background-color 0.25s;
-}
-button:hover {
-  background-color: blue;
-}
-button:focus,
-button:focus-visible {
-  outline: 4px auto -webkit-focus-ring-color;
-}
 
-@media (prefers-color-scheme: light) {
-  :root {
-    color: #213547;
-    background-color: #ffffff;
-  }
-  a:hover {
-    color: #747bff;
-  }
-}
-
-/* Provider Registration Styles */
-.provider-registration {
-  max-width: 600px;
-  margin: 0 auto;
-}
-
-.provider-registration h2 {
-  margin-bottom: 1.5rem;
-}
-
-.wallet-info {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-  padding: 1rem;
-  background-color: rgba(0, 0, 0, 0.05);
-  border-radius: 8px;
-}
-
-.provider-registration .form-group {
-  margin-bottom: 1.5rem;
-}
-
-.provider-registration label {
-  display: block;
-  margin-bottom: 0.5rem;
-  font-weight: 600;
-}
-
-.provider-registration input,
-.provider-registration textarea {
-  width: 100%;
-  padding: 0.75rem;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 1rem;
-}
-
-.provider-registration small {
-  display: block;
-  margin-top: 0.25rem;
-  color: #666;
-  font-size: 0.875rem;
-}
-
-.provider-registration button[type="submit"] {
-  background-color: #4CAF50;
-  color: white;
-  padding: 0.75rem 2rem;
-  border: none;
-  border-radius: 4px;
-  font-size: 1rem;
-  cursor: pointer;
-  transition: background-color 0.3s ease;
-}
-
-.provider-registration button[type="submit"]:hover:not(:disabled) {
-  background-color: #45a049;
-}
-
-.provider-registration button[type="submit"]:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
-}
-
-.provider-registration .progress {
-  padding: 1rem;
-  background-color: #f0f0f0;
-  border-radius: 4px;
-  margin-bottom: 1rem;
-}
-
-.provider-registration .error {
-  color: #d32f2f;
-  padding: 1rem;
-  background-color: #ffebee;
-  border-radius: 4px;
-  margin-top: 1rem;
-}
-
-/* --- App Switcher Styles --- */
-.app-switcher-container {
-  position: relative;
-}
-
-.app-switcher-button {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-  padding: 0.5rem 0.75rem;
-  background-color: var(--button-secondary-bg);
-  border: 1px solid var(--button-border);
-  border-radius: 0.375rem;
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: var(--button-secondary-text);
-  cursor: pointer;
-  transition: all 0.15s ease-in-out;
-}
-
-.app-switcher-button:hover {
-  background-color: var(--button-secondary-hover);
-  border-color: var(--button-hover-border);
-}
-
-.app-switcher-button:focus {
-  outline: none;
-  box-shadow: 0 0 0 0.25rem rgba(59, 130, 246, 0.25);
-}
-
-.app-switcher-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform 0.2s ease-in-out;
-}
-
-.app-switcher-button[aria-expanded="true"] .app-switcher-icon {
-  transform: rotate(180deg);
-}
-
-.app-switcher-dropdown {
-  position: absolute;
-  top: calc(100% + 0.5rem);
-  left: 0;
-  min-width: 280px;
-  background-color: var(--card-bg);
-  border: 1px solid var(--card-border);
-  border-radius: 0.375rem;
-  box-shadow: var(--card-shadow);
-  z-index: 1000;
-  padding: 0.5rem;
-}
-
-.app-switcher-header {
-  padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  border-bottom: 1px solid var(--card-border);
-  margin-bottom: 0.5rem;
-}
-
-.app-switcher-option {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  width: 100%;
-  padding: 0.75rem;
-  background: none;
-  border: none;
-  border-radius: 0.25rem;
-  text-align: left;
-  cursor: pointer;
-  transition: background-color 0.15s ease-in-out;
-}
-
-.app-switcher-option:hover {
-  background-color: var(--button-subtle-hover-bg);
-}
-
-.app-switcher-option.active {
-  background-color: rgba(59, 130, 246, 0.1);
-  pointer-events: none;
-}
-
-.app-switcher-option-icon {
-  font-size: 1.5rem;
-  flex-shrink: 0;
-}
-
-.app-switcher-option-content {
-  flex-grow: 1;
-}
-
-.app-switcher-option-title {
-  font-weight: 500;
-  color: var(--text-color);
-  margin-bottom: 0.25rem;
-}
-
-.app-switcher-option-description {
-  font-size: 0.85rem;
-  color: var(--text-muted);
-  line-height: 1.3;
-}
-
-/* Dark mode improvements for app switcher */
-html[data-theme="dark"] .app-switcher-button:focus {
-  box-shadow: 0 0 0 0.25rem rgba(220, 255, 113, 0.25);
-}
-
-html[data-theme="dark"] .app-switcher-option.active {
-  background-color: rgba(220, 255, 113, 0.15);
-}

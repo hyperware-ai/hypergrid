@@ -1,5 +1,9 @@
 import React, { useState, useCallback } from 'react';
 import { ConfigureAuthorizedClientResponse } from '../logic/types'; // Import from types.ts
+import Modal from './modals/Modal';
+import { truncate } from '../utils/truncate';
+import { BsInfoCircle, BsLayers, BsSortDown, BsSortUp } from 'react-icons/bs';
+import { ImSpinner8 } from 'react-icons/im';
 
 // Helper function to generate a random API key (copied from AccountManager.tsx)
 function generateApiKey(length = 32): string {
@@ -57,7 +61,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
         const newApiKey = generateApiKey(32);
 
         const payload = {
-            client_name: `Shim for ${hotWalletAddress.substring(0,6)}...${hotWalletAddress.slice(-4)}`,
+            client_name: `Shim for ${hotWalletAddress.substring(0, 6)}...${hotWalletAddress.slice(-4)}`,
             raw_token: newApiKey,
             hot_wallet_address_to_associate: hotWalletAddress
         };
@@ -68,36 +72,36 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
             credentials: 'include',
             body: JSON.stringify(payload)
         })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(errData => {
-                    throw new Error(errData.error || `Failed to save API key: ${response.statusText}`);
-                }).catch(() => {
-                    throw new Error(`Failed to save API key: ${response.statusText}`);
-                });
-            }
-            return response.json() as Promise<ConfigureAuthorizedClientResponse>;
-        })
-        .then(responseData => {
-            const configData = {
-                url: window.location.origin + window.location.pathname + 'shim/mcp',
-                client_id: responseData.client_id,
-                token: responseData.raw_token,
-                node: responseData.node_name,
-            };
-            console.log("configData", configData);
-            setApiConfig(configData);
-            setGenerationError(null);
-            setHasGeneratedCredentials(true);
-        })
-        .catch(err => {
-            console.error("Error generating API config:", err);
-            setGenerationError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            setApiConfig(null);
-        })
-        .finally(() => {
-            setIsGeneratingConfig(false);
-        });
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errData => {
+                        throw new Error(errData.error || `Failed to save API key: ${response.statusText}`);
+                    }).catch(() => {
+                        throw new Error(`Failed to save API key: ${response.statusText}`);
+                    });
+                }
+                return response.json() as Promise<ConfigureAuthorizedClientResponse>;
+            })
+            .then(responseData => {
+                const configData = {
+                    url: window.location.origin + window.location.pathname + 'shim/mcp',
+                    client_id: responseData.client_id,
+                    token: responseData.raw_token,
+                    node: responseData.node_name,
+                };
+                console.log("configData", configData);
+                setApiConfig(configData);
+                setGenerationError(null);
+                setHasGeneratedCredentials(true);
+            })
+            .catch(err => {
+                console.error("Error generating API config:", err);
+                setGenerationError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                setApiConfig(null);
+            })
+            .finally(() => {
+                setIsGeneratingConfig(false);
+            });
     }, [hotWalletAddress]);
 
     if (!isOpen) {
@@ -110,7 +114,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
         setApiConfig(null);
     };
 
-    const authCommand = apiConfig ? 
+    const authCommand = apiConfig ?
         `Use the authorize tool with url "${apiConfig.url}", token "${apiConfig.token}", client_id "${apiConfig.client_id}", and node "${apiConfig.node}"` : '';
 
     const mcpServerConfig = {
@@ -122,191 +126,145 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
         }
     };
 
-    const modalStyle: React.CSSProperties = {
-        position: 'fixed', top: 0, left: 0, width: '100%', height: '100%',
-        backgroundColor: 'rgba(0, 0, 0, 0.6)', display: 'flex',
-        alignItems: 'center', justifyContent: 'center', zIndex: 1010,
-    };
-    const contentStyle: React.CSSProperties = {
-        backgroundColor: '#2c3038', color: 'white', padding: '25px',
-        borderRadius: '8px', width: '90%', maxWidth: '700px',
-        maxHeight: '85vh', overflowY: 'auto', position: 'relative',
-        border: '1px solid #555',
-    };
-    const closeButtonStyle: React.CSSProperties = {
-        position: 'absolute', top: '10px', right: '15px', background: 'transparent',
-        border: 'none', color: 'white', fontSize: '1.8rem', cursor: 'pointer',
-    };
-
     return (
-        <div style={modalStyle} onClick={handleClose}>
-            <div style={contentStyle} onClick={(e) => e.stopPropagation()}>
-                <button style={closeButtonStyle} onClick={handleClose}>&times;</button>
-                
-                <h3>Hypergrid MCP Configuration</h3>
-                <p style={{ fontSize: '0.9em', color: '#ddd', marginBottom: '20px' }}>
-                    For Hot Wallet: <code>{hotWalletAddress.substring(0,6)}...{hotWalletAddress.slice(-4)}</code>
-                </p>
-
-                {/* Step 1: Add MCP Server */}
-                <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
-                    <h4 style={{ margin: '0 0 10px 0' }}>Step 1: Add the MCP Server to Claude</h4>
-                    <p style={{ fontSize: '0.9em', marginBottom: '10px' }}>
+        <Modal
+            title={`MCP Configuration`}
+            onClose={handleClose}
+            preventAccidentalClose={true}
+            titleChildren={
+                <div className="flex gap-2 text-xs ml-auto items-center">
+                    <span className="font-bold p-2">For Hot Wallet:</span>
+                    <span className="py-1 px-2 bg-dark-gray/25 rounded-lg">{truncate(hotWalletAddress, 6, 4)}</span>
+                </div>
+            }
+        >
+            <div className="grow self-stretch grid grid-cols-2 gap-12">
+                <div className="p-4 bg-white rounded-lg flex flex-col gap-2 self-start">
+                    <h4 className="text-lg font-bold">Step 1: Add the MCP Server to Claude</h4>
+                    <p className="text-sm">
                         Add this to your Claude Desktop config:
                     </p>
-                    <div style={{ position: 'relative' }}>
-                        <pre style={{ 
-                            background: '#1a1c20', 
-                            padding: '10px 35px 10px 10px', 
-                            borderRadius: '4px', 
-                            overflowX: 'auto',
-                            fontSize: '0.85em'
-                        }}>
-{JSON.stringify(mcpServerConfig, null, 2)}
+                    <div className="relative">
+                        <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
+                            {JSON.stringify(mcpServerConfig, null, 2)}
                         </pre>
                         <button
                             onClick={() => copyToClipboard(JSON.stringify(mcpServerConfig, null, 2), setCopiedMcpConfig)}
-                            style={{
-                                position: 'absolute',
-                                top: '5px',
-                                right: '5px',
-                                padding: '5px 10px',
-                                fontSize: '0.8em',
-                                background: '#3a3d42',
-                                border: 'none',
-                                borderRadius: '3px',
-                                color: 'white',
-                                cursor: 'pointer'
-                            }}
+                            className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer"
                         >
                             {copiedMcpConfig ? '✓' : 'Copy'}
                         </button>
                     </div>
-                    <p style={{ fontSize: '0.8em', color: '#999', marginTop: '8px' }}>
-                        Then restart Claude Desktop.
+                    <p className="text-sm bg-cyan p-2 rounded-full flex items-center gap-2 self-start">
+                        <BsInfoCircle />
+                        <span>Then restart Claude Desktop.</span>
                     </p>
                 </div>
 
                 {/* Step 2: Generate Credentials */}
-                <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
-                    <h4 style={{ margin: '0 0 10px 0' }}>Step 2: Generate Authorization Credentials</h4>
-                    <p style={{ fontSize: '0.85em', color: '#999', marginBottom: '10px' }}>
-                        Each generation creates a new authorized client for this hot wallet. 
-                        This allows multiple MCP servers or environments to use the same wallet.
-                    </p>
-                    <button
-                        onClick={handleGenerateApiConfig}
-                        disabled={isGeneratingConfig}
-                        className="button secondary-button"
-                        style={{ padding: '10px 15px', fontSize: '1em', marginBottom: '10px' }}
-                    >
-                        {isGeneratingConfig ? 'Generating...' : 
-                         (apiConfig ? 'Generate New Credentials' : 'Generate Credentials')}
-                    </button>
-                    {generationError && (
-                        <p style={{ marginTop: '10px', color: '#ff8a8a' }}>{generationError}</p>
-                    )}
-                </div>
-
-                {/* Step 3: Authorize in Claude */}
-                {apiConfig && (
-                    <div style={{ marginBottom: '25px', padding: '15px', backgroundColor: '#22252a', borderRadius: '6px' }}>
-                        <h4 style={{ margin: '0 0 10px 0' }}>Step 3: Authorize in Claude</h4>
-                        <p style={{ fontSize: '0.9em', marginBottom: '10px' }}>
-                            Copy this command and paste it into Claude:
+                <div className="flex flex-col gap-2">
+                    <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                        <h4 className="text-lg font-bold">Step 2: Generate Authorization Credentials</h4>
+                        <p className="text-sm">
+                            Each generation creates a new authorized client for this hot wallet.
+                            This allows multiple MCP servers or environments to use the same wallet.
                         </p>
-                        <div style={{ position: 'relative' }}>
-                            <pre style={{ 
-                                background: '#1a1c20', 
-                                padding: '10px 35px 10px 10px', 
-                                borderRadius: '4px', 
-                                overflowX: 'auto',
-                                fontSize: '0.85em',
-                                wordBreak: 'break-word',
-                                whiteSpace: 'pre-wrap'
-                            }}>
-                                {authCommand}
-                            </pre>
+                        <button
+                            onClick={handleGenerateApiConfig}
+                            disabled={isGeneratingConfig}
+                            className="self-start bg-dark-gray/5 font-bold py-2 px-4  hover:bg-dark-gray/10"
+                        >
+                            {isGeneratingConfig ? <ImSpinner8 className="animate-spin" /> : <BsLayers />}
+                            {isGeneratingConfig ? 'Generating...' :
+                                (apiConfig ? 'Generate New Credentials' : 'Generate Credentials')}
+                        </button>
+                        {generationError && (
+                            <p className="text-red-500">{generationError}</p>
+                        )}
+                    </div>
+
+                    {/* Step 3: Authorize in Claude */}
+                    {apiConfig && (
+                        <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                            <h4 className="text-lg font-bold">Step 3: Authorize in Claude</h4>
+                            <p className="text-sm">
+                                Copy this command and paste it into Claude:
+                            </p>
+                            <div className="relative">
+                                <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
+                                    {authCommand}
+                                </pre>
+                                <button
+                                    onClick={() => copyToClipboard(authCommand, setCopiedCommand)}
+                                    className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer"
+                                >
+                                    {copiedCommand ? '✓' : 'Copy'}
+                                </button>
+                            </div>
+                            <p className="text-sm">
+                                This will permanently configure the MCP server with your credentials.
+                            </p>
+                        </div>
+                    )}
+
+                    {/* That's it! */}
+                    {apiConfig && <>
+                        <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                            <p className="text-sm">
+                                <strong>That's it!</strong> Once you run the authorize command in Claude,
+                                you can use these tools:
+                            </p>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center gap-2">
+                                    <code className="bg-dark-gray text-white p-2 rounded-lg">search-registry</code>
+                                    <span className="text-sm">
+                                        Search for services in the Hypergrid network
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <code className="bg-dark-gray text-white p-2 rounded-lg">call-provider</code>
+                                    <span className="text-sm">
+                                        Call a provider with specific arguments
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-2">
                             <button
-                                onClick={() => copyToClipboard(authCommand, setCopiedCommand)}
-                                style={{
-                                    position: 'absolute',
-                                    top: '5px',
-                                    right: '5px',
-                                    padding: '5px 10px',
-                                    fontSize: '0.8em',
-                                    background: '#3a3d42',
-                                    border: 'none',
-                                    borderRadius: '3px',
-                                    color: 'white',
-                                    cursor: 'pointer'
-                                }}
+                                onClick={() => setShowManualInstructions(!showManualInstructions)}
+                                className="self-start bg-dark-gray/5 py-2 px-4  hover:bg-dark-gray/10"
                             >
-                                {copiedCommand ? '✓' : 'Copy'}
+                                {showManualInstructions ? <BsSortUp className="text-lg" /> : <BsSortDown className="text-lg" />}
+
+                                <span>{showManualInstructions ? 'Hide' : 'Show'} manual setup option</span>
                             </button>
-                        </div>
-                        <p style={{ fontSize: '0.8em', color: '#999', marginTop: '8px' }}>
-                            This will permanently configure the MCP server with your credentials.
-                        </p>
-                    </div>
-                )}
 
-                {/* That's it! */}
-                {apiConfig && (
-                    <div style={{ 
-                        padding: '15px', 
-                        backgroundColor: '#1e3a1e', 
-                        borderRadius: '6px',
-                        border: '1px solid #2e5a2e'
-                    }}>
-                        <p style={{ margin: '0 0 15px 0', fontSize: '0.9em' }}>
-                            <strong>That's it!</strong> Once you run the authorize command in Claude, 
-                            you can use these tools:
-                        </p>
-                        <div style={{ fontSize: '0.85em', marginLeft: '20px' }}>
-                            <div style={{ marginBottom: '8px' }}>
-                                <code style={{ background: '#2a3d2a', padding: '2px 6px', borderRadius: '3px' }}>search-registry</code>
-                                <span style={{ color: '#bbb', marginLeft: '8px' }}>
-                                    Search for services in the Hypergrid network
-                                </span>
-                            </div>
-                            <div>
-                                <code style={{ background: '#2a3d2a', padding: '2px 6px', borderRadius: '3px' }}>call-provider</code>
-                                <span style={{ color: '#bbb', marginLeft: '8px' }}>
-                                    Call a provider with specific arguments
-                                </span>
-                            </div>
-                        </div>
-                    </div>
-                )}
+                            {showManualInstructions && (
+                                <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                                    <p>Alternative: Save this as <code className="bg-dark-gray text-white p-2 rounded-lg">grid-shim-api.json</code>:</p>
+                                    <div className="relative">
+                                        <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
+                                            {JSON.stringify(apiConfig, null, 2)}
+                                        </pre>
+                                        <button
+                                            onClick={() => copyToClipboard(JSON.stringify(apiConfig, null, 2), setCopiedCommand)}
+                                            className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer"
+                                        >
+                                            {copiedCommand ? '✓' : 'Copy'}
+                                        </button>
+                                    </div>
+                                    <p>Then use: <code className="bg-dark-gray text-white p-2 rounded-lg">npx @hyperware-ai/hypergrid-mcp -c grid-shim-api.json</code></p>
+                                </div>
+                            )}
 
-                {/* Manual Setup Option */}
-                <div style={{ marginTop: '20px', fontSize: '0.8em' }}>
-                    <button
-                        onClick={() => setShowManualInstructions(!showManualInstructions)}
-                        style={{
-                            background: 'none',
-                            border: 'none',
-                            color: '#888',
-                            cursor: 'pointer',
-                            textDecoration: 'underline'
-                        }}
-                    >
-                        {showManualInstructions ? 'Hide' : 'Show'} manual setup option
-                    </button>
-                    
-                    {showManualInstructions && apiConfig && (
-                        <div style={{ marginTop: '10px', padding: '10px', background: '#1a1c20', borderRadius: '4px' }}>
-                            <p>Alternative: Save this as <code>grid-shim-api.json</code>:</p>
-                            <pre style={{ fontSize: '0.8em', overflowX: 'auto' }}>
-                                {JSON.stringify(apiConfig, null, 2)}
-                            </pre>
-                            <p>Then use: <code>npx @hyperware-ai/hypergrid-mcp -c grid-shim-api.json</code></p>
                         </div>
-                    )}
+                    </>}
+
                 </div>
+
             </div>
-        </div>
+
+        </Modal>
     );
 };
 

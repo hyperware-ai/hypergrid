@@ -23,120 +23,73 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
   registeredProviderWallet, setRegisteredProviderWallet,
   price, setPrice,
 }) => {
-  // All tree styles moved to CSS classes in styles/02-components/tree.css
   return (
-    <div className="tree-container">
+    <div className="bg-dark-gray self-stretch p-6 rounded-lg  grid grid-cols-3 gap-2 text-mid-gray ">
 
-      <h3 className="tree-title">Hypergrid Registration Form</h3>
-      <div className="tree-hns-name">
-          <input
-            id="pform-providerName"
-            type="text"
-            value={providerName}
-            onChange={(e) => setProviderName(e.target.value)}
-            placeholder="provider-name"
-            style={{
-              fontFamily: 'monospace',
-              fontSize: '1.1em',
-              fontWeight: 'bold',
-              background: 'transparent',
-              color: '#eee',
-              border: 'none',
-              borderBottom: '1px dashed #666',
-              padding: '1px 0px',
-              outline: 'none',
-              textAlign: 'left',
-              width: `${providerName.length || 13}ch`, // Use actual length or placeholder length
-            }}
-          />
-        <span>{HYPR_SUFFIX}</span>
-      </div>
+      <h3 className="text-lg font-semibold col-span-3">Hypergrid Registration Form</h3>
+      <span className="pl-1 whitespace-pre flex-shrink-0 text-left">~provider-name:</span>
+      <input
+        autoFocus
+        id="pform-providerName"
+        type="text"
+        value={providerName}
+        onChange={(e) => setProviderName(e.target.value)}
+        placeholder="provider-name"
+        className="text-black  bg-mid-gray rounded px-2 py-1 h-full w-full "
+      />
+      <span className="">.obfusc-grid123.hypr</span>
 
-      {/* Trunk line from HNS name down to the first branch */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '0.8em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '4px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>│</span>
-      </div>
-      
-      {/* Provider ID (Node ID) Display */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '1.6em', marginBottom: '1px', paddingLeft: '5px', textAlign: 'left'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '1px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>├─</span>
-        <span style={{color: '#aaa', minWidth: '105px', whiteSpace: 'pre', flexShrink: 0, textAlign: 'left'}}>~provider-id:</span>
-        <span style={{fontFamily: 'monospace', fontSize: '0.9em', color: '#eee', padding: '2px 0px', flexGrow: 1, borderBottom: '1px dashed #444'}}>{nodeId || "(Node ID N/A)"}</span>
-      </div>
 
-      {/* Trunk Connector */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '0.8em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '4px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>│</span>
-      </div>
+      <span className="pl-1 whitespace-pre flex-shrink-0 text-left">~provider-id:</span>
+      <span className="  flex-grow col-span-2">{nodeId || "(Node ID N/A)"}</span>
 
-      {/* Wallet Input */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '1.6em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '1px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>├─</span>
-        <label htmlFor="pform-wallet" style={{color: '#aaa', minWidth: '105px', whiteSpace: 'pre', flexShrink: 0, textAlign: 'left'}}>~wallet:</label>
-        <input id="pform-wallet" type="text" value={registeredProviderWallet} onChange={(e) => setRegisteredProviderWallet(e.target.value)} placeholder="0x... (ETH Address on Base)" style={{fontFamily: 'monospace', fontSize: '0.9em', background: 'transparent', color: '#eee', border: 'none', borderBottom: '1px dashed #666', padding: '2px 0px', flexGrow: 1, width: '100%'}} />
-      </div>
+      <label
+        htmlFor="pform-wallet"
+        className=" pl-1 whitespace-pre flex-shrink-0 text-left">~wallet:</label>
+      <input
+        id="pform-wallet"
+        type="text"
+        value={registeredProviderWallet}
+        onChange={(e) => setRegisteredProviderWallet(e.target.value)}
+        placeholder="0x... (ETH Address on Base)"
+        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+      />
 
-      {/* Trunk Connector */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '0.8em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '4px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>│</span>
-      </div>
+      <label htmlFor="pform-price" className=" pl-1 whitespace-pre text-left">~price:</label>
+      <input
+        id="pform-price"
+        type="text"
+        value={price}
+        onChange={(e) => setPrice(e.target.value)}
+        placeholder="e.g., 0.01 (USDC)"
+        inputMode="decimal"
+        pattern="[0-9]*\.?[0-9]*"
+        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+      />
 
-      {/* Price Input */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '1.6em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '1px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>├─</span>
-        <label htmlFor="pform-price" style={{color: '#aaa', minWidth: '105px', whiteSpace: 'pre', flexShrink: 0, textAlign: 'left'}}>~price:</label>
-        <input 
-          id="pform-price" 
-          type="text"
-          value={price} 
-          onChange={(e) => setPrice(e.target.value)} 
-          placeholder="e.g., 0.01 (USDC)" 
-          inputMode="decimal"
-          pattern="[0-9]*\.?[0-9]*"
-          style={{fontFamily: 'monospace', fontSize: '0.9em', background: 'transparent', color: '#eee', border: 'none', borderBottom: '1px dashed #666', padding: '2px 0px', flexGrow: 1, width: '100%'}} 
-        />
-      </div>
 
-      {/* Trunk Connector */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '0.8em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '4px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>│</span>
-      </div>
+      <label htmlFor="pform-description" className="whitespace-pre text-left ">~description:</label>
+      <textarea
+        id="pform-description"
+        value={providerDescription}
+        onChange={(e) => setProviderDescription(e.target.value)}
+        placeholder="Purpose of this provider (can be multiple lines)"
+        rows={3}
+        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+      />
 
-      {/* Description Input - Changed to textarea */}
-      <div style={{display: 'flex', alignItems: 'flex-start', minHeight: '1.6em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '1px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>├─</span>
-        <label htmlFor="pform-description" style={{color: '#aaa', minWidth: '105px', whiteSpace: 'pre', flexShrink: 0, textAlign: 'left', paddingTop: '2px'}}>~description:</label>
-        <textarea 
-          id="pform-description" 
-          value={providerDescription} 
-          onChange={(e) => setProviderDescription(e.target.value)} 
-          placeholder="Purpose of this provider (can be multiple lines)" 
-          rows={3}
-          style={{fontFamily: 'monospace', fontSize: '0.9em', background: 'transparent', color: '#eee', border: 'none', borderBottom: '1px dashed #666', padding: '2px 0px', flexGrow: 1, width: '100%', resize: 'vertical', height: 'var(--form-textarea-height)'}} 
-        />
-      </div>
-
-      {/* Trunk Connector */}
-      <div style={{display: 'flex', alignItems: 'baseline', minHeight: '0.8em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '1px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>│</span>
-      </div>
-      
-      {/* Instructions Input */}
-      <div style={{display: 'flex', alignItems: 'flex-start', minHeight: '1.6em', marginBottom: '1px', paddingLeft: '5px'}}>
-        <span style={{color: '#777', minWidth: '20px', marginRight: '1px', whiteSpace: 'pre', textAlign: 'left', flexShrink: 0}}>├─</span>
-          <label htmlFor="pform-instructions" style={{color: '#aaa', minWidth: '105px', whiteSpace: 'pre', flexShrink: 0, textAlign: 'left', paddingTop: '0px'}}>~instructions:</label>
-        <textarea 
-          id="pform-instructions" 
-          value={instructions} 
-          onChange={(e) => setInstructions(e.target.value)} 
-          placeholder="Instructions for the provider" 
-          rows={3}
-          style={{fontFamily: 'monospace', fontSize: '0.9em', background: 'transparent', color: '#eee', border: 'none', borderBottom: '1px dashed #666', padding: '2px 0px', flexGrow: 1, width: '100%', resize: 'vertical', height: 'var(--form-textarea-height)'}} 
-        />
-      </div>
+      <label htmlFor="pform-instructions" className=" whitespace-pre text-left">~instructions:</label>
+      <textarea
+        id="pform-instructions"
+        value={instructions}
+        onChange={(e) => setInstructions(e.target.value)}
+        placeholder="Instructions for the provider"
+        rows={3}
+        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+      />
 
     </div>
   );
 };
 
-export default HypergridEntryForm; 
+export default HypergridEntryForm;

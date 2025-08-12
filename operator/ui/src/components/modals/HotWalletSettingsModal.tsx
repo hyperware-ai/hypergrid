@@ -1,44 +1,25 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
+import classNames from 'classnames';
 import { IHotWalletNodeData, SpendingLimits } from '../../logic/types';
 import type { Address } from 'viem';
-import CopyToClipboardText from '../CopyToClipboardText'; // If needed for displaying info within modal
-import styles from './HotWalletSettingsModal.module.css'; // We'll create this CSS file
+import { truncate } from '../../utils/truncate';
+import { useErrorLogStore } from '../../store/errorLog';
+import { toast } from 'react-toastify';
+import Modal from './Modal';
+import { callApiWithRouting } from '../../utils/api-endpoints';
+// lock icons removed
 
 interface HotWalletSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
-    walletData: IHotWalletNodeData | null; 
+    walletData: IHotWalletNodeData | null;
     // Callback to inform parent that an update happened so graph can be refreshed
-    onWalletUpdate: (walletAddress: Address) => void; 
+    onWalletUpdate: (walletAddress: Address) => void;
 }
 
-// Helper function to truncate text (can be moved to a utils file)
-const truncate = (str: string | undefined | null, startLen = 6, endLen = 4) => {
-    if (!str) return '';
-    if (str.length <= startLen + endLen + 3) return str;
-    return `${str.substring(0, startLen)}...${str.substring(str.length - endLen)}`;
-};
 
-// Define getApiBasePath and callMcpApi locally 
-const getApiBasePath = () => {
-    const pathParts = window.location.pathname.split('/').filter(p => p);
-    const processIdPart = pathParts.find(part => part.includes(':'));
-    return processIdPart ? `/${processIdPart}/api` : '/api';
-};
-const MCP_ENDPOINT = `${getApiBasePath()}/mcp`;
-
-const callMcpApi = async (endpoint: string, body: any) => {
-    const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-    });
-    const data = await response.json();
-    if (!response.ok) {
-        throw new Error(data.error || `API Error: ${response.statusText}`);
-    }
-    return data;
-};
+// Use centralized router for API calls
+const callApi = async (body: any) => callApiWithRouting(body);
 
 
 const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
@@ -47,31 +28,32 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     walletData,
     onWalletUpdate,
 }) => {
+    const { showToast } = useErrorLogStore();
     const [limitPerCall, setLimitPerCall] = useState<string>('');
+    const [limitTotal, setLimitTotal] = useState<string>('');
     // const [limitCurrency, setLimitCurrency] = useState<string>('USDC'); // Currency is now fixed
-    
+
     const [editedName, setEditedName] = useState<string>('');
     const [isEditingName, setIsEditingName] = useState<boolean>(false);
 
     const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
-    const [toastMessage, setToastMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
-    
+
     const [currentLimits, setCurrentLimits] = useState<SpendingLimits | null>(null);
     const [currentName, setCurrentName] = useState<string | null>(null);
     const [isEncrypted, setIsEncrypted] = useState<boolean>(false);
-    const [isUnlocked, setIsUnlocked] = useState<boolean>(false);
     const nameInputRef = useRef<HTMLInputElement>(null); // Ref for focusing the input
+
 
     useEffect(() => {
         if (walletData) {
             setCurrentLimits(walletData.limits);
             setLimitPerCall(walletData.limits?.maxPerCall || '');
+            setLimitTotal(walletData.limits?.maxTotal || '');
             // setLimitCurrency(walletData.limits?.currency || 'USDC'); // Removed
             setCurrentName(walletData.name);
             setEditedName(walletData.name || '');
             setIsEditingName(false);
             setIsEncrypted(walletData.isEncrypted);
-            setIsUnlocked(walletData.isUnlocked);
         }
     }, [walletData]);
 
@@ -83,19 +65,11 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         }
     }, [isEditingName]);
 
-    const showToast = useCallback((type: 'success' | 'error', text: string, duration: number = 3000) => {
-        setToastMessage({ type, text });
-        const timer = setTimeout(() => {
-            setToastMessage(null);
-        }, duration);
-        return () => clearTimeout(timer);
-    }, []);
-
     const handleSuccess = (msg: string, actionCallback?: () => void) => {
         showToast('success', msg);
         if (actionCallback) actionCallback();
         if (walletData) {
-            onWalletUpdate(walletData.address); 
+            onWalletUpdate(walletData.address);
         }
     };
 
@@ -103,19 +77,18 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         const errorMessage = err instanceof Error ? err.message : 'An unknown API error occurred';
         showToast('error', actionContext ? `${actionContext}: ${errorMessage}` : errorMessage);
     };
-    
+
     const selectAndExecute = async (
         actionNameForContext: string,
-        actionPayload: any, 
-        successMessage: string, 
+        actionPayload: any,
+        successMessage: string,
         successCallback?: () => void
     ) => {
         if (!walletData) return;
         setIsActionLoading(true);
-        setToastMessage(null);
         try {
-            await callMcpApi(MCP_ENDPOINT, { SelectWallet: { wallet_id: walletData.address } });
-            await callMcpApi(MCP_ENDPOINT, actionPayload);
+            await callApi({ SelectWallet: { wallet_id: walletData.address } });
+            await callApi(actionPayload);
             handleSuccess(successMessage, successCallback);
         } catch (err: any) {
             handleError(err, actionNameForContext);
@@ -130,15 +103,15 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
             setEditedName(currentName || ''); // Reset if no change or empty
             return;
         }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = { RenameWallet: { wallet_id: walletData.address, new_name: editedName.trim() } };
-            await callMcpApi(MCP_ENDPOINT, requestBody);
+            await callApi(requestBody);
             handleSuccess(`Wallet renamed to "${editedName.trim()}".`, () => {
                 setCurrentName(editedName.trim());
                 setIsEditingName(false);
             });
-        } catch (err: any) { 
+        } catch (err: any) {
             handleError(err, 'Rename Wallet');
             setEditedName(currentName || ''); // Revert on error
             setIsEditingName(false); // Exit editing mode on error too
@@ -173,14 +146,18 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         if (!walletData) return;
         const limitsToSet: SpendingLimits = {
             maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
-            maxTotal: null, 
-            currency: 'USDC', // Currency is now fixed to USDC
+            maxTotal: limitTotal.trim() === '' ? null : limitTotal.trim(),
+            currency: 'USDC',
         };
         const payload = { SetWalletLimits: { limits: limitsToSet } };
         await selectAndExecute(
             'Set Limits', payload,
             'Spending limits updated successfully.',
-            () => setCurrentLimits(limitsToSet)
+            () => {
+                setCurrentLimits(limitsToSet);
+                // Close settings after successful save to avoid reopening modal on refresh
+                onClose();
+            }
         );
     };
 
@@ -189,75 +166,69 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
         setIsEditingName(true);
     };
 
+
+
     if (!isOpen || !walletData) return null;
 
-    const limitsDisabled = isActionLoading || (isEncrypted && !isUnlocked);
+    const limitsDisabled = isActionLoading; // no lock gating in UI
 
     return (
-        <div className={styles.modalOverlay} onClick={onClose}>
-            <div className={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                <button className={styles.closeButton} onClick={onClose}>&times;</button>
-                <h3>Hot Wallet Settings: {truncate(currentName || walletData.address, 15, 6)}</h3>
-                
-                {toastMessage && (
-                    <div className={`${styles.toastNotification} ${toastMessage.type === 'success' ? styles.toastSuccess : styles.toastError}`}>
-                        {toastMessage.text}
-                    </div>
-                )}
+        <Modal
+            title={`Hot Wallet Settings: ${truncate(currentName || walletData.address, 15, 6)}`}
+            onClose={onClose}
+            preventAccidentalClose={true}
+        >
+            <h4 className="font-bold">Wallet Name </h4>
+            <input
+                ref={nameInputRef}
+                type="text"
+                value={editedName}
+                readOnly={!isEditingName}
+                onChange={(e) => setEditedName(e.target.value)}
+                onBlur={handleNameInputBlur}
+                onKeyDown={handleNameInputKeyDown}
+                onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
+                className={classNames("p-2 rounded bg-dark-gray/5", {
+                    "border border-black": isEditingName,
+                })}
+                disabled={isActionLoading}
+            />
 
-                {/* Rename Form - Click-to-edit */}
-                <div className={styles.configSection}>
-                    <h4>Rename Wallet</h4>
-                    {isEditingName ? (
-                        <input 
-                            ref={nameInputRef} 
-                            type="text" 
-                            value={editedName} 
-                            onChange={(e) => setEditedName(e.target.value)} 
-                            onBlur={handleNameInputBlur} 
-                            onKeyDown={handleNameInputKeyDown} 
-                            className={styles.inputField} // Use general input field style
-                            disabled={isActionLoading} 
-                        />
-                    ) : (
-                        <div className={styles.inlineDisplay} title="Click to edit name" onClick={handleNameDisplayClick} style={{cursor: 'text'}}>
-                            <span>Name: <strong>{currentName || '(No name set)'}</strong></span>
-                            {/* Edit button removed, click text instead */}
-                        </div>
-                    )}
-                </div>
+            <h4 className="font-bold">Spending Limits (USDC)</h4>
+            <form onSubmit={handleSetLimits} className="flex items-center gap-2">
+                <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Max Per Call (USDC)"
+                    value={limitPerCall}
+                    onChange={e => setLimitPerCall(e.target.value)}
+                    className="p-2 rounded bg-dark-gray/5 grow"
+                    disabled={limitsDisabled}
+                    onClick={(e) => e.stopPropagation()}
+                />
+                <input
+                    type="number"
+                    step="any"
+                    min="0"
+                    placeholder="Max Total (USDC)"
+                    value={limitTotal}
+                    onChange={e => setLimitTotal(e.target.value)}
+                    className="p-2 rounded bg-dark-gray/5 grow"
+                    disabled={limitsDisabled}
+                    onClick={(e) => e.stopPropagation()}
+                />
+                <button
+                    type="submit"
+                    className="p-2 rounded bg-green-600 text-white hover:bg-green-700"
+                    disabled={limitsDisabled}
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    Save
+                </button>
+            </form>
 
-                {/* Spending Limits - Compact UI */}
-                <div className={styles.configSection}>
-                    <h4>Spending Limits (USDC)</h4>
-                    {(isEncrypted && !isUnlocked) && (
-                        <p className={styles.warningText}>Wallet is locked. Unlock to change spending limits.</p>
-                    )}
-                    <form onSubmit={handleSetLimits} className={styles.spendingLimitFormCompact}>
-                        <input 
-                            type="number" 
-                            step="any" 
-                            min="0"
-                            placeholder="Max Per Call"
-                            value={limitPerCall}
-                            onChange={e => setLimitPerCall(e.target.value)} 
-                            className={styles.limitInputFieldCompact}
-                            disabled={limitsDisabled}
-                            onClick={(e) => e.stopPropagation()} // Good to have on inputs too
-                        />
-                        <button 
-                            type="submit" 
-                            className={styles.limitButtonOk}
-                            disabled={limitsDisabled}
-                            onClick={(e) => e.stopPropagation()} // Prevent modal close if form is part of a clickable area
-                        >
-                            OK
-                        </button>
-                    </form>
-                </div>
-
-            </div>
-        </div>
+        </Modal>
     );
 };
 

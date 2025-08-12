@@ -304,3 +304,434 @@ export interface IHypergridGraphResponse {
 }
 
 // --- End Backend-Driven Hypergrid Graph Visualizer Types ---
+
+// ========================================================================================
+// HYPERWALLET CLIENT TYPES - TypeScript equivalents of Rust hyperwallet_client types
+// ========================================================================================
+
+// Core type aliases
+export type ProcessAddress = string;
+export type WalletAddress = string;
+export type ChainId = number;
+export type SessionId = string;
+export type UserOperationHash = string;
+export type Signature = number[];
+
+// Operation enum - matches Rust Operation
+export enum Operation {
+    Handshake = 'Handshake',
+    UnlockWallet = 'UnlockWallet',
+    RegisterProcess = 'RegisterProcess',
+    UpdateSpendingLimits = 'UpdateSpendingLimits',
+    CreateWallet = 'CreateWallet',
+    ImportWallet = 'ImportWallet',
+    DeleteWallet = 'DeleteWallet',
+    RenameWallet = 'RenameWallet',
+    ExportWallet = 'ExportWallet',
+    EncryptWallet = 'EncryptWallet',
+    DecryptWallet = 'DecryptWallet',
+    GetWalletInfo = 'GetWalletInfo',
+    ListWallets = 'ListWallets',
+    SetWalletLimits = 'SetWalletLimits',
+    SendEth = 'SendEth',
+    SendToken = 'SendToken',
+    ApproveToken = 'ApproveToken',
+    CallContract = 'CallContract',
+    SignTransaction = 'SignTransaction',
+    SignMessage = 'SignMessage',
+    ExecuteViaTba = 'ExecuteViaTba',
+    CheckTbaOwnership = 'CheckTbaOwnership',
+    SetupTbaDelegation = 'SetupTbaDelegation',
+    BuildAndSignUserOperationForPayment = 'BuildAndSignUserOperationForPayment',
+    SubmitUserOperation = 'SubmitUserOperation',
+    BuildUserOperation = 'BuildUserOperation',
+    SignUserOperation = 'SignUserOperation',
+    BuildAndSignUserOperation = 'BuildAndSignUserOperation',
+    EstimateUserOperationGas = 'EstimateUserOperationGas',
+    GetUserOperationReceipt = 'GetUserOperationReceipt',
+    ConfigurePaymaster = 'ConfigurePaymaster',
+    ResolveIdentity = 'ResolveIdentity',
+    CreateNote = 'CreateNote',
+    ReadNote = 'ReadNote',
+    SetupDelegation = 'SetupDelegation',
+    VerifyDelegation = 'VerifyDelegation',
+    MintEntry = 'MintEntry',
+    GetBalance = 'GetBalance',
+    GetTokenBalance = 'GetTokenBalance',
+    GetTransactionHistory = 'GetTransactionHistory',
+    EstimateGas = 'EstimateGas',
+    GetGasPrice = 'GetGasPrice',
+    GetTransactionReceipt = 'GetTransactionReceipt',
+    BatchOperations = 'BatchOperations',
+    ScheduleOperation = 'ScheduleOperation',
+    CancelOperation = 'CancelOperation',
+}
+
+// OperationCategory enum - matches Rust OperationCategory  
+export enum OperationCategory {
+    System = 'System',
+    ProcessManagement = 'ProcessManagement',
+    WalletManagement = 'WalletManagement',
+    Ethereum = 'Ethereum',
+    TokenBoundAccount = 'TokenBoundAccount',
+    ERC4337 = 'ERC4337',
+    Hypermap = 'Hypermap',
+    Query = 'Query',
+    Advanced = 'Advanced',
+}
+
+// ErrorCode enum - matches Rust ErrorCode
+export enum ErrorCode {
+    PermissionDenied = 'PermissionDenied',
+    WalletNotFound = 'WalletNotFound',
+    InsufficientFunds = 'InsufficientFunds',
+    InvalidOperation = 'InvalidOperation',
+    InvalidParams = 'InvalidParams',
+    SpendingLimitExceeded = 'SpendingLimitExceeded',
+    ChainNotAllowed = 'ChainNotAllowed',
+    BlockchainError = 'BlockchainError',
+    InternalError = 'InternalError',
+    AuthenticationFailed = 'AuthenticationFailed',
+    WalletLocked = 'WalletLocked',
+    OperationNotSupported = 'OperationNotSupported',
+    VersionMismatch = 'VersionMismatch',
+}
+
+// MessageType enum for signing
+export enum MessageType {
+    PlainText = 'PlainText',
+    Eip191 = 'Eip191',
+}
+
+export interface MessageTypeEip712 {
+    Eip712: {
+        domain: any;
+        types: any;
+    };
+}
+
+export type MessageTypeUnion = MessageType | MessageTypeEip712;
+
+// Core structs
+export interface OperationError {
+    code: ErrorCode;
+    message: string;
+    details?: any;
+}
+
+export interface HyperwalletSpendingLimits {
+    per_tx_eth?: string;
+    daily_eth?: string;
+    per_tx_usdc?: string;
+    daily_usdc?: string;
+    daily_reset_at: number;
+    spent_today_eth: string;
+    spent_today_usdc: string;
+}
+
+export interface PaymasterConfig {
+    is_circle_paymaster: boolean;
+    paymaster_address: string;
+    paymaster_verification_gas: string;
+    paymaster_post_op_gas: string;
+}
+
+export interface HyperwalletBalance {
+    formatted: string;
+    raw: string;
+}
+
+export interface HyperwalletWallet {
+    address: WalletAddress;
+    name?: string;
+    chain_id: ChainId;
+    encrypted: boolean;
+    created_at?: string;
+    last_used?: string;
+    spending_limits?: WalletSpendingLimits;
+}
+
+export interface WalletSpendingLimits {
+    max_per_call?: string;
+    max_total?: string;
+    currency: string;
+    total_spent: string;
+    set_at?: string;
+    updated_at?: string;
+}
+
+// Handshake types
+export type HandshakeStep =
+    | {
+          ClientHello: {
+              client_version: string;
+              client_name: string;
+          };
+      }
+    | {
+          ServerWelcome: {
+              server_version: string;
+              supported_operations: Operation[];
+              supported_chains: number[];
+              features: string[];
+          };
+      }
+    | {
+          Register: {
+              required_operations: Operation[];
+              spending_limits?: HyperwalletSpendingLimits;
+          };
+      }
+    | {
+          Complete: {
+              registered_permissions: ProcessPermissions;
+              session_id: string;
+          };
+      };
+
+export interface ProcessPermissions {
+    address: ProcessAddress;
+    allowed_operations: Operation[];
+    spending_limits?: HyperwalletSpendingLimits;
+    updatable_settings: UpdatableSetting[];
+    registered_at: number;
+}
+
+export enum UpdatableSetting {
+    SpendingLimits = 'SpendingLimits',
+}
+
+export interface SessionInfo {
+    server_version: string;
+    session_id: SessionId;
+    registered_permissions: ProcessPermissions;
+    initial_chain_id: ChainId;
+}
+
+// Request types
+export interface CreateWalletRequest {
+    name: string;
+    password?: string;
+}
+
+export interface ImportWalletRequest {
+    name: string;
+    private_key: string;
+    password?: string;
+}
+
+export interface RenameWalletRequest {
+    wallet_id: string;
+    new_name: string;
+}
+
+export interface DeleteWalletRequest {
+    wallet_id: string;
+}
+
+export interface ExportWalletRequest {
+    wallet_id: string;
+    password?: string;
+}
+
+export interface UnlockWalletRequest {
+    session_id: SessionId;
+    wallet_id: string;
+    password: string;
+}
+
+export interface GetWalletInfoRequest {
+    wallet_id: string;
+}
+
+export interface GetBalanceRequest {
+    wallet_id: string;
+}
+
+export interface SendEthRequest {
+    wallet_id: string;
+    to: string;
+    amount: string;
+}
+
+export interface SendTokenRequest {
+    wallet_id: string;
+    token_address: string;
+    to: string;
+    amount: string;
+}
+
+export interface GetTokenBalanceRequest {
+    wallet_id: string;
+    token_address: string;
+}
+
+export interface ExecuteViaTbaRequest {
+    tba_address: string;
+    target: string;
+    call_data: string;
+    value?: string;
+}
+
+export interface BuildAndSignUserOperationForPaymentRequest {
+    eoa_wallet_id: string;
+    tba_address: string;
+    target: string;
+    call_data: string;
+    use_paymaster: boolean;
+    paymaster_config?: PaymasterConfig;
+    password?: string;
+}
+
+export interface SubmitUserOperationRequest {
+    signed_user_operation: any;
+    entry_point: string;
+    bundler_url?: string;
+}
+
+export interface GetUserOperationReceiptRequest {
+    user_op_hash: string;
+}
+
+// Response types
+export interface HyperwalletResponse<T> {
+    success: boolean;
+    data?: T;
+    error?: OperationError;
+    request_id?: string;
+}
+
+export interface CreateWalletResponse {
+    wallet_id: string;
+    address: string;
+    name: string;
+}
+
+export interface ImportWalletResponse {
+    wallet_id: string;
+    address: string;
+    name: string;
+}
+
+export interface DeleteWalletResponse {
+    success: boolean;
+    wallet_id: string;
+    message: string;
+}
+
+export interface ExportWalletResponse {
+    address: string;
+    private_key: string;
+}
+
+export interface UnlockWalletResponse {
+    success: boolean;
+    wallet_id: string;
+    message: string;
+}
+
+export interface GetWalletInfoResponse {
+    wallet_id: string;
+    address: string;
+    name: string;
+    chain_id: ChainId;
+    is_locked: boolean;
+}
+
+export interface GetBalanceResponse {
+    balance: HyperwalletBalance;
+    wallet_id: string;
+    chain_id: ChainId;
+}
+
+export interface ListWalletsResponse {
+    process: string;
+    wallets: HyperwalletWallet[];
+    total: number;
+}
+
+export interface SendEthResponse {
+    tx_hash: string;
+    from_address: string;
+    to_address: string;
+    amount: string;
+    chain_id: ChainId;
+}
+
+export interface SendTokenResponse {
+    tx_hash: string;
+    from_address: string;
+    to_address: string;
+    token_address: string;
+    amount: string;
+    chain_id: ChainId;
+}
+
+export interface GetTokenBalanceResponse {
+    balance: string;
+    formatted?: string;
+    decimals?: number;
+}
+
+export interface ExecuteViaTbaResponse {
+    tx_hash: string;
+    tba_address: string;
+    target_address: string;
+    success: boolean;
+}
+
+export interface BuildAndSignUserOperationResponse {
+    signed_user_operation: any;
+    entry_point: string;
+    ready_to_submit: boolean;
+}
+
+export interface SubmitUserOperationResponse {
+    user_op_hash: string;
+}
+
+export interface UserOperationReceiptResponse {
+    receipt?: any;
+    user_op_hash: string;
+    status: string;
+}
+
+export interface CreateNoteResponse {
+    note_id: string;
+    content_hash: string;
+    created_at: number;
+}
+
+// Message wrappers
+export interface HyperwalletRequest<T> {
+    data: T;
+    session_id: SessionId;
+}
+
+export interface HandshakeRequest<T> {
+    step: T;
+}
+
+// Message enum - matches Rust HyperwalletMessage  
+export type HyperwalletMessage =
+    | { operation: 'Handshake'; data: HandshakeRequest<HandshakeStep> }
+    | { operation: 'UnlockWallet'; data: HyperwalletRequest<UnlockWalletRequest> }
+    | { operation: 'CreateWallet'; data: HyperwalletRequest<CreateWalletRequest> }
+    | { operation: 'ImportWallet'; data: HyperwalletRequest<ImportWalletRequest> }
+    | { operation: 'DeleteWallet'; data: HyperwalletRequest<DeleteWalletRequest> }
+    | { operation: 'RenameWallet'; data: HyperwalletRequest<RenameWalletRequest> }
+    | { operation: 'ExportWallet'; data: HyperwalletRequest<ExportWalletRequest> }
+    | { operation: 'ListWallets'; data: HyperwalletRequest<{}> }
+    | { operation: 'GetWalletInfo'; data: HyperwalletRequest<GetWalletInfoRequest> }
+    | { operation: 'GetBalance'; data: HyperwalletRequest<GetBalanceRequest> }
+    | { operation: 'SendEth'; data: HyperwalletRequest<SendEthRequest> }
+    | { operation: 'SendToken'; data: HyperwalletRequest<SendTokenRequest> }
+    | { operation: 'GetTokenBalance'; data: HyperwalletRequest<GetTokenBalanceRequest> }
+    | { operation: 'ExecuteViaTba'; data: HyperwalletRequest<ExecuteViaTbaRequest> }
+    | { operation: 'BuildAndSignUserOperationForPayment'; data: HyperwalletRequest<BuildAndSignUserOperationForPaymentRequest> }
+    | { operation: 'SubmitUserOperation'; data: HyperwalletRequest<SubmitUserOperationRequest> }
+    | { operation: 'GetUserOperationReceipt'; data: HyperwalletRequest<GetUserOperationReceiptRequest> };
+
+// ========================================================================================
+// END HYPERWALLET CLIENT TYPES 
+// ========================================================================================

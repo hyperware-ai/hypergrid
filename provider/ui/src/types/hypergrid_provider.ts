@@ -85,6 +85,10 @@ export interface GetProviderNamehashResponse {
   Err?: string;
 }
 
+// Define top-level request types for forms
+export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
+export type AuthChoice = "none" | "query" | "header";
+
 // --- Indexed Provider Types ---
 // Interface for indexed providers from the operator's database
 // Note: These are generic JSON objects from the database, might have different structure than RegisteredProvider

@@ -25,37 +25,38 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
   };
 
   return (
-    <div 
-      className="registered-provider-card"
+    <div
+      className="bg-white p-4 rounded-lg shadow-sm border border-gray-200 hover:shadow-md transition-shadow cursor-pointer flex items-center justify-between"
       onClick={handleClick}
     >
-      <div className="provider-left-section">
-        <div className="provider-header">
-          <h3 className="provider-name">
-            <span className="provider-icon">🔌</span> {provider.provider_name}.grid.hypr
+      <div className="flex-1">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-lg font-semibold text-dark-gray flex items-center gap-2">
+            <span>🔌</span> {provider.provider_name}.obfusc-grid123.hypr
           </h3>
-          <span className="provider-price">
-            <span style={{ fontSize: '0.9em', opacity: 0.9 }}>💰 <span className="desktop-only">Price:</span></span>
+          <span className="text-sm text-gray-600 flex items-center gap-1">
+            <span className="text-base">💰</span>
+            <span className="hidden md:inline">Price:</span>
             <strong>{formatPrice(provider.price)}</strong>
           </span>
         </div>
         {provider.description && (
-          <p className="provider-description">{provider.description}</p>
+          <p className="text-gray-600 text-sm">{provider.description}</p>
         )}
       </div>
-      
-      <button 
-        className="provider-edit-button"
+
+      <button
+        className="ml-4 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded-md text-sm transition-colors flex items-center gap-1"
         onClick={(e) => {
           e.stopPropagation();
           onEdit?.(provider);
         }}
       >
-        <span className="desktop-only">✏️ Edit</span>
-        <span className="mobile-only">✏️</span>
+        <span className="hidden md:inline">✏️ Edit</span>
+        <span className="md:hidden">✏️</span>
       </button>
     </div>
   );
 };
 
-export default RegisteredProviderView; 
+export default RegisteredProviderView;
