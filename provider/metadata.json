@@ -5,7 +5,7 @@
   "properties": {
     "package_name": "hypergrid",
     "current_version": "0.1.0",
-    "publisher": "grid-beta.hypr",
+    "publisher": "ware.hypr",
     "mirrors": [],
     "code_hashes": {
       "0.1.0": ""

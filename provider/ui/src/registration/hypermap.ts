@@ -2,7 +2,8 @@ import { parseAbi, Address, encodeFunctionData, keccak256, stringToHex, encodePa
 
 // Contract addresses
 export const HYPERMAP_ADDRESS: Address = '0x000000000044C6B8Cb4d8f0F889a3E47664EAeda';
-export const HYPERGRID_ADDRESS: Address = '0x2138da52cbf52adf2e73139a898370e03bbebf0a';
+// currently obfusc-grid123.hypr, but should be grid.hypr
+export const HYPERGRID_ADDRESS: Address = '0xd65cb2ae7212e9b767c6953bb11cad1876d81cc8';
 export const HYPERGRID_NAMESPACE_MINTER_ADDRESS: Address = '0x44a8Bd4f9370b248c91d54773Ac4a457B3454b50';
 export const MULTICALL_ADDRESS: Address = '0xcA11bde05977b3631167028862bE2a173976CA11';
 
@@ -50,7 +51,7 @@ export const tbaExecuteAbi = parseAbi([
 ]);
 
 /**
- * Calculates the namehash for a provider name under the grid-beta.hypr namespace
+ * Calculates the namehash for a provider name under the grid.hypr namespace
  */
 export function calculateProviderNamehash(providerName: string, parentNamehash: `0x${string}` = DEFAULT_PARENT_NAMEHASH): `0x${string}` {
   // Convert provider name to bytes

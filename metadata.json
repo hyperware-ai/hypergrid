@@ -1,11 +1,11 @@
 {
     "name": "Hypergrid",
     "description": "give your language model a wallet and let it spend your money",
-    "image": "https://i.pinimg.com/736x/6a/d5/50/6ad5506b8b3e488702a9667dcd03eb11.jpg",
+    "image": "",
     "properties": {
         "package_name": "hypergrid",
         "current_version": "0.1.0",
-        "publisher": "grid-beta.hypr",
+        "publisher": "ware.hypr",
         "mirrors": [],
         "code_hashes": {
             "0.1.0": ""

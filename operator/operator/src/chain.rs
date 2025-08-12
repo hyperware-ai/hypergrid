@@ -233,9 +233,9 @@ pub fn add_mint(
     // Log every mint we see
     info!("Processing mint: '{}' with hash {} and parent {}", name, child_hash, parent_hash);
     
-    // Check if this is the Hypergrid root entry (grid-beta under hypr)
+    // Check if this is the Hypergrid root entry (grid under hypr)
     // The parent hash 0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826 is 'hypr'
-    if name == "obfusc-grid123" {
+    if name == "grid" {
         // We found a grid-beta entry, let's check if it's under hypr
         let hypr_hash = "0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826";
         if parent_hash == hypr_hash {
@@ -243,10 +243,10 @@ pub fn add_mint(
             state.root_hash = Some(child_hash.clone());
             return Ok(());
         } else {
-            // Log what parent this obfusc-grid123 has for debugging
+            // Log what parent this grid has for debugging
             let parent_name = hyperware_process_lib::net::get_name(parent_hash, Some(state.last_checkpoint_block), Some(1))
                 .unwrap_or_else(|| "unknown".to_string());
-            info!("Found entry named 'obfusc-grid123' under parent {} ({}), but we need obfusc-grid123.hypr", parent_hash, parent_name);
+            info!("Found entry named 'grid' under parent {} ({}), but we need grid.hypr", parent_hash, parent_name);
             // This grid-beta is not ours, skip it
             return Ok(());
         }
@@ -255,26 +255,26 @@ pub fn add_mint(
     let root = state.root_hash.clone().unwrap_or_default();
     if root.is_empty() {
         // Root not set yet, this mint needs to wait
-        return Err(anyhow::anyhow!("Hypergrid root (obfusc-grid123.hypr) not yet found, deferring mint {} with parent {}", name, parent_hash));
+        return Err(anyhow::anyhow!("Hypergrid root (grid.hypr) not yet found, deferring mint {} with parent {}", name, parent_hash));
     }
     
-    // Check if this mint is under our scope (parent should be obfusc-grid123.hypr)
+    // Check if this mint is under our scope (parent should be grid.hypr)
     if parent_hash != &root {
-        // This mint is not directly under obfusc-grid123.hypr
+        // This mint is not directly under grid.hypr
         // Try to resolve what the parent is to log it
         let parent_name = hyperware_process_lib::net::get_name(parent_hash, Some(state.last_checkpoint_block), Some(1))
             .unwrap_or_else(|| "unknown".to_string());
         
-        debug!("Skipping mint '{}' with parent {} ({}) - not a direct child of obfusc-grid123.hypr", 
+        debug!("Skipping mint '{}' with parent {} ({}) - not a direct child of grid.hypr", 
               name, parent_hash, parent_name);
         
         // Return Ok so it won't retry
         return Ok(());
     }
     
-    // This is a provider directly under obfusc-grid123.hypr
+    // This is a provider directly under grid.hypr
     dbm::insert_provider(db, parent_hash, child_hash.clone(), name.clone())?;
-    info!("Added provider: {} directly under obfusc-grid123.hypr", name);
+    info!("Added provider: {} directly under grid.hypr", name);
     Ok(())
 }
 
@@ -293,11 +293,11 @@ pub fn add_note(
 
     // Check if the Hypergrid root is set
     if state.root_hash.is_none() {
-        return Err(anyhow::anyhow!("Hypergrid root (obfusc-grid123.hypr) not yet found, deferring note {} for parent {}", note_label, parent_hash));
+        return Err(anyhow::anyhow!("Hypergrid root (grid.hypr) not yet found, deferring note {} for parent {}", note_label, parent_hash));
     }
 
     // First, check if this note is for something under our Hypergrid scope
-    // We need to verify the parent exists in our database OR will be created under obfusc-grid123.hypr
+    // We need to verify the parent exists in our database OR will be created under grid.hypr
     let provider_check = db.read(
         "SELECT id FROM providers WHERE hash = ?1 LIMIT 1".to_string(),
         vec![serde_json::Value::String(parent_hash.to_string())]
@@ -309,7 +309,7 @@ pub fn add_note(
         }
         _ => {
             // Provider doesn't exist in our database
-            // Check if there's a pending mint for this provider under obfusc-grid123.hypr
+            // Check if there's a pending mint for this provider under grid.hypr
             // If not, this note is for a provider outside our scope
             debug!("Note {} for provider {} not in our database - checking if it's outside Hypergrid scope", note_label, parent_hash);
             
@@ -317,14 +317,14 @@ pub fn add_note(
             let parent_name = hyperware_process_lib::net::get_name(parent_hash, Some(state.last_checkpoint_block), Some(2))
                 .unwrap_or_else(|| "unresolved".to_string());
             
-            if !parent_name.ends_with(".obfusc-grid123.hypr") && parent_name != "unresolved" {
-                // This provider is not under obfusc-grid123.hypr, skip it
-                debug!("Skipping note {} for provider {} ({}) - outside Hypergrid scope (not under obfusc-grid123.hypr)", 
+            if !parent_name.ends_with(".grid.hypr") && parent_name != "unresolved" {
+                // This provider is not under grid.hypr, skip it
+                debug!("Skipping note {} for provider {} ({}) - outside Hypergrid scope (not under grid.hypr)", 
                       note_label, parent_hash, parent_name);
                 return Ok(()); // Return Ok to avoid retrying
             }
             
-            // If we can't resolve or it might be under obfusc-grid123.hypr, defer it
+            // If we can't resolve or it might be under grid.hypr, defer it
             return Err(anyhow::anyhow!("Provider {} not found for note {} - deferring", parent_hash, note_label));
         }
     }
@@ -379,8 +379,8 @@ fn handle_pending(state: &mut State, db: &Sqlite, pending: &mut PendingLogs) {
         
         // Log root status
         match &state.root_hash {
-            Some(hash) => info!("Hypergrid root (obfusc-grid123.hypr) is set to: {}", hash),
-            None => warn!("Hypergrid root (obfusc-grid123.hypr) not yet found! All provider mints and notes will be deferred."),
+            Some(hash) => info!("Hypergrid root (grid.hypr) is set to: {}", hash),
+            None => warn!("Hypergrid root (grid.hypr) not yet found! All provider mints and notes will be deferred."),
         }
     }
     
@@ -401,7 +401,7 @@ fn handle_pending(state: &mut State, db: &Sqlite, pending: &mut PendingLogs) {
     }
     
     if outside_scope_count > 0 {
-        info!("Filtered out {} logs that are outside Hypergrid scope (not under obfusc-grid123.hypr)", outside_scope_count);
+        info!("Filtered out {} logs that are outside Hypergrid scope (not under grid.hypr)", outside_scope_count);
     }
     
     if !newpending.is_empty() {
@@ -419,7 +419,7 @@ fn handle_pending(state: &mut State, db: &Sqlite, pending: &mut PendingLogs) {
                         mint_count += 1;
                         if let Ok(decoded) = hypermap::contract::Mint::decode_log_data(log.data(), true) {
                             let parent_hash = decoded.parenthash.to_string();
-                            // Check if this might be a provider (parent is obfusc-grid123.hypr)
+                            // Check if this might be a provider (parent is grid.hypr)
                             if let Some(root) = &state.root_hash {
                                 if parent_hash == *root {
                                     let label = String::from_utf8_lossy(&decoded.label);
@@ -436,9 +436,9 @@ fn handle_pending(state: &mut State, db: &Sqlite, pending: &mut PendingLogs) {
         
         info!("Pending breakdown: {} mints, {} notes", mint_count, note_count);
         
-        // Show provider mints that should be under obfusc-grid123.hypr
+        // Show provider mints that should be under grid.hypr
         if !provider_mints.is_empty() {
-            info!("Found {} provider mints waiting to be processed under obfusc-grid123.hypr:", provider_mints.len());
+            info!("Found {} provider mints waiting to be processed under grid.hypr:", provider_mints.len());
             for (name, hash) in provider_mints.iter().take(10) {
                 info!("  - Provider '{}' with hash {}", name, hash);
             }
@@ -558,7 +558,7 @@ pub fn handle_timer(
 ///
 /// # Arguments
 /// * `provider` - An Ethereum provider instance.
-/// * `note_path` - The full path to the note (e.g., "~wallet.provider.obfusc-grid123.hypr").
+/// * `note_path` - The full path to the note (e.g., "~wallet.provider.grid.hypr").
 ///
 /// # Returns
 /// A `Result<Option<Bytes>>` containing the note data if found, None if the note

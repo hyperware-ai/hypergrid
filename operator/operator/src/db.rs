@@ -11,12 +11,12 @@ use crate::helpers::make_json_timestamp;
 
 pub fn open_db(our: &Address) -> Result<sqlite::Sqlite, Error> {
     let p = our.package_id();
-    let db = sqlite::open(p, "hypergrid-beta", None);
+    let db = sqlite::open(p, "hypergrid", None);
     db
 }
 pub fn wipe_db(our: &Address) -> anyhow::Result<()> {
     let p = our.package_id();
-    sqlite::remove_db(p.clone(), "hypergrid-beta", None)?;
+    sqlite::remove_db(p.clone(), "hypergrid", None)?;
     Ok(())
 }
 
