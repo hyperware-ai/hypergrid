@@ -2,23 +2,14 @@
 //! This module provides the same interface as the original wallet::payments module
 //! but delegates all operations to the hyperwallet service.
 
-use hyperware_process_lib::{Address, Request};
 use hyperware_process_lib::{
     logging::{info, error, warn}, 
-    wallet};
-use serde::{Deserialize, Serialize};
-use alloy_primitives::U256;
+    wallet,
+    hyperwallet_client,
+};
+use alloy_primitives::Address as EthAddress;
 
 use crate::structs::{State, PaymentAttemptResult};
-use super::account_abstraction;
-
-// Hyperwallet service address
-const HYPERWALLET_ADDRESS: (&str, &str, &str, &str) = ("our", "hyperwallet", "hyperwallet", "hallman.hypr");
-
-// Circle Paymaster configuration for Base chain
-const CIRCLE_PAYMASTER_ADDRESS: &str = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec";
-const CIRCLE_PAYMASTER_VERIFICATION_GAS: u64 = 500_000; // 0x7a120 - Gas for paymaster validation
-const CIRCLE_PAYMASTER_POST_OP_GAS: u64 = 300_000;     // 0x493e0 - Gas for paymaster post-operation
 
 /// Asset types for withdrawals
 #[derive(Debug, Clone, Copy)]
@@ -27,103 +18,204 @@ pub enum AssetType {
     Usdc,
 }
 
-/// Helper function to make payment requests to hyperwallet service
-fn call_hyperwallet_payment(
-    operation: &str,
-    params: serde_json::Value,
-    wallet_id: Option<String>,
-) -> Result<serde_json::Value, String> {
-    let target = HYPERWALLET_ADDRESS;
+///// one-stop thing
+//pub fn execute_payment(
+//    state: &State,
+//    provider_wallet_address: &str,
+//    amount_usdc_str: &str,
+//    _provider_id: String,
+//    operator_wallet_id: &str,
+//) -> Option<PaymentAttemptResult> {
+//    info!("Executing payment via hyperwallet: {} USDC to {}", amount_usdc_str, provider_wallet_address);
+//    
+//    let session = match &state.hyperwallet_session {
+//        Some(session) => session,
+//        None => {
+//            error!("No hyperwallet session available - not initialized");
+//            return Some(PaymentAttemptResult::Failed {
+//                error: "Hyperwallet session not initialized".to_string(),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//    
+//    let (usdc_contract, operator_tba, recipient_addr, amount_units) = match validate_payment_setup(state, provider_wallet_address, amount_usdc_str) {
+//        Ok(setup) => setup,
+//        Err(result) => return Some(result),
+//    };
+//    
+//    let tx_hash = match hyperwallet_client::execute_gasless_payment(
+//        &session.session_id,
+//        operator_wallet_id,
+//        &operator_tba,
+//        &recipient_addr.to_string(),
+//        amount_units,
+//    ) {
+//        Ok(tx_hash) => {
+//            info!("Gasless payment completed: tx_hash = {}", tx_hash);
+//            tx_hash
+//        }
+//        Err(e) => {
+//            error!("Failed to execute gasless payment: {}", e);
+//            return Some(PaymentAttemptResult::Failed {
+//                error: format!("Payment failed: {}", e),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//
+//    Some(PaymentAttemptResult::Success {
+//        tx_hash,
+//        amount_paid: amount_usdc_str.to_string(),
+//        currency: "USDC".to_string(),
+//    })
+//}
+
+pub fn execute_payment(
+    state: &State,
+    provider_wallet_address: &str,
+    amount_usdc_str: &str,
+    _provider_id: String,
+    eoa_wallet_id: &str,
+) -> Option<PaymentAttemptResult> {
+    info!("Executing payment via hyperwallet: {} USDC to {}", amount_usdc_str, provider_wallet_address);
     
-    // Build the proper OperationRequest format
-    let request = serde_json::json!({
-        "operation": operation,
-        "params": params,
-        "wallet_id": wallet_id,
-        "chain_id": crate::structs::CHAIN_ID,
-        "auth": {
-            "process_address": format!("{}@operator:hypergrid:ware.hypr", hyperware_process_lib::our().node()),
-            "signature": null
-        },
-        "request_id": null,
-        "timestamp": std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs()
-    });
-    
-    let body = serde_json::to_vec(&request)
-        .map_err(|e| format!("Failed to serialize request: {}", e))?;
-    
-    let response = Request::new()
-        .target(target)
-        .body(body)
-        .send_and_await_response(120) // Longer timeout for payment operations
-        .map_err(|e| format!("Failed to send request to hyperwallet: {}", e))?
-        .map_err(|e| format!("Hyperwallet payment request failed: {}", e))?;
-    
-    // Parse the OperationResponse
-    let operation_response: serde_json::Value = serde_json::from_slice(response.body())
-        .map_err(|e| format!("Failed to parse hyperwallet response: {}", e))?;
-    
-    // Check if the operation was successful
-    if let Some(success) = operation_response.get("success").and_then(|s| s.as_bool()) {
-        if success {
-            if let Some(data) = operation_response.get("data") {
-                Ok(data.clone())
-            } else {
-                Err("Success response missing data field".to_string())
-            }
-        } else {
-            let error_msg = operation_response.get("error")
-                .and_then(|e| e.get("message"))
-                .and_then(|m| m.as_str())
-                .unwrap_or("Unknown error");
-            Err(error_msg.to_string())
+    // Get the hyperwallet session from state
+    let session = match &state.hyperwallet_session {
+        Some(session) => session,
+        None => {
+            error!("No hyperwallet session available - not initialized");
+            return Some(PaymentAttemptResult::Failed {
+                error: "Hyperwallet session not initialized".to_string(),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
         }
-    } else {
-        Err("Response missing success field".to_string())
-    }
-}
-
-/// Check if gasless transactions should be used based on configuration
-fn should_use_gasless(state: &State) -> bool {
-    // Check if gasless is enabled in state configuration
-    state.gasless_enabled.unwrap_or(false) && 
-    // Check if we're on a supported chain (Base)
-    crate::structs::CHAIN_ID == 8453
-}
-
-/// Execute a payment to a provider if needed
-pub fn execute_payment_if_needed(
-    state: &State,
-    provider_wallet_address: &str,
-    amount_usdc_str: &str,
-    _provider_id: String,
-    operator_wallet_id: &str,
-) -> Option<PaymentAttemptResult> {
-    execute_payment_with_metadata(state, provider_wallet_address, amount_usdc_str, _provider_id, operator_wallet_id, None)
-}
-
-/// Execute a payment with optional metadata (for testing paymaster formats)
-pub fn execute_payment_with_metadata(
-    state: &State,
-    provider_wallet_address: &str,
-    amount_usdc_str: &str,
-    _provider_id: String,
-    operator_wallet_id: &str,
-    metadata: Option<serde_json::Map<String, serde_json::Value>>,
-) -> Option<PaymentAttemptResult> {
-    info!("Executing payment via hyperwallet: {} USDC to {}", 
-          amount_usdc_str, provider_wallet_address);
+    };
     
+    // Step 1: Validate setup and get required addresses
+    let (usdc_contract, operator_tba, recipient_addr, amount_units) = match validate_payment_setup(state, provider_wallet_address, amount_usdc_str) {
+        Ok(setup) => setup,
+        Err(result) => return Some(result),
+    };
+    
+    // Step 2: Create TBA execute calldata using the new API
+    let tba_calldata = match hyperwallet_client::create_tba_payment_calldata(&usdc_contract, &recipient_addr.to_string(), amount_units) {
+        Ok(calldata) => calldata,
+        Err(e) => {
+            error!("Failed to create TBA calldata: {}", e);
+            return Some(PaymentAttemptResult::Failed {
+                error: format!("Calldata creation failed: {}", e),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
+        }
+    };
+    
+    // Step 3: Build and sign UserOperation using new API
+    let build_response = match hyperwallet_client::build_and_sign_user_operation_for_payment(
+        &session.session_id,
+        eoa_wallet_id,
+        &operator_tba,
+        &operator_tba, // not used anyway
+        &tba_calldata,
+        true,
+        Some(Default::default()),
+        None,
+    ) {
+        Ok(response) => {
+            info!("UserOperation built and signed: {:?}", response);
+            response
+        },
+        Err(e) => {
+            error!("Failed to build and sign user operation: {}", e);
+            return Some(PaymentAttemptResult::Failed {
+                error: format!("Build failed: {}", e),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
+        }
+    };
+
+    // Step 4: Submit UserOperation using new API
+    let signed_user_op_value = match serde_json::from_str(&build_response.signed_user_operation) {
+        Ok(val) => val,
+        Err(e) => {
+            error!("Failed to parse signed user operation: {}", e);
+            return Some(PaymentAttemptResult::Failed {
+                error: format!("Parse signed user op failed: {}", e),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
+        }
+    };
+    
+    let user_op_hash = match hyperwallet_client::submit_user_operation(
+        &session.session_id,
+        signed_user_op_value,
+        &build_response.entry_point,
+        None,
+    ) {
+        Ok(hash) => {
+            info!("UserOperation submitted: user_op_hash = {}", hash);
+            hash
+        }
+        Err(e) => {
+            error!("Failed to submit user operation: {}", e);
+            return Some(PaymentAttemptResult::Failed {
+                error: format!("Submit failed: {}", e),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
+        }
+    };
+
+    // Step 5: Get receipt using new API
+    let tx_hash = match hyperwallet_client::get_user_operation_receipt(
+        &session.session_id,
+        &user_op_hash,
+    ) {
+        Ok(receipt_response) => {
+            // Extract tx_hash from typed response (receipt is a JSON string)
+            let tx_hash = receipt_response
+                .receipt
+                .as_ref()
+                .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
+                .and_then(|val| val.get("transactionHash").cloned())
+                .and_then(|h| h.as_str().map(String::from))
+                .unwrap_or(user_op_hash.clone()); // Fallback to userOp hash
+                
+            info!("Payment receipt received: tx_hash = {}", tx_hash);
+            tx_hash
+        }
+        Err(e) => {
+            warn!("Receipt failed ({}), using userOp hash as fallback: {}", e, user_op_hash);
+            user_op_hash // Fallback to userOp hash
+        }
+    };
+
+    Some(PaymentAttemptResult::Success {
+        tx_hash,
+        amount_paid: amount_usdc_str.to_string(),
+        currency: "USDC".to_string(),
+    })
+}
+
+
+
+// Helper: Validate payment setup and get required addresses
+fn validate_payment_setup(
+    state: &State,
+    provider_wallet_address: &str,
+    amount_usdc_str: &str,
+) -> Result<(String, String, EthAddress, u128), PaymentAttemptResult> {
     // Get USDC contract address for the chain
     let usdc_contract = match crate::structs::CHAIN_ID {
         8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
-        //1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
         _ => {
-            error!("Unsupported chain ID for USDC: {}", crate::structs::CHAIN_ID);
-            return Some(PaymentAttemptResult::Failed {
+            return Err(PaymentAttemptResult::Failed {
                 error: format!("Unsupported chain ID: {}", crate::structs::CHAIN_ID),
                 amount_attempted: amount_usdc_str.to_string(),
                 currency: "USDC".to_string(),
@@ -135,8 +227,20 @@ pub fn execute_payment_with_metadata(
     let operator_tba = match &state.operator_tba_address {
         Some(addr) => addr.clone(),
         None => {
-            return Some(PaymentAttemptResult::Skipped {
+            return Err(PaymentAttemptResult::Skipped {
                 reason: "Operator TBA not configured".to_string(),
+            });
+        }
+    };
+    
+    // Parse recipient address
+    let recipient_addr = match provider_wallet_address.parse::<EthAddress>() {
+        Ok(addr) => addr,
+        Err(_) => {
+            return Err(PaymentAttemptResult::Failed {
+                error: "Invalid recipient address".to_string(),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
             });
         }
     };
@@ -145,232 +249,55 @@ pub fn execute_payment_with_metadata(
     let amount_f64 = amount_usdc_str.parse::<f64>().unwrap_or(0.0);
     let amount_units = (amount_f64 * 1_000_000.0) as u128; // Convert to 6 decimal units
     
-    // Properly encode the ERC20 transfer call
-    // Function selector for transfer(address,uint256): 0xa9059cbb
-    let recipient_address = provider_wallet_address.trim_start_matches("0x");
-    let call_data = format!(
-        "0xa9059cbb{:0>64}{:064x}",
-        recipient_address,
-        amount_units
-    );
-    
-    // Check if we should use gasless transactions (we should always do this in the future)
-    if should_use_gasless(state) && account_abstraction::is_gasless_available(operator_wallet_id, Some(crate::structs::CHAIN_ID as u64)) {
-        // Check if metadata explicitly disables paymaster
-        let use_paymaster = if let Some(ref meta) = metadata {
-            meta.get("use_paymaster")
-                .and_then(|v| v.as_bool())
-                .unwrap_or(true) // Default to true if not specified
-        } else {
-            true
-        };
-        
-        if !use_paymaster {
-            info!("Building UserOperation WITHOUT paymaster (using ETH for gas)");
-        } else {
-            info!("Using gasless transaction for payment (with paymaster)");
-        }
-        
-        // For gasless transactions, we need to:
-        // 1. Create the ERC20 transfer calldata
-        // 2. Wrap it in a TBA execute call
-        // 3. Build UserOperation with TBA as sender
-        
-        // The TBA execute calldata wraps the ERC20 transfer
-        // We need to properly encode: execute(address target, uint256 value, bytes data, uint8 operation)
-        use alloy_primitives::{Address as EthAddress, U256, Bytes};
-        use alloy_sol_types::{SolCall, sol};
-        
-        sol! {
-            function execute(address target, uint256 value, bytes data, uint8 operation) external returns (bytes memory);
-        }
-        
-        // Parse the USDC contract address
-        let usdc_addr = usdc_contract.parse::<EthAddress>()
-            .map_err(|_| "Invalid USDC address".to_string());
-        
-        // Decode the ERC20 transfer calldata
-        let erc20_data = hex::decode(call_data.trim_start_matches("0x"))
-            .map_err(|_| "Invalid call data".to_string());
-        
-        match (usdc_addr, erc20_data) {
-            (Ok(addr), Ok(data)) => {
-                // Create the execute call
-                let execute_call = executeCall {
-                    target: addr,
-                    value: U256::ZERO,
-                    data: data.into(),
-                    operation: 0, // CALL
-                };
-                
-                let tba_calldata = format!("0x{}", hex::encode(execute_call.abi_encode()));
-                
-                // Add Circle paymaster info to metadata if using paymaster
-                let mut final_metadata = metadata.unwrap_or_else(|| serde_json::Map::new());
-                if use_paymaster {
-                    // Circle Paymaster on Base - add all required metadata
-                    final_metadata.insert("paymaster_address".to_string(), 
-                        serde_json::json!(CIRCLE_PAYMASTER_ADDRESS));
-                    final_metadata.insert("is_circle_paymaster".to_string(), serde_json::json!(true));
-                    final_metadata.insert("paymaster_verification_gas".to_string(), 
-                        serde_json::json!(format!("0x{:x}", CIRCLE_PAYMASTER_VERIFICATION_GAS)));
-                    final_metadata.insert("paymaster_post_op_gas".to_string(), 
-                        serde_json::json!(format!("0x{:x}", CIRCLE_PAYMASTER_POST_OP_GAS)));
-                }
-                
-                // ✅ ADD TBA ADDRESS TO METADATA - This tells hyperwallet to use TBA as sender
-                final_metadata.insert("tba_address".to_string(), 
-                    serde_json::json!(operator_tba));
-                
-                match account_abstraction::build_and_sign_user_operation_with_metadata(
-                    operator_wallet_id, // Hot wallet that will sign
-                    &operator_tba, // Target is the TBA (self-call)
-                    &tba_calldata,
-                    Some("0"),
-                    use_paymaster, // Pass the use_paymaster flag
-                    Some(final_metadata), // Pass the metadata with Circle info
-                    None, // No password needed if wallet is already unlocked
-                    Some(crate::structs::CHAIN_ID as u64),
-                ) {
-                    Ok(signed_data) => {
-                        // The response should contain the signed UserOperation
-                        let signed_user_op = signed_data.get("signed_user_operation")
-                            .ok_or("Missing signed_user_operation")
-                            .map_err(|e| e.to_string());
-                        
-                        let entry_point = signed_data.get("entry_point")
-                            .and_then(|e| e.as_str())
-                            .ok_or("Missing entry_point")
-                            .map_err(|e| e.to_string());
-                        
-                        match (signed_user_op, entry_point) {
-                            (Ok(signed_op), Ok(ep)) => {
-                                // Submit the UserOperation
-                                match account_abstraction::submit_user_operation(
-                                    signed_op.clone(),
-                                    ep,
-                                    None,
-                                    Some(crate::structs::CHAIN_ID as u64),
-                                ) {
-                                    Ok(user_op_hash) => {
-                                        info!("Gasless payment submitted: user_op_hash = {}", user_op_hash);
-                                        
-                                        // Convert userOp hash to actual transaction hash
-                                        match account_abstraction::get_user_operation_receipt(
-                                            &user_op_hash,
-                                            Some(crate::structs::CHAIN_ID as u64),
-                                        ) {
-                                            Ok(receipt_data) => {
-                                                info!("Receipt data received from hyperwallet: {}", serde_json::to_string_pretty(&receipt_data).unwrap_or_else(|_| format!("{:?}", receipt_data)));
-                                                if let Some(receipt) = receipt_data.get("receipt") {
-                                                    if let Some(tx_hash) = receipt.get("transactionHash").and_then(|h| h.as_str()) {
-                                                        info!("Converted userOp hash {} to transaction hash {}", user_op_hash, tx_hash);
-                                                        Some(PaymentAttemptResult::Success {
-                                                            tx_hash: tx_hash.to_string(),
-                                                            amount_paid: amount_usdc_str.to_string(),
-                                                            currency: "USDC".to_string(),
-                                                        })
-                                                    } else {
-                                                        warn!("Receipt found but missing transactionHash, using userOp hash as fallback");
-                                                        Some(PaymentAttemptResult::Success {
-                                                            tx_hash: user_op_hash,
-                                                            amount_paid: amount_usdc_str.to_string(),
-                                                            currency: "USDC".to_string(),
-                                                        })
-                                                    }
-                                                } else {
-                                                    warn!("Receipt data missing 'receipt' field, using userOp hash as fallback");
-                                                    Some(PaymentAttemptResult::Success {
-                                                        tx_hash: user_op_hash,
-                                                        amount_paid: amount_usdc_str.to_string(),
-                                                        currency: "USDC".to_string(),
-                                                    })
-                                                }
-                                            }
-                                            Err(e) => {
-                                                warn!("Failed to get UserOperation receipt ({}), using userOp hash as fallback: {}", e, user_op_hash);
-                                                Some(PaymentAttemptResult::Success {
-                                                    tx_hash: user_op_hash,
-                                                    amount_paid: amount_usdc_str.to_string(),
-                                                    currency: "USDC".to_string(),
-                                                })
-                                            }
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to submit gasless payment: {}", e);
-                                        execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
-                                    }
-                                }
-                            }
-                            _ => {
-                                error!("Failed to get signed UserOperation data");
-                                execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        error!("Failed to build and sign UserOperation: {}", e);
-                        execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
-                    }
-                }
-            }
-            _ => {
-                error!("Failed to parse USDC address or call data");
-                execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
-            }
-        }
-    } else {
-        // Use regular TBA execution
-        execute_regular_payment(operator_tba, usdc_contract, call_data, operator_wallet_id, amount_usdc_str)
-    }
+    Ok((usdc_contract.to_string(), operator_tba, recipient_addr, amount_units))
 }
 
-/// Execute a regular (non-gasless) payment via TBA
-fn execute_regular_payment(
-    operator_tba: String,
-    usdc_contract: &str,
-    call_data: String,
-    operator_wallet_id: &str,
-    amount_usdc_str: &str,
-) -> Option<PaymentAttemptResult> {
-    let params = serde_json::json!({
-        "tba_address": operator_tba,
-        "target": usdc_contract,
-        "call_data": call_data,
-        "value": "0",
-        "operation": 0 // CALL operation
-    });
-    
-    match call_hyperwallet_payment("ExecuteViaTba", params, Some(operator_wallet_id.to_string())) {
-        Ok(data) => {
-            if let Some(tx_hash) = data.get("transaction_hash").and_then(|h| h.as_str()) {
-                info!("Payment successful: tx_hash = {}", tx_hash);
-                Some(PaymentAttemptResult::Success {
-                    tx_hash: tx_hash.to_string(),
-                    amount_paid: amount_usdc_str.to_string(),
-                    currency: "USDC".to_string(),
-                })
-            } else {
-                error!("Payment response missing transaction_hash");
-                Some(PaymentAttemptResult::Failed {
-                    error: "Payment response missing transaction hash".to_string(),
-                    amount_attempted: amount_usdc_str.to_string(),
-                    currency: "USDC".to_string(),
-                })
-            }
-        }
-        Err(e) => {
-            error!("Payment failed: {}", e);
-            Some(PaymentAttemptResult::Failed {
-                error: format!("Hyperwallet payment error: {}", e),
-                amount_attempted: amount_usdc_str.to_string(),
-                currency: "USDC".to_string(),
-            })
-        }
-    }
-}
+///// Execute a regular (non-gasless) payment via TBA
+//fn execute_regular_payment(
+//    operator_tba: String,
+//    usdc_contract: &str,
+//    call_data: String,
+//    operator_wallet_id: &str,
+//    amount_usdc_str: &str,
+//) -> Option<PaymentAttemptResult> {
+//    let params = serde_json::json!({
+//        "tba_address": operator_tba,
+//        "target": usdc_contract,
+//        "call_data": call_data,
+//        "value": "0",
+//        "operation": 0 // CALL operation
+//    });
+//    
+//    match call_hyperwallet_payment("ExecuteViaTba", params, Some(operator_wallet_id.to_string())) {
+//        Ok(data) => {
+//            if let Some(tx_hash) = data.get("transaction_hash").and_then(|h| h.as_str()) {
+//                info!("Payment successful: tx_hash = {}", tx_hash);
+//                Some(PaymentAttemptResult::Success {
+//                    tx_hash: tx_hash.to_string(),
+//                    amount_paid: amount_usdc_str.to_string(),
+//                    currency: "USDC".to_string(),
+//                })
+//            } else {
+//                error!("Payment response missing transaction_hash");
+//                Some(PaymentAttemptResult::Failed {
+//                    error: "Payment response missing transaction hash".to_string(),
+//                    amount_attempted: amount_usdc_str.to_string(),
+//                    currency: "USDC".to_string(),
+//                })
+//            }
+//        }
+//        Err(e) => {
+//            error!("Payment failed: {}", e);
+//            Some(PaymentAttemptResult::Failed {
+//                error: format!("Hyperwallet payment error: {}", e),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            })
+//        }
+//    }
+//}
 
+// TODO, this needs to call the execute_gasless_payment function in hyperwallet_client
 /// Handle operator TBA withdrawal
 pub fn handle_operator_tba_withdrawal(
     state: &State,
@@ -380,66 +307,46 @@ pub fn handle_operator_tba_withdrawal(
 ) -> Result<(), String> {
     info!("Handling {:?} withdrawal via hyperwallet: {} to {}", asset_type, amount_str, to_address);
     
-    // Get selected wallet ID
-    let wallet_id = state.selected_wallet_id.as_ref()
-        .ok_or("No wallet selected")?;
-    
-    // Get operator TBA address
-    let operator_tba = state.operator_tba_address.as_ref()
-        .ok_or("Operator TBA not configured")?;
-    
-    let (operation, params) = match asset_type {
-        AssetType::Eth => {
-            // For ETH, we need to execute via TBA with value
-            ("ExecuteViaTba", serde_json::json!({
-                "tba_address": operator_tba,
-                "target": to_address,
-                "call_data": "0x", // Empty call data for ETH transfer
-                "value": amount_str,
-                "operation": 0 // CALL operation
-            }))
-        }
-        AssetType::Usdc => {
-            // For USDC, we need to create the ERC20 transfer calldata
-            let usdc_contract = match crate::structs::CHAIN_ID {
-                8453 => "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913", // Base USDC
-                1 => "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",    // Mainnet USDC
-                _ => return Err(format!("Unsupported chain ID for USDC: {}", crate::structs::CHAIN_ID)),
-            };
-            
-            // Parse amount and convert to USDC units
-            let amount_f64 = amount_str.parse::<f64>().map_err(|e| format!("Invalid amount: {}", e))?;
-            let amount_units = (amount_f64 * 1_000_000.0) as u128; // Convert to 6 decimal units
-            
-            // Encode ERC20 transfer call
-            let recipient_address = to_address.trim_start_matches("0x");
-            let call_data = format!(
-                "0xa9059cbb{:0>64}{:064x}",
-                recipient_address,
-                amount_units
-            );
-            
-            ("ExecuteViaTba", serde_json::json!({
-                "tba_address": operator_tba,
-                "target": usdc_contract,
-                "call_data": call_data,
-                "value": "0",
-                "operation": 0 // CALL operation
-            }))
+    // Get the hyperwallet session from state
+    let session = match &state.hyperwallet_session {
+        Some(session) => session,
+        None => {
+            return Err("Hyperwallet session not initialized".to_string());
         }
     };
     
-    match call_hyperwallet_payment(operation, params, Some(wallet_id.clone())) {
-        Ok(data) => {
-            if let Some(tx_hash) = data.get("transaction_hash").and_then(|h| h.as_str()) {
-                info!("Withdrawal successful: tx_hash = {}", tx_hash);
-                Ok(())
-            } else {
-                Err("Withdrawal response missing transaction hash".to_string())
-            }
+    let wallet_id = state.selected_wallet_id.as_ref()
+        .ok_or("No wallet selected")?;
+
+    info!("Selected wallet ID: {:?}", wallet_id);
+    
+    let tx_hash = match asset_type {
+        AssetType::Usdc => {
+            // Get operator TBA address
+            let tba_address = state.operator_tba_address.as_ref()
+                .ok_or("Operator TBA not configured")?;
+            
+            // Parse USDC amount (e.g., "1.5" -> 1,500,000 units)
+            let amount_f64 = amount_str.parse::<f64>()
+                .map_err(|_| "Invalid amount format")?;
+            let amount_usdc_units = amount_f64  as u128;
+            
+            // Use execute_gasless_payment from hyperwallet_client
+            hyperwallet_client::execute_gasless_payment(
+                &session.session_id,
+                wallet_id,
+                tba_address,
+                &to_address,
+                amount_usdc_units,
+            ).map_err(|e| format!("USDC gasless withdrawal failed: {}", e))?
         }
-        Err(e) => Err(format!("Withdrawal failed: {}", e)),
-    }
+        _ => {
+            return Err(format!("Unsupported asset type: {:?}", asset_type));
+        }
+    };
+    
+    info!("Withdrawal successful: tx_hash = {}", tx_hash);
+                Ok(())
 }
 
 // ===== Additional functions that might be needed =====
@@ -511,7 +418,7 @@ pub fn check_operator_tba_funding_detailed(
 
 pub fn check_single_hot_wallet_funding_detailed(
     _state: &crate::structs::State,
-    hot_wallet_address: &str,
+    _hot_wallet_address: &str,
 ) -> (bool, Option<String>, Option<String>) {
     // This would need to query hyperwallet or the chain directly
     // For now, return dummy values: (needs_eth, eth_balance_str, error_message)

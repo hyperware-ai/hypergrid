@@ -85,5 +85,9 @@ export interface GetProviderNamehashResponse {
   Err?: string;
 }
 
+// Define top-level request types for forms
+export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
+export type AuthChoice = "none" | "query" | "header";
+
 
 

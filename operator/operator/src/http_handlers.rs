@@ -318,7 +318,8 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 ApiRequest::WithdrawUsdcFromOperatorTba { to_address, amount_usdc_units_str } => handle_withdraw_usdc(state, to_address, amount_usdc_units_str),
                 
                 // Authorized client management
-                ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
+        ApiRequest::RenameAuthorizedClient { client_id, new_name } => handle_rename_authorized_client(state, client_id, new_name),
+        ApiRequest::DeleteAuthorizedClient { client_id } => handle_delete_authorized_client(state, client_id),
                 
                 // ERC-4337 configuration
                 ApiRequest::SetGaslessEnabled { enabled } => handle_set_gasless_enabled(state, enabled),
@@ -492,7 +493,7 @@ fn handle_search_providers(db: &Sqlite, params: &HashMap<String, String>) -> any
     send_json_response(StatusCode::OK, &json!(data))
 }
 
-fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
+fn handle_get_managed_wallets(state: &mut State) -> anyhow::Result<()> {
     info!("Getting managed wallets");
     let (selected_id, summaries) = hyperwallet_service::get_wallet_summary_list(state);
     
@@ -502,7 +503,7 @@ fn handle_get_managed_wallets(state: &State) -> anyhow::Result<()> {
     }))
 }
 
-fn handle_get_linked_wallets(state: &State) -> anyhow::Result<()> {
+fn handle_get_linked_wallets(state: &mut State) -> anyhow::Result<()> {
     info!("Getting linked wallets");
     
     // Get on-chain linked wallets if operator is configured
@@ -692,10 +693,6 @@ fn execute_provider_flow(
     }
 }
 
-// ===========================================================================================
-// MCP HANDLER FUNCTIONS - Individual operation implementations
-// ===========================================================================================
-
 // --- Registry Operations ---
 
 fn handle_search_registry(db: &Sqlite, query: String) -> anyhow::Result<()> {
@@ -714,7 +711,7 @@ fn handle_get_call_history(state: &State) -> anyhow::Result<()> {
 
 // --- Wallet Management Operations ---
 
-fn handle_get_wallet_summary_list(state: &State) -> anyhow::Result<()> {
+fn handle_get_wallet_summary_list(state: &mut State) -> anyhow::Result<()> {
     info!("Getting wallet summary list");
     let (selected_id, summaries) = hyperwallet_service::get_wallet_summary_list(state);
     send_json_response(StatusCode::OK, &json!({ 
@@ -749,7 +746,7 @@ fn handle_delete_wallet(state: &mut State, wallet_id: String) -> anyhow::Result<
 
 fn handle_generate_wallet(state: &mut State) -> anyhow::Result<()> {
     info!("Generating new wallet");
-    match hyperwallet_service::generate_initial_wallet() {
+    match hyperwallet_service::generate_initial_wallet(state) {
         Ok(wallet_id) => {
             info!("Generated wallet via hyperwallet: {}", wallet_id);
             send_json_response(StatusCode::OK, &json!({ "success": true, "id": wallet_id }))
@@ -1316,7 +1313,6 @@ pub fn handle_authorize_shim_request(
     let mut extracted_node_name: Option<String> = None;
     let mut extracted_token_value: Option<String> = None;
 
-    // Use .as_deref() to borrow &str from Option<String>
     if let Some(cookies) = cookies_header_str.as_deref() { 
         for cookie_pair in cookies.split(';') {
             let parts: Vec<&str> = cookie_pair.trim().splitn(2, '=').collect();
@@ -1587,10 +1583,13 @@ fn handle_payment(
     };
     
     info!("Attempting payment of {} to {} for provider {} using wallet {}", 
-          provider_details.price_str, provider_details.wallet_address, 
-          provider_details.provider_id, signer_wallet_id);
+          provider_details.price_str, 
+          provider_details.wallet_address, 
+          provider_details.provider_id, 
+          signer_wallet_id
+        );
     
-    let payment_result = hyperwallet_payments::execute_payment_if_needed(
+    let payment_result = hyperwallet_payments::execute_payment(
         state,
         &provider_details.wallet_address,
         &provider_details.price_str,
@@ -1651,6 +1650,24 @@ fn handle_delete_authorized_client(state: &mut State, client_id: String) -> anyh
             "success": false, 
             "error": "Client not found" 
         }))
+    }
+}
+
+fn handle_rename_authorized_client(state: &mut State, client_id: String, new_name: String) -> anyhow::Result<()> {
+    info!("Renaming authorized client {} to '{}'", client_id, new_name);
+
+    match state.authorized_clients.get_mut(&client_id) {
+        Some(client) => {
+            client.name = new_name;
+            state.save();
+            send_json_response(StatusCode::OK, &json!({ "success": true }))
+        }
+        None => {
+            send_json_response(StatusCode::NOT_FOUND, &json!({
+                "success": false,
+                "error": "Client not found"
+            }))
+        }
     }
 }
 

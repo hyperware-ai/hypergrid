@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import classNames from 'classnames';
 import CopyToClipboardText from '../components/CopyToClipboardText';
 import { callApiWithRouting } from '../utils/api-endpoints';
 // Import shared types
 import { WalletSummary, SpendingLimits, WalletListData } from '../logic/types';
+import { useErrorLogStore } from '../store/errorLog';
 
 type ToastMessage = {
     type: 'success' | 'error';
@@ -43,29 +45,29 @@ const callMcpApi = async (endpoint: string, body: any) => {
 
 // --- Component ---
 function AccountManager() {
+    const { showToast } = useErrorLogStore();
     // --- State ---
     // Restore state initialization
     const [wallets, setWallets] = useState<WalletSummary[]>([]);
     const [selectedWalletId, setSelectedWalletId] = useState<string | null>(null);
-    const [isLoading, setIsLoading] = useState<boolean>(true); 
+    const [isLoading, setIsLoading] = useState<boolean>(true);
     const [isActionLoading, setIsActionLoading] = useState<boolean>(false);
-    const [toastMessage, setToastMessage] = useState<ToastMessage | null>(null);
 
     // Input states 
-    const [currentPassword, setCurrentPassword] = useState<string>(''); 
+    const [currentPassword, setCurrentPassword] = useState<string>('');
     const [newPassword, setNewPassword] = useState<string>('');
     const [confirmPassword, setConfirmPassword] = useState<string>('');
     const [revealedPrivateKey, setRevealedPrivateKey] = useState<string | null>(null);
     const [privateKeyToImport, setPrivateKeyToImport] = useState<string>('');
     const [passwordForImport, setPasswordForImport] = useState<string>('');
-    const [walletNameToImport, setWalletNameToImport] = useState<string>(''); 
+    const [walletNameToImport, setWalletNameToImport] = useState<string>('');
     const [limitPerCall, setLimitPerCall] = useState<string>('');
     const [limitCurrency, setLimitCurrency] = useState<string>('USDC');
     const [renameInput, setRenameInput] = useState<string>('');
     const [walletToRename, setWalletToRename] = useState<string | null>(null);
     const [showImportForm, setShowImportForm] = useState<boolean>(false);
-    const [activationPassword, setActivationPassword] = useState<{[key: string]: string}>({}); 
-    const [isConfigExpanded, setIsConfigExpanded] = useState<boolean>(false); 
+    const [activationPassword, setActivationPassword] = useState<{ [key: string]: string }>({});
+    const [isConfigExpanded, setIsConfigExpanded] = useState<boolean>(false);
 
     // Re-add state for storing the generated config JSON in this session
     const [apiConfigJson, setApiConfigJson] = useState<string | null>(null);
@@ -80,10 +82,9 @@ function AccountManager() {
         setRevealedPrivateKey(null);
         setWalletToRename(null);
         setRenameInput('');
-        setToastMessage(null); // Clear toast on fetch
 
         try {
-            const requestBody = { GetWalletSummaryList: {} }; 
+            const requestBody = { GetWalletSummaryList: {} };
             const data: WalletListData = await callApiWithRouting(requestBody);
             setWallets(data.wallets || []);
             setSelectedWalletId(data.selected_id || null);
@@ -93,7 +94,7 @@ function AccountManager() {
             setWallets([]);
             setSelectedWalletId(null);
         } finally {
-            setIsLoading(false); 
+            setIsLoading(false);
         }
     }, []);
 
@@ -105,21 +106,19 @@ function AccountManager() {
 
     // Keep effect for resetting inputs on selection change
     useEffect(() => {
-         setCurrentPassword('');
-         setNewPassword('');
-         setConfirmPassword('');
-         setRevealedPrivateKey(null);
-         setWalletToRename(null); 
-         setRenameInput('');
-         setToastMessage(null); 
-         setIsConfigExpanded(false); 
-         // Keep limit fields as they are
-    }, [selectedWalletId]); 
+        setCurrentPassword('');
+        setNewPassword('');
+        setConfirmPassword('');
+        setRevealedPrivateKey(null);
+        setWalletToRename(null);
+        setRenameInput('');
+        setIsConfigExpanded(false);
+        // Keep limit fields as they are
+    }, [selectedWalletId]);
 
     // Keep handleRefresa (could maybe use fetchWalletData directly?)
     const handleRefresh = () => {
         setIsActionLoading(true);
-        setToastMessage(null); 
         fetchWalletData().finally(() => setIsActionLoading(false)); // Use internal fetch
     }
 
@@ -127,9 +126,9 @@ function AccountManager() {
     const handleSuccess = (msg: string) => {
         showToast('success', msg);
         fetchWalletData().then(() => {
-             // Keep event dispatch for ActiveAccountDisplay
-             window.dispatchEvent(new CustomEvent('accountActionSuccess'));
-         }); 
+            // Keep event dispatch for ActiveAccountDisplay
+            window.dispatchEvent(new CustomEvent('accountActionSuccess'));
+        });
     };
 
     const handleError = (err: any) => {
@@ -144,66 +143,41 @@ function AccountManager() {
     const handleActivate = async (walletId: string) => {
         const wallet = wallets.find(w => w.id === walletId);
         if (!wallet) return;
-        
-        const requiredPassword = wallet.is_encrypted ? activationPassword[walletId] : null;
-        if (wallet.is_encrypted && (!requiredPassword || requiredPassword === '')) { 
-            showToast('error', 'Password required to activate this encrypted wallet.');
-            return; 
-        }
 
-        setIsActionLoading(true); setToastMessage(null);
-        try {
-             if (walletId !== selectedWalletId) {
-                 await handleSelectWallet(walletId);
-             }
-            const requestBody = { ActivateWallet: { password: requiredPassword } }; 
-            await callApiWithRouting(requestBody);
-            handleSuccess(`Account ${truncateString(walletId, 10)} activated.`);
-            setActivationPassword(prev => ({...prev, [walletId]: ''}));
-        } catch (err: any) { handleError(err); }
-        finally { setIsActionLoading(false); }
+        // Locking/unlocking disabled in UI
+        showToast('error', 'Wallet locking is disabled in this UI.');
+        return;
+
+        // no-op
     };
 
     const handleDeactivate = async (walletId: string) => {
-          if (walletId !== selectedWalletId) {
-             await handleSelectWallet(walletId);
-          }
-         const currentSelectedId = selectedWalletId ?? walletId; 
-         if(currentSelectedId !== walletId) { 
-             showToast('error', "Account must be selected to deactivate.");
-             return; 
-         } 
-
-         setIsActionLoading(true); setToastMessage(null);
-         try {
-            const requestBody = { DeactivateWallet: {} }; 
-            await callApiWithRouting(requestBody);
-            handleSuccess(`Account ${truncateString(walletId, 10)} deactivated.`);
-        } catch (err: any) { handleError(err); }
-        finally { setIsActionLoading(false); }
+        // Locking/unlocking disabled in UI
+        showToast('error', 'Wallet locking is disabled in this UI.');
+        return;
     };
 
     const handleSelectWallet = async (walletId: string) => {
-        if (walletId === selectedWalletId) return; 
-        setIsActionLoading(true); setToastMessage(null);
+        if (walletId === selectedWalletId) return;
+        setIsActionLoading(true);
         try {
             const requestBody = { SelectWallet: { wallet_id: walletId } };
             await callApiWithRouting(requestBody);
             // Selection successful in backend, dispatch event to trigger UI updates
-            window.dispatchEvent(new CustomEvent('accountActionSuccess')); 
+            window.dispatchEvent(new CustomEvent('accountActionSuccess'));
             // Call the passed-in refresh AFTER dispatching, so App gets latest list
-            fetchWalletData(); 
+            fetchWalletData();
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     };
 
-     const handleDeleteWallet = async (walletId: string) => {
-         if (!window.confirm(`Are you sure you want to delete account ${truncateString(walletId, 10)}? This cannot be undone.`)) return;
-        setIsActionLoading(true); setToastMessage(null);
-         try {
+    const handleDeleteWallet = async (walletId: string) => {
+        if (!window.confirm(`Are you sure you want to delete account ${truncateString(walletId, 10)}? This cannot be undone.`)) return;
+        setIsActionLoading(true);
+        try {
             const requestBody = { DeleteWallet: { wallet_id: walletId } };
-             await callApiWithRouting(requestBody);
-             handleSuccess(`Account ${truncateString(walletId, 10)} deleted.`);
+            await callApiWithRouting(requestBody);
+            handleSuccess(`Account ${truncateString(walletId, 10)} deleted.`);
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     };
@@ -211,27 +185,26 @@ function AccountManager() {
     const startRename = (walletId: string) => {
         setWalletToRename(walletId);
         setRenameInput(wallets.find(w => w.id === walletId)?.name || '');
-        setToastMessage(null); 
     }
     const handleRenameWallet = async (e: React.FormEvent) => {
         e.preventDefault();
-         if (!walletToRename || !renameInput) return;
-         setIsActionLoading(true); setToastMessage(null);
-         try {
+        if (!walletToRename || !renameInput) return;
+        setIsActionLoading(true);
+        try {
             const requestBody = { RenameWallet: { wallet_id: walletToRename, new_name: renameInput } };
-             await callApiWithRouting(requestBody);
-             handleSuccess(`Account ${truncateString(walletToRename, 10)} renamed to ${renameInput}.`);
-             setWalletToRename(null); 
+            await callApiWithRouting(requestBody);
+            handleSuccess(`Account ${truncateString(walletToRename, 10)} renamed to ${renameInput}.`);
+            setWalletToRename(null);
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     }
 
     const handleGenerateWallet = async () => {
-         setIsActionLoading(true); setToastMessage(null);
-         try {
+        setIsActionLoading(true);
+        try {
             const requestBody = { GenerateWallet: {} };
-             const data = await callApiWithRouting(requestBody);
-             handleSuccess(`New account ${truncateString(data.id, 10)} generated and selected.`);
+            const data = await callApiWithRouting(requestBody);
+            handleSuccess(`New account ${truncateString(data.id, 10)} generated and selected.`);
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     };
@@ -239,21 +212,25 @@ function AccountManager() {
     // Settings Handlers 
     const handleExportKey = async () => {
         const selectedWallet = getSelectedWalletSummary();
-        if (!selectedWallet) { showToast('error', "No account selected"); return; }
-        setIsActionLoading(true); setToastMessage(null); setRevealedPrivateKey(null);
+        if (!selectedWallet) {
+            showToast('error', "No account selected");
+            return;
+        }
+        setIsActionLoading(true);
+        setRevealedPrivateKey(null);
         try {
             const requestBody = {
-                ExportSelectedPrivateKey: { 
+                ExportSelectedPrivateKey: {
                     password: (selectedWallet.is_encrypted && !selectedWallet.is_active) ? currentPassword : null
-                } 
+                }
             };
-             if (selectedWallet.is_encrypted && !selectedWallet.is_active && !currentPassword) {
+            if (selectedWallet.is_encrypted && !selectedWallet.is_active && !currentPassword) {
                 throw new Error("Password required to export key from inactive/locked account.");
             }
             const data = await callApiWithRouting(requestBody);
             setRevealedPrivateKey(data.private_key);
-            showToast('success', 'Private key revealed.', 10000); 
-            setCurrentPassword(''); 
+            showToast('success', 'Private key revealed.', 10000);
+            setCurrentPassword('');
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     };
@@ -264,15 +241,15 @@ function AccountManager() {
         if (!selectedWallet) { showToast('error', "No account selected"); return; }
         if (newPassword !== confirmPassword) { showToast('error', 'New passwords do not match.'); return; }
         if (!newPassword) { showToast('error', 'New password cannot be empty.'); return; }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
-             const requestBody = {
-                SetSelectedWalletPassword: { 
-                    new_password: newPassword, 
-                    old_password: selectedWallet.is_encrypted ? currentPassword : null 
-                } 
+            const requestBody = {
+                SetSelectedWalletPassword: {
+                    new_password: newPassword,
+                    old_password: selectedWallet.is_encrypted ? currentPassword : null
+                }
             };
-             if (selectedWallet.is_encrypted && !currentPassword) {
+            if (selectedWallet.is_encrypted && !currentPassword) {
                 throw new Error("Current password required to change password.");
             }
             await callApiWithRouting(requestBody);
@@ -284,31 +261,31 @@ function AccountManager() {
         finally { setIsActionLoading(false); }
     };
 
-     const handleRemovePassword = async (e: React.FormEvent) => {
+    const handleRemovePassword = async (e: React.FormEvent) => {
         e.preventDefault();
-         if (!selectedWalletId) { showToast('error', "No account selected"); return; }
-         if (!currentPassword) { showToast('error', 'Current password required.'); return; }
-         setIsActionLoading(true); setToastMessage(null);
-         try {
+        if (!selectedWalletId) { showToast('error', "No account selected"); return; }
+        if (!currentPassword) { showToast('error', 'Current password required.'); return; }
+        setIsActionLoading(true);
+        try {
             const requestBody = { RemoveSelectedWalletPassword: { current_password: currentPassword } };
             await callApiWithRouting(requestBody);
             handleSuccess('Password removed successfully. Account is now active/unlocked.');
-            setCurrentPassword(''); 
+            setCurrentPassword('');
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     };
 
-     const handleSetLimits = async (e: React.FormEvent) => {
+    const handleSetLimits = async (e: React.FormEvent) => {
         e.preventDefault();
-         if (!selectedWalletId) { showToast('error', "No account selected"); return; }
-         setIsActionLoading(true); setToastMessage(null);
+        if (!selectedWalletId) { showToast('error', "No account selected"); return; }
+        setIsActionLoading(true);
         const limitsToSet: SpendingLimits = {
             maxPerCall: limitPerCall.trim() === '' ? null : limitPerCall.trim(),
-            maxTotal: null, 
+            maxTotal: null,
             currency: 'USDC', // Defaulting to USDC here
         };
-         try {
-            const requestBody = { SetWalletLimits: { limits: limitsToSet } }; 
+        try {
+            const requestBody = { SetWalletLimits: { limits: limitsToSet } };
             await callApiWithRouting(requestBody);
             handleSuccess('Spending limits updated successfully.');
         } catch (err: any) { handleError(err); }
@@ -318,7 +295,7 @@ function AccountManager() {
     const handleImport = async (e: React.FormEvent) => {
         e.preventDefault();
         if (!privateKeyToImport) { showToast('error', 'Private Key is required for import.'); return; }
-        setIsActionLoading(true); setToastMessage(null);
+        setIsActionLoading(true);
         try {
             const requestBody = {
                 ImportWallet: {
@@ -329,8 +306,8 @@ function AccountManager() {
             };
             await callApiWithRouting(requestBody);
             handleSuccess(`Account imported successfully and ready to use.`);
-            setShowImportForm(false); 
-            setPrivateKeyToImport(''); setPasswordForImport(''); setWalletNameToImport(''); 
+            setShowImportForm(false);
+            setPrivateKeyToImport(''); setPasswordForImport(''); setWalletNameToImport('');
         } catch (err: any) { handleError(err); }
         finally { setIsActionLoading(false); }
     };
@@ -338,22 +315,15 @@ function AccountManager() {
     // --- Helper Functions ---
     const truncateString = (str: string | null | undefined, len: number = 10): string => {
         if (!str) return '-';
-        if (str.length <= len + 3) return str; 
+        if (str.length <= len + 3) return str;
         const prefix = str.startsWith('0x') ? '0x' : '';
         const addressPart = prefix ? str.substring(2) : str;
-        const visibleLen = len - prefix.length - 3; 
-        if (visibleLen <= 1) return prefix + '...'; 
+        const visibleLen = len - prefix.length - 3;
+        if (visibleLen <= 1) return prefix + '...';
         const start = prefix + addressPart.substring(0, Math.ceil(visibleLen / 2));
         const end = addressPart.substring(addressPart.length - Math.floor(visibleLen / 2));
         return `${start}...${end}`;
     }
-
-    const showToast = (type: 'success' | 'error', text: string, duration: number = 3000) => {
-        setToastMessage({ type, text });
-        setTimeout(() => {
-            setToastMessage(null);
-        }, duration);
-    };
 
     // Helper to get clearer status text
     const getWalletDisplayStatus = (wallet: WalletSummary): string => {
@@ -363,7 +333,7 @@ function AccountManager() {
         if (wallet.is_unlocked) {
             return "Active (Unlocked)";
         } else {
-            return "Active (Locked)"; 
+            return "Active (Locked)";
         }
     }
 
@@ -371,7 +341,7 @@ function AccountManager() {
     const handleGenerateApiConfig = () => {
         setGenerationError(null); // Clear previous errors
         setCopied(false); // Reset copied status
-        
+
         // If config already generated in this session, just re-copy
         if (apiConfigJson) {
             copyToClipboard(apiConfigJson);
@@ -381,173 +351,174 @@ function AccountManager() {
         // Otherwise, proceed with generation and saving
         setIsGeneratingConfig(true);
         const newApiKey = generateApiKey(32);
-        
-        fetch(getApiBasePath() + '/save-shim-key', { 
+
+        fetch(getApiBasePath() + '/save-shim-key', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }, 
-            credentials: 'include', 
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
             body: JSON.stringify({ raw_key: newApiKey })
         })
-        .then(response => {
-            if (!response.ok) {
-                return response.json().then(errData => {
-                    throw new Error(errData.error || `Failed to save API key: ${response.statusText}`);
-                }).catch(() => {
-                    throw new Error(`Failed to save API key: ${response.statusText}`);
-                });
-            }
-            
-            // Build config object locally for copying
-            const serverUrl = window.location.origin + getApiBasePath(); // Get base API path like /.../api
-            const configData = {
-                // URL should be the base API path, shim appends /shim/mcp
-                url: serverUrl,
-                key: newApiKey,
-                node: (window as any).our?.node || window.location.hostname 
-            };
-            const jsonStringToCopy = JSON.stringify(configData, null, 2);
-            
-            // Store the generated config in state for potential re-copy
-            setApiConfigJson(jsonStringToCopy);
-            
-            // Copy to clipboard
-            copyToClipboard(jsonStringToCopy);
-            setGenerationError(null);
-        })
-        .catch(err => {
-            console.error("Error generating API config:", err);
-            setGenerationError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-            setApiConfigJson(null); // Ensure state is cleared on error
-        })
-        .finally(() => {
-            setIsGeneratingConfig(false);
-        });
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(errData => {
+                        throw new Error(errData.error || `Failed to save API key: ${response.statusText}`);
+                    }).catch(() => {
+                        throw new Error(`Failed to save API key: ${response.statusText}`);
+                    });
+                }
+
+                // Build config object locally for copying
+                const serverUrl = window.location.origin + getApiBasePath(); // Get base API path like /.../api
+                const configData = {
+                    // URL should be the base API path, shim appends /shim/mcp
+                    url: serverUrl,
+                    key: newApiKey,
+                    node: (window as any).our?.node || window.location.hostname
+                };
+                const jsonStringToCopy = JSON.stringify(configData, null, 2);
+
+                // Store the generated config in state for potential re-copy
+                setApiConfigJson(jsonStringToCopy);
+
+                // Copy to clipboard
+                copyToClipboard(jsonStringToCopy);
+                setGenerationError(null);
+            })
+            .catch(err => {
+                console.error("Error generating API config:", err);
+                setGenerationError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+                setApiConfigJson(null); // Ensure state is cleared on error
+            })
+            .finally(() => {
+                setIsGeneratingConfig(false);
+            });
     };
 
     // Function to copy text to clipboard
     const copyToClipboard = (text: string) => {
         navigator.clipboard.writeText(text).then(() => {
             setCopied(true);
-            setTimeout(() => setCopied(false), 2000); 
+            setTimeout(() => setCopied(false), 2000);
         }, (err) => {
             console.error('Failed to copy: ', err);
-            setGenerationError('Failed to copy to clipboard.'); 
+            setGenerationError('Failed to copy to clipboard.');
         });
     };
 
     // --- Render Logic ---
     if (isLoading) {
-         return <div className="loading-message">Loading account data...</div>;
+        return <div className="loading-message">Loading account data...</div>;
     }
-    if (!isLoading && wallets.length === 0 && toastMessage?.type === 'error') {
-         return (
-            <div className="operator-wallet-content"> 
-                <div className={`toast-notification ${toastMessage.type}`}>
-                    {toastMessage.text}
-                    <button onClick={() => setToastMessage(null)} className="toast-close-button">&times;</button>
-                 </div>
+    if (!isLoading && wallets.length === 0) {
+        return (
+            <div className="operator-wallet-content">
                 <button onClick={handleRefresh} className="button refresh-button" disabled={isActionLoading}>
                     {isActionLoading ? 'Retrying...' : 'Retry'}
                 </button>
-             </div>
+            </div>
         );
     }
 
     const selectedWallet = getSelectedWalletSummary();
 
     return (
-        <div className="operator-wallet-content"> 
-            {toastMessage && (
-                <div className={`toast-notification ${toastMessage.type}`}>
-                    {toastMessage.text}
-                    <button onClick={() => setToastMessage(null)} className="toast-close-button">&times;</button>
-                 </div>
-            )}
-
-            {/* --- Wallet List Section --- */} 
-            <section className="wallet-list-section config-section">
+        <div className="operator-wallet-content">
+            <section className="pt-6 mt-6 border-t border-gray-300">
                 {wallets.length === 0 && !isLoading && (
-                    <p className="info-message">No accounts found. Generate or import one below.</p>
+                    <p className="text-gray-500 text-base p-6 text-center">No accounts found. Generate or import one below.</p>
                 )}
                 {wallets.length > 0 && (
-                    <ul className="wallet-list">
+                    <ul className="list-none p-0 m-0 border border-gray-300 rounded-md overflow-hidden mb-4">
                         {wallets.map(wallet => (
-                            <li key={wallet.id} className={`wallet-item ${wallet.is_selected ? 'selected' : ''}`}>
+                            <li key={wallet.id} className={classNames(
+                                "flex items-center px-4 py-3 border-b border-gray-300 bg-white last:border-b-0",
+                                {
+                                    "bg-blue-100 outline outline-2 outline-blue-500 outline-offset-[-1px]": wallet.is_selected
+                                }
+                            )}>
                                 {/* Use CopyToClipboardText for address */}
-                                <div 
-                                    className="wallet-main-info" 
-                                    onClick={() => handleSelectWallet(wallet.id)} 
+                                <div
+                                    className="flex flex-col gap-1 cursor-pointer flex-grow mr-4"
+                                    onClick={() => handleSelectWallet(wallet.id)}
                                     title={`Select Account: ${wallet.name || wallet.address} (${getWalletDisplayStatus(wallet)})`}
-                                    style={{ flexGrow: 3 }} 
                                 >
-                                    <span className="wallet-name">{wallet.name || truncateString(wallet.address, 16)}</span>
-                                    {/* Display address using CopyToClipboardText */} 
-                                    <CopyToClipboardText 
-                                        textToCopy={wallet.address} 
-                                        className="wallet-address-short"
+                                    <span className={classNames(
+                                        "font-medium text-base text-gray-900",
+                                        {
+                                            "font-semibold text-blue-800": wallet.is_selected
+                                        }
+                                    )}>{wallet.name || truncateString(wallet.address, 16)}</span>
+                                    {/* Display address using CopyToClipboardText */}
+                                    <CopyToClipboardText
+                                        textToCopy={wallet.address}
+                                        className={classNames(
+                                            "text-sm text-gray-500",
+                                            {
+                                                "text-blue-800": wallet.is_selected
+                                            }
+                                        )}
                                     >
-                                        {/* Pass truncated string as children */} 
+                                        {/* Pass truncated string as children */}
                                         <code title="">{truncateString(wallet.address)}</code>
                                     </CopyToClipboardText>
                                 </div>
-                                
+
                                 {/* --- Display Status Text (Read Only) --- */}
-                                <div className="wallet-status-display" style={{ flexShrink: 0, marginLeft: 'auto', paddingLeft: '1rem', textAlign: 'right' }}>
-                                     <span 
-                                        className={`status-indicator-dot ${wallet.is_active ? 'active' : 'inactive'}`}
+                                <div className="flex-shrink-0 ml-auto pl-4 text-right">
+                                    <span
+                                        className={classNames(
+                                            "inline-block w-2 h-2 rounded-full mr-2",
+                                            {
+                                                "bg-green-600": wallet.is_active,
+                                                "bg-gray-500": !wallet.is_active
+                                            }
+                                        )}
                                         title={getWalletDisplayStatus(wallet)}
-                                        style={{ 
-                                            display: 'inline-block', 
-                                            width: '8px', height: '8px', 
-                                            borderRadius: '50%', 
-                                            marginRight: '0.5em',
-                                            backgroundColor: wallet.is_active ? '#198754' : '#6c757d'
-                                        }}
-                                     ></span>
-                                     <span className="wallet-display-status" title={getWalletDisplayStatus(wallet)}>
-                                            {getWalletDisplayStatus(wallet)}
-                                     </span>
+                                    ></span>
+                                    <span className="text-sm text-gray-600" title={getWalletDisplayStatus(wallet)}>
+                                        {getWalletDisplayStatus(wallet)}
+                                    </span>
                                 </div>
                             </li>
                         ))}
                     </ul>
                 )}
-                 {/* Minimalist Add Wallet Bar */} 
-                 <div className="add-wallet-container minimalist">
-                      <span className="add-wallet-plus">+</span>
-                      <div className="add-wallet-actions-inline">
-                         <button onClick={handleGenerateWallet} className="button generate-button action-button" disabled={isActionLoading}>
-                             {isActionLoading ? 'Generating...' : 'Generate New Wallet'}
-                         </button>
-                         <button onClick={() => setShowImportForm(prev => !prev)} className="button import-toggle-button action-button" disabled={isActionLoading}>
-                              {showImportForm ? 'Cancel Import' : 'Import Wallet'}
-                         </button>
-                       </div>
-                  </div>
+                {/* Minimalist Add Wallet Bar */}
+                <div className="relative mt-0 p-0 border border-gray-300 border-t-0 text-center cursor-pointer h-11 flex justify-center items-center rounded-b-md bg-gray-50 transition-colors hover:bg-gray-200 group">
+                    <span className="text-2xl text-gray-500 font-light transition-opacity group-hover:hidden">+</span>
+                    <div className="absolute inset-0 flex items-stretch opacity-0 invisible transition-opacity transition-visibility group-hover:opacity-100 group-hover:visible group-hover:pointer-events-auto">
+                        <button onClick={handleGenerateWallet} className="flex-grow flex-basis-0 bg-none border-none px-3 py-2 text-sm font-medium text-blue-600 rounded-none flex items-center justify-center text-center h-full hover:bg-blue-50 hover:text-blue-800 disabled:text-gray-500 disabled:bg-none disabled:opacity-65" disabled={isActionLoading}>
+                            {isActionLoading ? 'Generating...' : 'Generate New Wallet'}
+                        </button>
+                        <button onClick={() => setShowImportForm(prev => !prev)} className="flex-grow flex-basis-0 bg-none border-none px-3 py-2 text-sm font-medium text-blue-600 rounded-none flex items-center justify-center text-center h-full hover:bg-blue-50 hover:text-blue-800 disabled:text-gray-500 disabled:bg-none disabled:opacity-65" disabled={isActionLoading}>
+                            {showImportForm ? 'Cancel Import' : 'Import Wallet'}
+                        </button>
+                    </div>
+                </div>
 
-                {/* Import Wallet Form */} 
+                {/* Import Wallet Form */}
                 {showImportForm && (
-                    <form onSubmit={handleImport} className="import-form config-section">
-                        <h4>Import Wallet</h4>
+                    <form onSubmit={handleImport} className="mt-4 pt-6 mt-6 border-t border-gray-300">
+                        <h4 className="text-base font-medium mb-4 text-gray-700">Import Wallet</h4>
                         <input
                             type="text"
                             placeholder="Enter Private Key (0x...)"
                             value={privateKeyToImport}
                             onChange={e => setPrivateKeyToImport(e.target.value)}
                             required
-                            className="input-field"
+                            className="mb-3 block w-full px-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
-                         <input
+                        <input
                             type="text"
                             placeholder="Account Name (Optional)"
                             value={walletNameToImport}
                             onChange={e => setWalletNameToImport(e.target.value)}
-                            className="input-field"
+                            className="mb-3 block w-full px-3 py-2 border border-gray-300 rounded-md text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                         />
-                        <p style={{ fontSize: '0.9em', color: '#888', margin: '8px 0', fontStyle: 'italic' }}>
+                        <p className="text-sm text-gray-500 my-2 italic">
                             ℹ️ Imported wallets are stored unencrypted for easier access
                         </p>
-                        <button type="submit" className="button primary-button" disabled={isActionLoading}>
+                        <button type="submit" className="w-full px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:bg-gray-300 disabled:cursor-not-allowed" disabled={isActionLoading}>
                             {isActionLoading ? 'Importing...' : 'Import Wallet'}
                         </button>
                     </form>
@@ -555,20 +526,20 @@ function AccountManager() {
             </section>
 
             {/* --- Selected Account Configuration Section --- */}
-             {selectedWallet && (
-                 <section className="selected-wallet-config config-section">
-                     <h3 className="section-title" onClick={() => setIsConfigExpanded(!isConfigExpanded)} style={{ cursor: 'pointer' }}>
-                        Configure: {selectedWallet.name || truncateString(selectedWallet.address, 16)} 
+            {selectedWallet && (
+                <section className="pt-6 mt-6 border-t-2 border-blue-600">
+                    <h3 className="text-xl mb-4 pb-3 border-b border-gray-300 text-gray-700 cursor-pointer flex justify-between items-center" onClick={() => setIsConfigExpanded(!isConfigExpanded)}>
+                        Configure: {selectedWallet.name || truncateString(selectedWallet.address, 16)}
                         <span className="collapse-indicator">{isConfigExpanded ? '[-]' : '[+]'}</span>
                     </h3>
                     {isConfigExpanded && (
                         <div className="config-forms">
-                            
-                            {/* --- Activation / Deactivation / Unlock Controls --- */} 
+
+                            {/* --- Activation / Deactivation / Unlock Controls --- */}
                             <div className="config-form activation-section">
                                 <h4>Account Status & Actions</h4>
-                                
-                                {/* Case 1: Inactive */} 
+
+                                {/* Case 1: Inactive */}
                                 {!selectedWallet.is_active && (
                                     <div className="status-action-group">
                                         <span>Status: Inactive</span>
@@ -578,11 +549,11 @@ function AccountManager() {
                                                 className="activation-password-input"
                                                 placeholder="Password to Activate"
                                                 value={activationPassword[selectedWallet.id] || ''}
-                                                onChange={e => setActivationPassword(prev => ({...prev, [selectedWallet.id]: e.target.value}))}
+                                                onChange={e => setActivationPassword(prev => ({ ...prev, [selectedWallet.id]: e.target.value }))}
                                                 disabled={isActionLoading}
                                             />
                                         )}
-                                        <button 
+                                        <button
                                             onClick={() => handleActivate(selectedWallet.id)}
                                             className="button primary-button action-button"
                                             disabled={isActionLoading || (selectedWallet.is_encrypted && !activationPassword[selectedWallet.id])}
@@ -592,7 +563,7 @@ function AccountManager() {
                                     </div>
                                 )}
 
-                                {/* Case 2: Active (Locked) */} 
+                                {/* Case 2: Active (Locked) */}
                                 {selectedWallet.is_active && selectedWallet.is_encrypted && (
                                     <div className="status-action-group">
                                         <span>Status: Active (Locked)</span>
@@ -601,17 +572,17 @@ function AccountManager() {
                                             className="unlock-password-input"
                                             placeholder="Password to Unlock"
                                             value={activationPassword[selectedWallet.id] || ''}
-                                            onChange={e => setActivationPassword(prev => ({...prev, [selectedWallet.id]: e.target.value}))}
+                                            onChange={e => setActivationPassword(prev => ({ ...prev, [selectedWallet.id]: e.target.value }))}
                                             disabled={isActionLoading}
                                         />
-                                        <button 
+                                        <button
                                             onClick={() => handleActivate(selectedWallet.id)} // handleActivate performs unlock
                                             className="button primary-button action-button"
                                             disabled={isActionLoading || !activationPassword[selectedWallet.id]}
                                         >
                                             Unlock
                                         </button>
-                                        <button 
+                                        <button
                                             onClick={() => handleDeactivate(selectedWallet.id)}
                                             className="button action-button"
                                             disabled={isActionLoading}
@@ -621,27 +592,27 @@ function AccountManager() {
                                     </div>
                                 )}
 
-                                {/* Case 3: Active (Unencrypted) */} 
+                                {/* Case 3: Active (Unencrypted) */}
                                 {selectedWallet.is_active && !selectedWallet.is_encrypted && (
                                     <div className="status-action-group">
                                         <span>Status: Active</span>
-                                        <button 
+                                        <button
                                             onClick={() => handleDeactivate(selectedWallet.id)}
                                             className="button action-button"
                                             disabled={isActionLoading}
                                         >
                                             Deactivate
                                         </button>
-                                     </div>
+                                    </div>
                                 )}
-                            </div> 
+                            </div>
                             {/* --- End Status Controls --- */}
 
                             {/* Keep existing config forms (Password, Limits, Export, Rename, Delete) */}
-                            {/* Rename Button (Moved here) */} 
-                             <div className="config-form">
-                                 <h4>Rename Account</h4>
-                                 {walletToRename === selectedWallet.id ? (
+                            {/* Rename Button (Moved here) */}
+                            <div className="config-form">
+                                <h4>Rename Account</h4>
+                                {walletToRename === selectedWallet.id ? (
                                     <form onSubmit={handleRenameWallet} className="rename-form">
                                         <input type="text" value={renameInput} onChange={(e) => setRenameInput(e.target.value)} autoFocus />
                                         <button type="submit" className="button save-rename-button" disabled={isActionLoading}>Save</button>
@@ -650,13 +621,13 @@ function AccountManager() {
                                 ) : (
                                     <button onClick={() => startRename(selectedWallet.id)} className="button action-button" disabled={isActionLoading}>Rename {selectedWallet.name || truncateString(selectedWallet.address, 16)}</button>
                                 )}
-                             </div>
-                            {/* Set/Change Password Form */} 
+                            </div>
+                            {/* Set/Change Password Form */}
                             <form onSubmit={handleSetPassword} className="config-form">
                                 <h4>{selectedWallet.is_encrypted ? 'Change' : 'Set'} Password</h4>
                                 {selectedWallet.is_encrypted && (
-                                    <input 
-                                        type="password" 
+                                    <input
+                                        type="password"
                                         placeholder="Current Password"
                                         value={currentPassword}
                                         onChange={e => setCurrentPassword(e.target.value)}
@@ -664,16 +635,16 @@ function AccountManager() {
                                         className="input-field"
                                     />
                                 )}
-                                <input 
-                                    type="password" 
+                                <input
+                                    type="password"
                                     placeholder="New Password"
                                     value={newPassword}
                                     onChange={e => setNewPassword(e.target.value)}
                                     required
                                     className="input-field"
                                 />
-                                <input 
-                                    type="password" 
+                                <input
+                                    type="password"
                                     placeholder="Confirm New Password"
                                     value={confirmPassword}
                                     onChange={e => setConfirmPassword(e.target.value)}
@@ -684,12 +655,12 @@ function AccountManager() {
                                     {isActionLoading ? 'Saving...' : (selectedWallet.is_encrypted ? 'Change Password' : 'Set Password')}
                                 </button>
                             </form>
-                            {/* Remove Password Form */} 
+                            {/* Remove Password Form */}
                             {selectedWallet.is_encrypted && (
                                 <form onSubmit={handleRemovePassword} className="config-form">
                                     <h4>Remove Password</h4>
-                                    <input 
-                                        type="password" 
+                                    <input
+                                        type="password"
                                         placeholder="Current Password"
                                         value={currentPassword}
                                         onChange={e => setCurrentPassword(e.target.value)}
@@ -697,39 +668,39 @@ function AccountManager() {
                                         className="input-field"
                                     />
                                     <button type="submit" className="button action-button" disabled={isActionLoading}>
-                                         {isActionLoading ? 'Removing...' : 'Remove Password'}
+                                        {isActionLoading ? 'Removing...' : 'Remove Password'}
                                     </button>
                                 </form>
                             )}
-                            {/* Set Spending Limits Form */} 
-                             <form onSubmit={handleSetLimits} className="config-form">
+                            {/* Set Spending Limits Form */}
+                            <form onSubmit={handleSetLimits} className="config-form">
                                 <h4>Spending Limits</h4>
-                                <input 
-                                    type="number" 
-                                    step="any" 
+                                <input
+                                    type="number"
+                                    step="any"
                                     min="0"
                                     placeholder="Max Per Call (e.g., 0.01)"
                                     value={limitPerCall}
                                     onChange={e => setLimitPerCall(e.target.value)}
                                     className="input-field"
                                 />
-                                <input 
-                                    type="text" 
-                                    placeholder="Currency (e.g., USDC)" 
+                                <input
+                                    type="text"
+                                    placeholder="Currency (e.g., USDC)"
                                     value={limitCurrency}
                                     onChange={e => setLimitCurrency(e.target.value)}
-                                     className="input-field"
-                                 />
+                                    className="input-field"
+                                />
                                 <button type="submit" className="button action-button" disabled={isActionLoading}>
-                                     {isActionLoading ? 'Saving...' : 'Set Limits'}
-                                 </button>
+                                    {isActionLoading ? 'Saving...' : 'Set Limits'}
+                                </button>
                             </form>
-                            {/* Export Private Key Section */} 
+                            {/* Export Private Key Section */}
                             <div className="config-form">
                                 <h4>Export Private Key</h4>
                                 {selectedWallet.is_encrypted && !selectedWallet.is_active && (
-                                     <input 
-                                        type="password" 
+                                    <input
+                                        type="password"
                                         placeholder="Current Password (if inactive/locked)"
                                         value={currentPassword}
                                         onChange={e => setCurrentPassword(e.target.value)}
@@ -746,44 +717,44 @@ function AccountManager() {
                                         <button onClick={() => setRevealedPrivateKey(null)} className="button close-reveal-button">Hide</button>
                                     </div>
                                 )}
-                             </div>
-                            {/* Delete Button (Moved here) */} 
-                             <div className="config-form delete-section">
-                                 <h4>Delete Account</h4>
-                                 <p className="warning-text">This action cannot be undone.</p>
-                                 <button 
-                                     onClick={() => handleDeleteWallet(selectedWallet.id)}
-                                     className="button delete-button action-button"
-                                     disabled={isActionLoading}
-                                 >
-                                     Delete {selectedWallet.name || truncateString(selectedWallet.address, 16)}
-                                 </button>
-                             </div>
-                         </div>
-                     )}
-                 </section>
-             )}
+                            </div>
+                            {/* Delete Button (Moved here) */}
+                            <div className="config-form delete-section">
+                                <h4>Delete Account</h4>
+                                <p className="warning-text">This action cannot be undone.</p>
+                                <button
+                                    onClick={() => handleDeleteWallet(selectedWallet.id)}
+                                    className="button delete-button action-button"
+                                    disabled={isActionLoading}
+                                >
+                                    Delete {selectedWallet.name || truncateString(selectedWallet.address, 16)}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </section>
+            )}
 
             {/* --- Modified API Config Section --- */}
             <div className="config-form api-config-section" style={{ marginTop: '20px', borderTop: '1px solid #eee', paddingTop: '15px' }}>
                 <h4>Shim API Configuration</h4>
                 <p style={{ fontSize: '0.9em', color: '#666', marginBottom: '10px' }}>
-                    Generate and copy an API key configuration for use with the Hypergrid MCP Shim (npx). 
+                    Generate and copy an API key configuration for use with the Hypergrid MCP Shim (npx).
                     Save this configuration as `grid-shim-api.json` in the directory where you run the shim.
                     Generating a new config will invalidate any previous one.
                 </p>
-                <button 
+                <button
                     onClick={handleGenerateApiConfig}
-                    disabled={isGeneratingConfig} 
+                    disabled={isGeneratingConfig}
                     className="button secondary-button"
                 >
                     {/* Button text depends on if config exists and copy status */}
-                    {isGeneratingConfig ? 'Generating...' : 
-                     (copied ? '✅ Copied!' : 
-                      (apiConfigJson ? 'Copy Existing Config' : 'Generate & Copy Config'))}
+                    {isGeneratingConfig ? 'Generating...' :
+                        (copied ? '✅ Copied!' :
+                            (apiConfigJson ? 'Copy Existing Config' : 'Generate & Copy Config'))}
                 </button>
-                
-                {generationError && <p className="error-message" style={{marginTop: '10px'}}>{generationError}</p>}
+
+                {generationError && <p className="error-message" style={{ marginTop: '10px' }}>{generationError}</p>}
             </div>
             {/* --- End Modified API Config Section --- */}
         </div>

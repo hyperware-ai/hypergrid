@@ -19,7 +19,7 @@ use hex;
 
 use crate::structs::{self, *};
 use crate::db;
-use crate::wallet::service;
+use crate::hyperwallet_client::{service, payments::{handle_operator_tba_withdrawal, AssetType, execute_payment}};
 use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
@@ -387,73 +387,6 @@ pub fn build_usdc_transfer_calldata(
     
     info!("Built calldata: 0x{}", hex::encode(&execute_data));
     Ok(execute_data)
-}
-
-/// Estimate gas for a UserOperation via bundler API
-pub fn estimate_userop_gas(
-    user_op: &serde_json::Value,
-    entry_point: &str,
-    bundler_url: &str,
-) -> Result<Option<serde_json::Value>> {
-    use hyperware_process_lib::http::client::send_request_await_response;
-    use hyperware_process_lib::http::Method;
-    
-    let gas_estimate_request = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "eth_estimateUserOperationGas",
-        "params": [user_op, entry_point],
-        "id": 1
-    });
-
-    info!("Gas estimation request: {}", serde_json::to_string_pretty(&gas_estimate_request).unwrap());
-    
-    let url = url::Url::parse(bundler_url).map_err(|e| anyhow!("Invalid bundler URL: {}", e))?;
-    let mut headers = std::collections::HashMap::new();
-    headers.insert("Content-Type".to_string(), "application/json".to_string());
-    
-    match send_request_await_response(
-        Method::POST,
-        url,
-        Some(headers),
-        30000,
-        serde_json::to_vec(&gas_estimate_request).map_err(|e| anyhow!("JSON serialization error: {}", e))?,
-    ) {
-        Ok(response) => {
-            let response_str = String::from_utf8_lossy(&response.body());
-            info!("Gas estimation response: {}", response_str);
-            
-            if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
-                if let Some(result) = json.get("result") {
-                    info!("Gas estimates received:");
-                    if let Some(call_gas_est) = result.get("callGasLimit") {
-                        info!("  - Call gas limit: {}", call_gas_est);
-                    }
-                    if let Some(verif_gas_est) = result.get("verificationGasLimit") {
-                        info!("  - Verification gas limit: {}", verif_gas_est);
-                    }
-                    if let Some(preverif_gas_est) = result.get("preVerificationGas") {
-                        info!("  - Pre-verification gas: {}", preverif_gas_est);
-                    }
-                    Ok(Some(result.clone()))
-                } else if let Some(error) = json.get("error") {
-                    error!("❌ Gas estimation error: {}", serde_json::to_string_pretty(error).unwrap());
-                    
-                    // Analyze AA33 errors specifically  
-                    Ok(None)
-                } else {
-                    error!("❌ Unexpected gas estimation response format");
-                    Ok(None)
-                }
-            } else {
-                error!("❌ Failed to parse gas estimation response");
-                Ok(None)
-            }
-        }
-        Err(e) => {
-            error!("❌ Gas estimation request failed: {}", e);
-            Ok(None)
-        }
-    }
 }
 
 /// Calculate UserOperation hash using EntryPoint.getUserOpHash()
@@ -1006,9 +939,9 @@ pub fn handle_terminal_debug(
                     amount_eth_f64, wei_value, operator_tba_addr_str, target_address_str);
 
                 // Use hyperwallet to handle the ETH transfer
-                match crate::wallet::payments::handle_operator_tba_withdrawal(
+                match handle_operator_tba_withdrawal(
                     state,
-                    crate::wallet::payments::AssetType::Eth,
+                    AssetType::Eth,
                     target_address_str.to_string(),
                     wei_value.to_string(),
                 ) {
@@ -1470,673 +1403,341 @@ pub fn handle_terminal_debug(
             
             info!("--- End grid.hypr check ---");
         }
-        "check-aa" => {
-            info!("--- ERC-4337 Account Abstraction Sanity Check ---");
-            
-            // 1. Check TBA implementation
-            let operator_tba_addr_str = match &state.operator_tba_address {
-                Some(addr) => addr.clone(),
-                None => { 
-                    error!("❌ Operator TBA address not configured");
-                    return Ok(()); 
-                }
-            };
-            
-            info!("1. Checking TBA implementation for {}", operator_tba_addr_str);
-            let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
-            let tba_addr = match EthAddress::from_str(&operator_tba_addr_str) {
-                Ok(addr) => addr,
-                Err(_) => {
-                    error!("❌ Invalid TBA address format");
-                    return Ok(());
-                }
-            };
-            
-            match chain::get_implementation_address(&provider, tba_addr) {
-                Ok(impl_addr) => {
-                    let impl_str = impl_addr.to_string();
-                    let old_impl = "0x000000000046886061414588bb9F63b6C53D8674";
-                    //let new_impl = "0x19b89306e31D07426E886E3370E62555A0743D96";
-                    let new_impl = "0x3950D18044D7DAA56BFd6740fE05B42C95201535";
-                    
-                    if impl_str.to_lowercase() == old_impl.to_lowercase() {
-                        warn!("⚠️  TBA uses OLD implementation - NO gasless support");
-                        info!("   To enable gasless, TBA needs to be upgraded to: {}", new_impl);
-                    } else if impl_str.to_lowercase() == new_impl.to_lowercase() {
-                        info!("TBA uses NEW implementation - gasless ENABLED!");
-                    } else {
-                        error!("❌ TBA uses UNKNOWN implementation: {}", impl_str);
-                    }
-                }
-                Err(e) => {
-                    error!("❌ Failed to get TBA implementation: {:?}", e);
-                }
-            }
-            
-            // 2. Check USDC balance
-            info!("\n2. Checking USDC balance for TBA");
-            let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
-            match wallet::erc20_balance_of(usdc_addr, &operator_tba_addr_str, &provider) {
-                Ok(balance) => {
-                    if balance > 0.0 {
-                        info!("USDC Balance: {} USDC", balance);
-                    } else {
-                        error!("❌ USDC Balance: 0 USDC - need USDC for gasless!");
-                    }
-                }
-                Err(e) => {
-                    error!("❌ Failed to get USDC balance: {:?}", e);
-                }
-            }
-            
-            // 3. Check paymaster approval
-            info!("\n3. Checking paymaster USDC approval......");
-            let paymaster = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec"; // Circle paymaster on Base
-            match wallet::erc20_allowance(usdc_addr, &operator_tba_addr_str, paymaster, &provider) {
-                Ok(allowance) => {
-                    if allowance > U256::ZERO {
-                        let allowance_usdc = allowance.to::<u128>() as f64 / 1_000_000.0;
-                        info!("Paymaster approved for: {} USDC", allowance_usdc);
-                    } else {
-                        error!("❌ Paymaster NOT approved to spend USDC!");
-                        info!("   Run: approve-paymaster");
-                    }
-                }
-                Err(e) => {
-                    error!("❌ Failed to check approval: {:?}", e);
-                }
-            }
-            
-            // 4. Check entry point
-            info!("\n4. Checking EntryPoint contract");
-            let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108"; // v0.8 on Base
-            info!("   EntryPoint v0.8: {}", entry_point);
-            info!("   Chain ID: {} (Base)", structs::CHAIN_ID);
-            
-            // 5. Check hyperwallet service
-            info!("\n5. Checking hyperwallet service");
-            info!("   Hyperwallet manages all wallet operations");
-            info!("   Hot wallets are unlocked/locked via hyperwallet API");
-            info!("   Use hyperwallet's /wallets endpoint to check wallet status");
-            
-            // 6. Check gasless configuration
-            info!("\n6. Checking gasless configuration");
-            match state.gasless_enabled {
-                Some(true) => info!("Gasless transactions ENABLED"),
-                Some(false) => warn!("⚠️  Gasless transactions DISABLED"),
-                None => info!("   Gasless setting not configured (defaults to disabled)"),
-            }
-            
-            info!("\n--- End ERC-4337 Sanity Check ---");
-        }
-        "test-gasless" => {
-            if let Some(amount_str) = command_arg {
-                info!("--- Testing Gasless USDC Transfer ---");
-                
-                // Fixed target address for testing
-                let target = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
-                
-                // Parse amount to USDC units
-                let amount_f64: f64 = amount_str.parse().unwrap_or(0.0);
-                info!("Sending {} USDC to {}", amount_f64, target);
-                
-                // Get the hot wallet ID from hyperwallet
-                // For testing, we'll use a dummy wallet ID since hyperwallet manages it
-                let test_wallet_id = "operator-wallet"; // This is what hyperwallet typically uses
-                
-                // Force gasless mode for testing
-                let saved_gasless = state.gasless_enabled;
-                state.gasless_enabled = Some(true);
-                
-                // Use the same function that the operator uses for real payments
-                match crate::wallet::payments::execute_payment_if_needed(
-                    state,
-                    target,
-                    &amount_f64.to_string(),
-                    "test_provider".to_string(),
-                    test_wallet_id,
-                ) {
-                    Some(result) => {
-                        match result {
-                            crate::structs::PaymentAttemptResult::Success { tx_hash, amount_paid, currency } => {
-                                info!(" Gasless transfer successful!");
-                                info!("   Transaction/UserOp hash: {}", tx_hash);
-                                info!("   Amount: {} {}", amount_paid, currency);
-                            }
-                            crate::structs::PaymentAttemptResult::Failed { error, amount_attempted, currency } => {
-                                error!("❌ Gasless transfer failed: {}", error);
-                                info!("   Attempted: {} {}", amount_attempted, currency);
-                            }
-                            crate::structs::PaymentAttemptResult::Skipped { reason } => {
-                                info!("⏭️  Transfer skipped: {}", reason);
-                            }
-                            crate::structs::PaymentAttemptResult::LimitExceeded { limit, amount_attempted, currency } => {
-                                error!("❌ Transfer limit exceeded!");
-                                info!("   Limit: {}", limit);
-                                info!("   Attempted: {} {}", amount_attempted, currency);
-                            }
-                        }
-                    }
-                    None => {
-                        error!("❌ No payment result returned");
-                    }
-                }
-                
-                // Restore gasless setting
-                state.gasless_enabled = saved_gasless;
-                
-                info!("--- End Gasless Test ---");
-            } else {
-                error!("Usage: test-gasless <amount>");
-                info!("Example: test-gasless 0.05");
-            }
-        }
-        "test-submit-userop" => {
-            // this one works with, but the gas estimation is not working. so if we get lucky with the gas estimation it goes through
-            if let Some(command_args) = command_arg {
-                info!("--- Submit UserOperation Test (ACTUAL SUBMISSION) ---");
-                
-                let args: Vec<&str> = command_args.split_whitespace().collect();
-                if args.len() < 1 {
-                    error!("Usage: test-submit-userop <amount>");
-                    info!("Example: test-submit-userop 0.01");
-                    info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
-                    return Ok(());
-                }
-                
-                // Parse amount
-                let amount_usdc = match args[0].parse::<f64>() {
-                    Ok(a) if a > 0.0 => a,
-                    _ => {
-                        error!("Invalid amount. Please provide a positive number.");
-                        return Ok(());
-                    }
-                };
-                
-                let amount_units = (amount_usdc * 1_000_000.0) as u128;
-                
-                // Configuration
-                let sender = "0x62DFaDaBFd0b036c1C616aDa273856c514e65819";
-                let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-                let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
-                let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
-                let private_key = "0x0988b51979846798cb05ffaa241c6f8bd5538b16344c14343f5dfb6a4dbb2e9a";
-                let chain_id = 8453u64;
-                let bundler_url = "https://api.candide.dev/public/v3/8453";
-                
-                let provider = Provider::new(chain_id, 30000);
-                
-                info!("🚀 SUBMITTING {} USDC transfer using Circle Paymaster", amount_usdc);
-                info!("⚠️  This will ACTUALLY execute the transaction!");
-                
-                
-                // Step 2: Fetch dynamic nonce
-                info!("=== STEP 2: FETCH DYNAMIC NONCE ===");
-                let nonce = match fetch_dynamic_nonce(&provider, sender, entry_point) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        error!("Failed to fetch nonce: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 3: Fetch dynamic gas prices
-                info!("=== STEP 3: FETCH BASE GAS PRICES FROM PROVIDER ===");
-                let (dynamic_max_fee, dynamic_priority_fee) = match fetch_dynamic_gas_prices(&provider) {
-                    Ok(gas_data) => gas_data,
-                    Err(e) => {
-                        error!("Failed to fetch gas prices: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 4: Build USDC transfer calldata
-                info!("=== STEP 4: BUILD USDC TRANSFER CALLDATA ===");
-                let call_data = match build_usdc_transfer_calldata(usdc_contract, recipient, amount_units) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!("Failed to build calldata: {}", e);
-                        return Ok(());
-                    }
-                };
-                let call_data_hex = hex::encode(&call_data);
-                
-                // Step 5: Try multiple gas estimation strategies
-                info!("=== STEP 5: SMART GAS ESTIMATION ===");
-                
-                // Use conservative defaults that work reliably
-                let mut final_call_gas = 150_000u64;        // Higher default
-                let mut final_verif_gas = 250_000u64;       // Higher default  
-                let mut final_preverif_gas = 60_000u64;     // Higher default for Base L1 costs
-                
-                info!("Starting with conservative gas defaults:");
-                info!("  - callGas: {}", final_call_gas);
-                info!("  - verificationGas: {}", final_verif_gas);
-                info!("  - preVerificationGas: {}", final_preverif_gas);
-                
-                // Strategy 1: Try estimation without paymaster first
-                info!("🔄 Strategy 1: Estimate without paymaster");
-                let no_paymaster_userop = build_estimation_userop_json(
-                    sender,
-                    &nonce,
-                    &call_data_hex,
-                    final_call_gas as u128,
-                    final_verif_gas as u128,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    false, // No paymaster
-                );
-                
-                if let Ok(Some(estimates)) = estimate_userop_gas(&no_paymaster_userop, entry_point, bundler_url) {
-                    info!("No-paymaster estimation succeeded");
-                    let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
-                        Some(estimates),
-                        final_call_gas as u128,
-                        final_verif_gas as u128,
-                        final_preverif_gas,
-                    );
-                    final_call_gas = call_est;
-                    final_verif_gas = verif_est;
-                    final_preverif_gas = preverif_est;
-                    info!("Updated gas estimates from bundler:");
-                    info!("  - callGas: {}", final_call_gas);
-                    info!("  - verificationGas: {}", final_verif_gas);
-                    info!("  - preVerificationGas: {}", final_preverif_gas);
-                    } else {
-                    info!("⚠️  No-paymaster estimation failed, using defaults");
-                }
-                
-                // Strategy 2: Try with paymaster (optional)
-                info!("🔄 Strategy 2: Try estimation with paymaster (non-blocking)");
-                let paymaster_userop = build_estimation_userop_json(
-                    sender,
-                    &nonce,
-                    &call_data_hex,
-                    final_call_gas as u128,
-                    final_verif_gas as u128,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    true, // With paymaster
-                );
-                
-                if let Ok(Some(estimates)) = estimate_userop_gas(&paymaster_userop, entry_point, bundler_url) {
-                    info!("Paymaster estimation also succeeded - using those values");
-                    let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
-                        Some(estimates),
-                        final_call_gas as u128,
-                        final_verif_gas as u128,
-                        final_preverif_gas,
-                    );
-                    final_call_gas = call_est;
-                    final_verif_gas = verif_est;
-                    final_preverif_gas = preverif_est;
-            } else {
-                    info!("⚠️  Paymaster estimation failed, but continuing with previous estimates");
-                }
-                
-                // Step 6: Calculate transaction cost
-                info!("=== STEP 6: FINALIZE GAS VALUES ===");
-                info!("Final gas values to use:");
-                info!("  - callGas: {}", final_call_gas);
-                info!("  - verificationGas: {}", final_verif_gas);
-                info!("  - preVerificationGas: {}", final_preverif_gas);
-                
-                let (total_cost_wei, total_cost_eth, total_cost_usd) = calculate_transaction_cost(
-                    final_call_gas,
-                    final_verif_gas,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                );
-                
-                // Step 8: Prepare paymaster data
-                info!("=== STEP 7: PREPARE PAYMASTER DATA ===");
-                // For hash calculation, we need the full paymasterAndData format:
-                // paymaster address (20 bytes) + verification gas (16 bytes padded) + post-op gas (16 bytes padded)
-                let mut paymaster_and_data = Vec::new();
-                
-                // Paymaster address
-                let paymaster_addr = hex::decode("0578cFB241215b77442a541325d6A4E6dFE700Ec").unwrap();
-                paymaster_and_data.extend_from_slice(&paymaster_addr);
-                
-                // Paymaster verification gas limit (500000 = 0x7a120) - 16 bytes padded
-                let verif_gas: u128 = 500000;
-                paymaster_and_data.extend_from_slice(&verif_gas.to_be_bytes());
-                
-                // Paymaster post-op gas limit (300000 = 0x493e0) - 16 bytes padded
-                let post_op_gas: u128 = 300000;
-                paymaster_and_data.extend_from_slice(&post_op_gas.to_be_bytes());
-                
-                info!("PaymasterAndData for hash: 0x{}", hex::encode(&paymaster_and_data));
-                
-                // Step 9: Calculate UserOperation hash
-                info!("=== STEP 8: CALCULATE USEROPERATION HASH ===");
-                let user_op_hash = match calculate_userop_hash(
-                    &provider,
-                    entry_point,
-                    sender,
-                    &nonce,
-                    &call_data,
-                    final_call_gas,
-                    final_verif_gas,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    &paymaster_and_data,
-                ) {
-                    Ok(hash) => hash,
-                    Err(e) => {
-                        error!("Failed to calculate UserOp hash: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 10: Sign UserOperation
-                info!("=== STEP 9: SIGN USEROPERATION ===");
-                let signature = match sign_userop_hash(&user_op_hash, private_key, chain_id) {
-                    Ok(sig) => sig,
-                    Err(e) => {
-                        error!("Failed to sign UserOp: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 11: Build final UserOperation
-                info!("=== STEP 10: BUILD FINAL USEROPERATION ===");
-                let final_userop = build_final_userop_json_with_data(
-                    sender,
-                    &nonce,
-                    &call_data_hex,
-                    final_call_gas,
-                    final_verif_gas,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    &signature,
-                    &Vec::new(), // Empty paymaster data for Candide API format
-                );
-                
-                info!("Final UserOperation ready for submission:");
-                info!("{}", serde_json::to_string_pretty(&final_userop).unwrap());
-                
-                // Step 11: SUBMIT TO BUNDLER WITH RETRY
-                info!("=== STEP 11: 🚀 SUBMIT TO BUNDLER ===");
-                
-                let mut retry_call_gas = final_call_gas;
-                let mut retry_verif_gas = final_verif_gas;
-                let mut retry_preverif_gas = final_preverif_gas;
-                
-                use hyperware_process_lib::http::client::send_request_await_response;
-                use hyperware_process_lib::http::Method;
-                
-                for attempt in 1..=3 {
-                    info!("Attempt {}/3: Submitting UserOperation...", attempt);
-                    info!("Gas limits: call={}, verif={}, preverif={}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
-                    
-                    // Use the same paymaster data that was used for hash calculation
-                    let retry_paymaster_data = Vec::new(); // Empty for Candide API format
-                    
-                    let retry_userop = build_final_userop_json_with_data(
-                        sender,
-                        &nonce,
-                        &call_data_hex,
-                        retry_call_gas,
-                        retry_verif_gas,
-                        retry_preverif_gas,
-                        dynamic_max_fee,
-                        dynamic_priority_fee,
-                        &signature,
-                        &retry_paymaster_data,
-                    );
-                    
-                    let submit_request = serde_json::json!({
-                    "jsonrpc": "2.0",
-                    "method": "eth_sendUserOperation",
-                        "params": [retry_userop, entry_point],
-                        "id": attempt
-                    });
-                    
-                    let url = url::Url::parse(bundler_url).unwrap();
-                let mut headers = std::collections::HashMap::new();
-                headers.insert("Content-Type".to_string(), "application/json".to_string());
-                
-                match send_request_await_response(
-                    Method::POST,
-                    url,
-                    Some(headers),
-                    30000,
-                        serde_json::to_vec(&submit_request).unwrap(),
-                ) {
-                    Ok(response) => {
-                        let response_str = String::from_utf8_lossy(&response.body());
-                        
-                        if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
-                                if let Some(result) = json.get("result") {
-                                    let user_op_hash = result.as_str().unwrap_or("unknown");
-                                    info!("SUCCESS! UserOperation submitted on attempt {}!", attempt);
-                                    info!("🔗 UserOperation Hash: {}", user_op_hash);
-                                    info!("📊 Transaction details:");
-                                    info!("   - Amount: {} USDC ({} units)", amount_usdc, amount_units);
-                                    info!("   - From: {}", sender);
-                                    info!("   - To: {}", recipient);
-                                    info!("   - Final gas: call={}, verif={}, preverif={}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
-                    return Ok(());
-                                    
-                                } else if let Some(error) = json.get("error") {
-                                    let error_message = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
-                                    error!("❌ Attempt {} failed: {}", attempt, error_message);
-                                    
-                                    if (error_message.contains("AA33") || error_message.contains("AA21")) && attempt < 3 {
-                                        info!("💡 Gas/paymaster issue - increasing limits and retrying in 2 seconds...");
-                                        
-                                        // Increase gas limits by 25%
-                                        retry_call_gas = (retry_call_gas as f64 * 1.25) as u64;
-                                        retry_verif_gas = (retry_verif_gas as f64 * 1.25) as u64;
-                                        retry_preverif_gas = (retry_preverif_gas as f64 * 1.25) as u64;
-                                        
-                                        std::thread::sleep(std::time::Duration::from_secs(2));
-                } else {
-                                        error!("❌ Final failure: {}", serde_json::to_string_pretty(error).unwrap());
-                                        break;
-                                    }
-                                }
-                            } else {
-                                error!("❌ Failed to parse bundler response: {}", response_str);
-                                break;
-                        }
-                    }
-                    Err(e) => {
-                            error!("❌ Network error on attempt {}: {}", attempt, e);
-                            if attempt < 3 {
-                                std::thread::sleep(std::time::Duration::from_secs(2));
-                            }
-                        }
-                    }
-                }
-                
-                error!("❌ All submission attempts failed");
-                
-                info!("=== SUBMISSION TEST COMPLETE ===");
-                
-                        } else {
-                error!("Usage: test-submit-userop <amount>");
-                info!("Example: test-submit-userop 0.01");
-                info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
-            }
-        }
-        "test-candide-gas-estimate" => {
-            if let Some(command_args) = command_arg {
-                info!("--- Candide Gas Estimation Test ---");
-                
-                let args: Vec<&str> = command_args.split_whitespace().collect();
-                if args.len() < 1 {
-                    error!("Usage: test-candide-gas-estimate <amount>");
-                    info!("Example: test-candide-gas-estimate 0.01");
-                    return Ok(());
-                }
-                
-                // Parse amount
-                let amount_usdc = match args[0].parse::<f64>() {
-                    Ok(a) if a > 0.0 => a,
-                    _ => {
-                        error!("Invalid amount. Please provide a positive number.");
-                        return Ok(());
-                    }
-                };
-                
-                let amount_units = (amount_usdc * 1_000_000.0) as u128;
-                
-                // Configuration
-                let sender = "0x4FdF431523D25A0306eFBC0aEF3F13fdA9CE4a2c"; // TBA for spigot-fondler.os
-                let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-                let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
-                let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
-                let chain_id = 8453u64;
-                let bundler_url = "https://api.candide.dev/public/v3/8453";
-                
-                let provider = Provider::new(chain_id, 30000);
-                
-                info!("Testing gas estimation for {} USDC transfer", amount_usdc);
-                info!("💡 Note: TBA signature verification requires higher gas than EOA (uses implementation contract)");
-                
-                // Step 1: Get current nonce
-                info!("=== STEP 1: FETCH NONCE ===");
-                let nonce = match fetch_dynamic_nonce(&provider, sender, entry_point) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        error!("Failed to fetch nonce: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 2: Get gas prices
-                info!("=== STEP 2: FETCH GAS PRICES ===");
-                let (dynamic_max_fee, dynamic_priority_fee) = match fetch_dynamic_gas_prices(&provider) {
-                    Ok(gas_data) => gas_data,
-                    Err(e) => {
-                        error!("Failed to fetch gas prices: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 3: Build calldata
-                info!("=== STEP 3: BUILD CALLDATA ===");
-                let call_data = match build_usdc_transfer_calldata(usdc_contract, recipient, amount_units) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!("Failed to build calldata: {}", e);
-                        return Ok(());
-                    }
-                };
-                let call_data_hex = hex::encode(&call_data);
-                
-                                // Step 4: Circle paymaster gas estimation with REAL SIGNATURE
-                info!("=== STEP 4: CIRCLE PAYMASTER GAS ESTIMATION ===");
-                info!("Note: Using REAL delegated signer signature for accurate gas estimation");
-                
-                // Conservative starting values (increased verification gas for TBA signature verification)
-                let base_call_gas = 300000u128;
-                let base_verif_gas = 250000u128;  // Increased from 150k to 250k for TBA signature verification
-                let base_preverif_gas = 100000u64;
-                
-                // ✅ STEP 4a: Calculate UserOperation hash for estimation
-                info!("Calculating UserOp hash for gas estimation signature...");
-                let estimation_paymaster_data = Vec::new(); // Empty for estimation
-                let estimation_hash = match calculate_userop_hash(
-                    &provider,
-                    entry_point,
-                        sender,
-                        &nonce,
-                    &call_data,
-                    base_call_gas as u64,
-                    base_verif_gas as u64,
-                    base_preverif_gas as u64,
-                        dynamic_max_fee,
-                        dynamic_priority_fee,
-                    &estimation_paymaster_data,
-                ) {
-                    Ok(hash) => hash,
-                        Err(e) => {
-                        error!("Failed to calculate estimation hash: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // ✅ STEP 4b: Sign with real delegated private key
-                let delegated_private_key = "0x59d79441a1fe5b80d4b5c64ce1ea0871283509162517a6e5bfe412b2d709c83e";
-                let real_signature = match sign_userop_hash(&estimation_hash, delegated_private_key, chain_id) {
-                    Ok(sig) => sig,
-                        Err(e) => {
-                        error!("Failed to sign estimation hash: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                info!("✅ Real signature generated for gas estimation: 0x{}", real_signature);
-                
-                // Circle paymaster estimation with REAL SIGNATURE
-                info!("\n🧪 Circle Paymaster Gas Estimation (with real signature)");
-                let circle_pm_userop = serde_json::json!({
-                    "sender": sender,
-                    "nonce": nonce,
-                    "callData": format!("0x{}", call_data_hex),
-                    "callGasLimit": format!("0x{:x}", base_call_gas),
-                    "verificationGasLimit": format!("0x{:x}", base_verif_gas),
-                    "preVerificationGas": format!("0x{:x}", base_preverif_gas),
-                    "maxFeePerGas": format!("0x{:x}", dynamic_max_fee),
-                    "maxPriorityFeePerGas": format!("0x{:x}", dynamic_priority_fee),
-                    "signature": format!("0x{}", real_signature), // ✅ REAL SIGNATURE from delegated signer!
-                    "factory": serde_json::Value::Null,
-                    "factoryData": serde_json::Value::Null,
-                    "paymaster": "0x0578cFB241215b77442a541325d6A4E6dFE700Ec",
-                    "paymasterVerificationGasLimit": "0x7a120", // 500000
-                    "paymasterPostOpGasLimit": "0x493e0",       // 300000
-                    "paymasterData": "0x" //  EMPTY for estimation!
-                });
-                
-                match estimate_userop_gas(&circle_pm_userop, entry_point, bundler_url) {
-                    Ok(Some(estimates)) => {
-                        info!("Circle paymaster estimation succeeded!");
-                        info!("Results: {}", serde_json::to_string_pretty(&estimates).unwrap());
-                        
-                        // Show what changed
-                        if let Some(new_call_gas) = estimates.get("callGasLimit").and_then(|v| v.as_str()) {
-                            info!("📊 Call gas: {} -> {}", format!("0x{:x}", base_call_gas), new_call_gas);
-                        }
-                        if let Some(new_verif_gas) = estimates.get("verificationGasLimit").and_then(|v| v.as_str()) {
-                            info!("📊 Verification gas: {} -> {}", format!("0x{:x}", base_verif_gas), new_verif_gas);
-                        }
-                        if let Some(new_preverif_gas) = estimates.get("preVerificationGas").and_then(|v| v.as_str()) {
-                            info!("📊 Pre-verification gas: {} -> {}", format!("0x{:x}", base_preverif_gas), new_preverif_gas);
-                        }
-                        if let Some(pm_verif_gas) = estimates.get("paymasterVerificationGasLimit").and_then(|v| v.as_str()) {
-                            info!("📊 Paymaster verification gas: {}", pm_verif_gas);
-                        }
-                        }
-                        Ok(None) => {
-                        info!("❌ Circle paymaster estimation failed (no results)");
-                        }
-                    Err(e) => {
-                        error!("❌ Circle paymaster estimation error: {}", e);
-                    }
-                }
-                
-                // Summary
-                info!("\n📋 Circle Paymaster Format Summary:");
-                info!("  paymaster: \"0x0578cFB241215b77442a541325d6A4E6dFE700Ec\"");
-                info!("  paymasterData: \"0x\" (empty for estimation)");
-                info!("  paymasterVerificationGasLimit: \"0x7a120\" (500000)");
-                info!("  paymasterPostOpGasLimit: \"0x493e0\" (300000)");
-                info!("  🚫 No-paymaster fails with AA23 (insufficient ETH in TBA)");
-                
-                info!("=== Gas Estimation Test Complete ===");
-                
-            } else {
-                error!("Usage: test-candide-gas-estimate <amount>");
-                info!("Example: test-candide-gas-estimate 0.01");
-            }
-        }
+        //"test-submit-userop" => {
+        //    // this one works with, but the gas estimation is not working. so if we get lucky with the gas estimation it goes through
+        //    if let Some(command_args) = command_arg {
+        //        info!("--- Submit UserOperation Test (ACTUAL SUBMISSION) ---");
+        //        
+        //        let args: Vec<&str> = command_args.split_whitespace().collect();
+        //        if args.len() < 1 {
+        //            error!("Usage: test-submit-userop <amount>");
+        //            info!("Example: test-submit-userop 0.01");
+        //            info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
+        //            return Ok(());
+        //        }
+        //        
+        //        // Parse amount
+        //        let amount_usdc = match args[0].parse::<f64>() {
+        //            Ok(a) if a > 0.0 => a,
+        //            _ => {
+        //                error!("Invalid amount. Please provide a positive number.");
+        //                return Ok(());
+        //            }
+        //        };
+        //        
+        //        let amount_units = (amount_usdc * 1_000_000.0) as u128;
+        //        
+        //        // Configuration
+        //        let sender = "0x62DFaDaBFd0b036c1C616aDa273856c514e65819";
+        //        let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
+        //        let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
+        //        let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
+        //        let private_key = "0x0988b51979846798cb05ffaa241c6f8bd5538b16344c14343f5dfb6a4dbb2e9a";
+        //        let chain_id = 8453u64;
+        //        let bundler_url = "https://api.candide.dev/public/v3/8453";
+        //        
+        //        let provider = Provider::new(chain_id, 30000);
+        //        
+        //        info!("🚀 SUBMITTING {} USDC transfer using Circle Paymaster", amount_usdc);
+        //        info!("⚠️  This will ACTUALLY execute the transaction!");
+        //        
+        //        
+        //        // Step 2: Fetch dynamic nonce
+        //        info!("=== STEP 2: FETCH DYNAMIC NONCE ===");
+        //        let nonce = match fetch_dynamic_nonce(&provider, sender, entry_point) {
+        //            Ok(n) => n,
+        //            Err(e) => {
+        //                error!("Failed to fetch nonce: {}", e);
+        //                return Ok(());
+        //            }
+        //        };
+        //        
+        //        // Step 3: Fetch dynamic gas prices
+        //        info!("=== STEP 3: FETCH BASE GAS PRICES FROM PROVIDER ===");
+        //        let (dynamic_max_fee, dynamic_priority_fee) = match fetch_dynamic_gas_prices(&provider) {
+        //            Ok(gas_data) => gas_data,
+        //            Err(e) => {
+        //                error!("Failed to fetch gas prices: {}", e);
+        //                return Ok(());
+        //            }
+        //        };
+        //        
+        //        // Step 4: Build USDC transfer calldata
+        //        info!("=== STEP 4: BUILD USDC TRANSFER CALLDATA ===");
+        //        let call_data = match build_usdc_transfer_calldata(usdc_contract, recipient, amount_units) {
+        //            Ok(data) => data,
+        //            Err(e) => {
+        //                error!("Failed to build calldata: {}", e);
+        //                return Ok(());
+        //            }
+        //        };
+        //        let call_data_hex = hex::encode(&call_data);
+        //        
+        //        // Step 5: Try multiple gas estimation strategies
+        //        info!("=== STEP 5: SMART GAS ESTIMATION ===");
+        //        
+        //        // Use conservative defaults that work reliably
+        //        let mut final_call_gas = 150_000u64;        // Higher default
+        //        let mut final_verif_gas = 250_000u64;       // Higher default  
+        //        let mut final_preverif_gas = 60_000u64;     // Higher default for Base L1 costs
+        //        
+        //        info!("Starting with conservative gas defaults:");
+        //        info!("  - callGas: {}", final_call_gas);
+        //        info!("  - verificationGas: {}", final_verif_gas);
+        //        info!("  - preVerificationGas: {}", final_preverif_gas);
+        //        
+        //        // Strategy 1: Try estimation without paymaster first
+        //        info!("🔄 Strategy 1: Estimate without paymaster");
+        //        let no_paymaster_userop = build_estimation_userop_json(
+        //            sender,
+        //            &nonce,
+        //            &call_data_hex,
+        //            final_call_gas as u128,
+        //            final_verif_gas as u128,
+        //            final_preverif_gas,
+        //            dynamic_max_fee,
+        //            dynamic_priority_fee,
+        //            false, // No paymaster
+        //        );
+        //        
+        //        if let Ok(Some(estimates)) = estimate_userop_gas(&no_paymaster_userop, entry_point, bundler_url) {
+        //            info!("No-paymaster estimation succeeded");
+        //            let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
+        //                Some(estimates),
+        //                final_call_gas as u128,
+        //                final_verif_gas as u128,
+        //                final_preverif_gas,
+        //            );
+        //            final_call_gas = call_est;
+        //            final_verif_gas = verif_est;
+        //            final_preverif_gas = preverif_est;
+        //            info!("Updated gas estimates from bundler:");
+        //            info!("  - callGas: {}", final_call_gas);
+        //            info!("  - verificationGas: {}", final_verif_gas);
+        //            info!("  - preVerificationGas: {}", final_preverif_gas);
+        //            } else {
+        //            info!("⚠️  No-paymaster estimation failed, using defaults");
+        //        }
+        //        
+        //        // Strategy 2: Try with paymaster (optional)
+        //        info!("🔄 Strategy 2: Try estimation with paymaster (non-blocking)");
+        //        let paymaster_userop = build_estimation_userop_json(
+        //            sender,
+        //            &nonce,
+        //            &call_data_hex,
+        //            final_call_gas as u128,
+        //            final_verif_gas as u128,
+        //            final_preverif_gas,
+        //            dynamic_max_fee,
+        //            dynamic_priority_fee,
+        //            true, // With paymaster
+        //        );
+        //        
+        //        if let Ok(Some(estimates)) = estimate_userop_gas(&paymaster_userop, entry_point, bundler_url) {
+        //            info!("Paymaster estimation also succeeded - using those values");
+        //            let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
+        //                Some(estimates),
+        //                final_call_gas as u128,
+        //                final_verif_gas as u128,
+        //                final_preverif_gas,
+        //            );
+        //            final_call_gas = call_est;
+        //            final_verif_gas = verif_est;
+        //            final_preverif_gas = preverif_est;
+        //    } else {
+        //            info!("⚠️  Paymaster estimation failed, but continuing with previous estimates");
+        //        }
+        //        
+        //        // Step 6: Calculate transaction cost
+        //        info!("=== STEP 6: FINALIZE GAS VALUES ===");
+        //        info!("Final gas values to use:");
+        //        info!("  - callGas: {}", final_call_gas);
+        //        info!("  - verificationGas: {}", final_verif_gas);
+        //        info!("  - preVerificationGas: {}", final_preverif_gas);
+        //        
+        //        let (total_cost_wei, total_cost_eth, total_cost_usd) = calculate_transaction_cost(
+        //            final_call_gas,
+        //            final_verif_gas,
+        //            final_preverif_gas,
+        //            dynamic_max_fee,
+        //        );
+        //        
+        //        // Step 8: Prepare paymaster data
+        //        info!("=== STEP 7: PREPARE PAYMASTER DATA ===");
+        //        // For hash calculation, we need the full paymasterAndData format:
+        //        // paymaster address (20 bytes) + verification gas (16 bytes padded) + post-op gas (16 bytes padded)
+        //        let mut paymaster_and_data = Vec::new();
+        //        
+        //        // Paymaster address
+        //        //let paymaster_addr = hex::decode("0578cFB241215b77442a541325d6A4E6dFE700Ec").unwrap();
+        //        let paymaster_addr = hex::decode("861a1Be40c595db980341e41A7a5D09C772f7c2b").unwrap();
+        //        paymaster_and_data.extend_from_slice(&paymaster_addr);
+        //        
+        //        // Paymaster verification gas limit (500000 = 0x7a120) - 16 bytes padded
+        //        let verif_gas: u128 = 500000;
+        //        paymaster_and_data.extend_from_slice(&verif_gas.to_be_bytes());
+        //        
+        //        // Paymaster post-op gas limit (300000 = 0x493e0) - 16 bytes padded
+        //        let post_op_gas: u128 = 300000;
+        //        paymaster_and_data.extend_from_slice(&post_op_gas.to_be_bytes());
+        //        
+        //        info!("PaymasterAndData for hash: 0x{}", hex::encode(&paymaster_and_data));
+        //        
+        //        // Step 9: Calculate UserOperation hash
+        //        info!("=== STEP 8: CALCULATE USEROPERATION HASH ===");
+        //        let user_op_hash = match calculate_userop_hash(
+        //            &provider,
+        //            entry_point,
+        //            sender,
+        //            &nonce,
+        //            &call_data,
+        //            final_call_gas,
+        //            final_verif_gas,
+        //            final_preverif_gas,
+        //            dynamic_max_fee,
+        //            dynamic_priority_fee,
+        //            &paymaster_and_data,
+        //        ) {
+        //            Ok(hash) => hash,
+        //            Err(e) => {
+        //                error!("Failed to calculate UserOp hash: {}", e);
+        //                return Ok(());
+        //            }
+        //        };
+        //        
+        //        // Step 10: Sign UserOperation
+        //        info!("=== STEP 9: SIGN USEROPERATION ===");
+        //        let signature = match sign_userop_hash(&user_op_hash, private_key, chain_id) {
+        //            Ok(sig) => sig,
+        //            Err(e) => {
+        //                error!("Failed to sign UserOp: {}", e);
+        //                return Ok(());
+        //            }
+        //        };
+        //        
+        //        // Step 11: Build final UserOperation
+        //        info!("=== STEP 10: BUILD FINAL USEROPERATION ===");
+        //        let final_userop = build_final_userop_json_with_data(
+        //            sender,
+        //            &nonce,
+        //            &call_data_hex,
+        //            final_call_gas,
+        //            final_verif_gas,
+        //            final_preverif_gas,
+        //            dynamic_max_fee,
+        //            dynamic_priority_fee,
+        //            &signature,
+        //            &Vec::new(), // Empty paymaster data for Candide API format
+        //        );
+        //        
+        //        info!("Final UserOperation ready for submission:");
+        //        info!("{}", serde_json::to_string_pretty(&final_userop).unwrap());
+        //        
+        //        // Step 11: SUBMIT TO BUNDLER WITH RETRY
+        //        info!("=== STEP 11: 🚀 SUBMIT TO BUNDLER ===");
+        //        
+        //        let mut retry_call_gas = final_call_gas;
+        //        let mut retry_verif_gas = final_verif_gas;
+        //        let mut retry_preverif_gas = final_preverif_gas;
+        //        
+        //        use hyperware_process_lib::http::client::send_request_await_response;
+        //        use hyperware_process_lib::http::Method;
+        //        
+        //        for attempt in 1..=3 {
+        //            info!("Attempt {}/3: Submitting UserOperation...", attempt);
+        //            info!("Gas limits: call={}, verif={}, preverif={}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
+        //            
+        //            // Use the same paymaster data that was used for hash calculation
+        //            let retry_paymaster_data = Vec::new(); // Empty for Candide API format
+        //            
+        //            let retry_userop = build_final_userop_json_with_data(
+        //                sender,
+        //                &nonce,
+        //                &call_data_hex,
+        //                retry_call_gas,
+        //                retry_verif_gas,
+        //                retry_preverif_gas,
+        //                dynamic_max_fee,
+        //                dynamic_priority_fee,
+        //                &signature,
+        //                &retry_paymaster_data,
+        //            );
+        //            
+        //            let submit_request = serde_json::json!({
+        //            "jsonrpc": "2.0",
+        //            "method": "eth_sendUserOperation",
+        //                "params": [retry_userop, entry_point],
+        //                "id": attempt
+        //            });
+        //            
+        //            let url = url::Url::parse(bundler_url).unwrap();
+        //        let mut headers = std::collections::HashMap::new();
+        //        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        //        
+        //        match send_request_await_response(
+        //            Method::POST,
+        //            url,
+        //            Some(headers),
+        //            30000,
+        //                serde_json::to_vec(&submit_request).unwrap(),
+        //        ) {
+        //            Ok(response) => {
+        //                let response_str = String::from_utf8_lossy(&response.body());
+        //                
+        //                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
+        //                        if let Some(result) = json.get("result") {
+        //                            let user_op_hash = result.as_str().unwrap_or("unknown");
+        //                            info!("SUCCESS! UserOperation submitted on attempt {}!", attempt);
+        //                            info!("🔗 UserOperation Hash: {}", user_op_hash);
+        //                            info!("📊 Transaction details:");
+        //                            info!("   - Amount: {} USDC ({} units)", amount_usdc, amount_units);
+        //                            info!("   - From: {}", sender);
+        //                            info!("   - To: {}", recipient);
+        //                            info!("   - Final gas: call={}, verif={}, preverif={}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
+        //            return Ok(());
+        //                            
+        //                        } else if let Some(error) = json.get("error") {
+        //                            let error_message = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
+        //                            error!("❌ Attempt {} failed: {}", attempt, error_message);
+        //                            
+        //                            if (error_message.contains("AA33") || error_message.contains("AA21")) && attempt < 3 {
+        //                                info!("💡 Gas/paymaster issue - increasing limits and retrying in 2 seconds...");
+        //                                
+        //                                // Increase gas limits by 25%
+        //                                retry_call_gas = (retry_call_gas as f64 * 1.25) as u64;
+        //                                retry_verif_gas = (retry_verif_gas as f64 * 1.25) as u64;
+        //                                retry_preverif_gas = (retry_preverif_gas as f64 * 1.25) as u64;
+        //                                
+        //                                std::thread::sleep(std::time::Duration::from_secs(2));
+        //        } else {
+        //                                error!("❌ Final failure: {}", serde_json::to_string_pretty(error).unwrap());
+        //                                break;
+        //                            }
+        //                        }
+        //                    } else {
+        //                        error!("❌ Failed to parse bundler response: {}", response_str);
+        //                        break;
+        //                }
+        //            }
+        //            Err(e) => {
+        //                    error!("❌ Network error on attempt {}: {}", attempt, e);
+        //                    if attempt < 3 {
+        //                        std::thread::sleep(std::time::Duration::from_secs(2));
+        //                    }
+        //                }
+        //            }
+        //        }
+        //        
+        //        error!("❌ All submission attempts failed");
+        //        
+        //        info!("=== SUBMISSION TEST COMPLETE ===");
+        //        
+        //                } else {
+        //        error!("Usage: test-submit-userop <amount>");
+        //        info!("Example: test-submit-userop 0.01");
+        //        info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
+        //    }
+        //}
         "get-receipt" => {
             if let Some(user_op_hash) = command_arg {
                 info!("--- Manual UserOperation Receipt Lookup ---");
@@ -2171,245 +1772,6 @@ pub fn handle_terminal_debug(
             } else {
                 error!("Usage: get-receipt <user_op_hash>");
                 info!("Example: get-receipt 0x25ca82108f7d91d18666ad8bbba48bcb7edd8432c0fb3492de7b1b20b9c2b51b");
-            }
-        }
-        "test-gas-estimation" => {
-            if let Some(command_args) = command_arg {
-                info!("--- Gas Estimation Test ---");
-                
-                let args: Vec<&str> = command_args.split_whitespace().collect();
-                if args.len() < 1 {
-                    error!("Usage: test-submit-userop <amount>");
-                    info!("Example: test-submit-userop 0.01");
-                    info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
-                    return Ok(());
-                }
-                
-                // Parse amount
-                let amount_usdc = match args[0].parse::<f64>() {
-                    Ok(a) if a > 0.0 => a,
-                    _ => {
-                        error!("Invalid amount. Please provide a positive number.");
-                        return Ok(());
-                    }
-                };
-                
-                let amount_units = (amount_usdc * 1_000_000.0) as u128;
-                
-                // Configuration
-                let sender = "0x62DFaDaBFd0b036c1C616aDa273856c514e65819";
-                let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-                let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
-                let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
-                let private_key = "0x0988b51979846798cb05ffaa241c6f8bd5538b16344c14343f5dfb6a4dbb2e9a";
-                let chain_id = 8453u64;
-                let bundler_url = "https://api.candide.dev/public/v3/8453";
-                
-                let provider = Provider::new(chain_id, 30000);
-                
-                info!("🚀 SUBMITTING {} USDC transfer using Circle Paymaster", amount_usdc);
-                info!("⚠️  This will ACTUALLY execute the transaction!");
-                
-                
-                // Step 2: Fetch dynamic nonce
-                info!("=== STEP 2: FETCH DYNAMIC NONCE ===");
-                let nonce = match fetch_dynamic_nonce(&provider, sender, entry_point) {
-                    Ok(n) => n,
-                    Err(e) => {
-                        error!("Failed to fetch nonce: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 3: Fetch dynamic gas prices
-                info!("=== STEP 3: FETCH DYNAMIC GAS PRICES ===");
-                let (dynamic_max_fee, dynamic_priority_fee) = match fetch_dynamic_gas_prices(&provider) {
-                    Ok(gas_data) => gas_data,
-                    Err(e) => {
-                        error!("Failed to fetch gas prices: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 4: Build USDC transfer calldata
-                info!("=== STEP 4: BUILD USDC TRANSFER CALLDATA ===");
-                let call_data = match build_usdc_transfer_calldata(usdc_contract, recipient, amount_units) {
-                    Ok(data) => data,
-                    Err(e) => {
-                        error!("Failed to build calldata: {}", e);
-                        return Ok(());
-                    }
-                };
-                let call_data_hex = hex::encode(&call_data);
-                
-                // Step 5: Try multiple gas estimation strategies
-                info!("=== STEP 5: SMART GAS ESTIMATION ===");
-                
-                // Use conservative defaults that work reliably
-                let mut final_call_gas = 150_000u64;        // Higher default
-                let mut final_verif_gas = 250_000u64;       // Higher default  
-                let mut final_preverif_gas = 60_000u64;     // Higher default for Base L1 costs
-                
-                info!("Starting with conservative gas defaults:");
-                info!("  - callGas: {}", final_call_gas);
-                info!("  - verificationGas: {}", final_verif_gas);
-                info!("  - preVerificationGas: {}", final_preverif_gas);
-                
-                // Strategy 1: Try estimation without paymaster first
-                info!("🔄 Strategy 1: Estimate without paymaster");
-                let no_paymaster_userop = build_estimation_userop_json(
-                    sender,
-                    &nonce,
-                    &call_data_hex,
-                    final_call_gas as u128,
-                    final_verif_gas as u128,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    false, // No paymaster
-                );
-                
-                if let Ok(Some(estimates)) = estimate_userop_gas(&no_paymaster_userop, entry_point, bundler_url) {
-                    info!("No-paymaster estimation succeeded");
-                    let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
-                        Some(estimates),
-                        final_call_gas as u128,
-                        final_verif_gas as u128,
-                        final_preverif_gas,
-                    );
-                    final_call_gas = call_est;
-                    final_verif_gas = verif_est;
-                    final_preverif_gas = preverif_est;
-                    info!("Updated gas estimates from bundler:");
-                    info!("  - callGas: {}", final_call_gas);
-                    info!("  - verificationGas: {}", final_verif_gas);
-                    info!("  - preVerificationGas: {}", final_preverif_gas);
-                } else {
-                    info!("⚠️  No-paymaster estimation failed, using defaults");
-                }
-                
-                // Strategy 2: Try with paymaster (optional)
-                info!("🔄 Strategy 2: Try estimation with paymaster (non-blocking)");
-                let paymaster_userop = build_estimation_userop_json(
-                    sender,
-                    &nonce,
-                    &call_data_hex,
-                    final_call_gas as u128,
-                    final_verif_gas as u128,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    true, // With paymaster
-                );
-                
-                if let Ok(Some(estimates)) = estimate_userop_gas(&paymaster_userop, entry_point, bundler_url) {
-                    info!("Paymaster estimation also succeeded - using those values");
-                    let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
-                        Some(estimates),
-                        final_call_gas as u128,
-                        final_verif_gas as u128,
-                        final_preverif_gas,
-                    );
-                    final_call_gas = call_est;
-                    final_verif_gas = verif_est;
-                    final_preverif_gas = preverif_est;
-                } else {
-                    info!("⚠️  Paymaster estimation failed, but continuing with previous estimates");
-                }
-                
-                // Step 6: Calculate transaction cost
-                info!("=== STEP 6: FINALIZE GAS VALUES ===");
-                info!("Final gas values to use:");
-                info!("  - callGas: {}", final_call_gas);
-                info!("  - verificationGas: {}", final_verif_gas);
-                info!("  - preVerificationGas: {}", final_preverif_gas);
-                
-                let (total_cost_wei, total_cost_eth, total_cost_usd) = calculate_transaction_cost(
-                    final_call_gas,
-                    final_verif_gas,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                );
-                
-                // Step 8: Prepare paymaster data
-                info!("=== STEP 7: PREPARE PAYMASTER DATA ===");
-                // For hash calculation, we need the full paymasterAndData format:
-                // paymaster address (20 bytes) + verification gas (16 bytes padded) + post-op gas (16 bytes padded)
-                let mut paymaster_and_data = Vec::new();
-                
-                // Paymaster address
-                let paymaster_addr = hex::decode("0578cFB241215b77442a541325d6A4E6dFE700Ec").unwrap();
-                paymaster_and_data.extend_from_slice(&paymaster_addr);
-                
-                // Paymaster verification gas limit (500000 = 0x7a120) - 16 bytes padded
-                let verif_gas: u128 = 500000;
-                paymaster_and_data.extend_from_slice(&verif_gas.to_be_bytes());
-                
-                // Paymaster post-op gas limit (300000 = 0x493e0) - 16 bytes padded
-                let post_op_gas: u128 = 300000;
-                paymaster_and_data.extend_from_slice(&post_op_gas.to_be_bytes());
-                
-                info!("PaymasterAndData for hash: 0x{}", hex::encode(&paymaster_and_data));
-                
-                // Step 9: Calculate UserOperation hash
-                info!("=== STEP 8: CALCULATE USEROPERATION HASH ===");
-                let user_op_hash = match calculate_userop_hash(
-                    &provider,
-                    entry_point,
-                    sender,
-                    &nonce,
-                    &call_data,
-                    final_call_gas,
-                    final_verif_gas,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    &paymaster_and_data,
-                ) {
-                    Ok(hash) => hash,
-                    Err(e) => {
-                        error!("Failed to calculate UserOp hash: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 10: Sign UserOperation
-                info!("=== STEP 9: SIGN USEROPERATION ===");
-                let signature = match sign_userop_hash(&user_op_hash, private_key, chain_id) {
-                    Ok(sig) => sig,
-                    Err(e) => {
-                        error!("Failed to sign UserOp: {}", e);
-                        return Ok(());
-                    }
-                };
-                
-                // Step 11: Build final UserOperation
-                info!("=== STEP 10: BUILD FINAL USEROPERATION ===");
-                let final_userop = build_final_userop_json_with_data(
-                    sender,
-                    &nonce,
-                    &call_data_hex,
-                    final_call_gas,
-                    final_verif_gas,
-                    final_preverif_gas,
-                    dynamic_max_fee,
-                    dynamic_priority_fee,
-                    &signature,
-                    &Vec::new(), // Empty paymaster data for Candide API format
-                );
-                
-                
-                let mut retry_call_gas = final_call_gas;
-                let mut retry_verif_gas = final_verif_gas;
-                let mut retry_preverif_gas = final_preverif_gas;
-
-                info!("all gotten gas values: callGas: {}, verificationGas: {}, preVerificationGas: {}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
-                
-                info!("=== GAS ESTIMATION TEST COMPLETE ===");
-                
-                            } else {
-                error!("Usage: test-gas-estimation <amount>");
-                info!("Example: test-gas-estimation 0.01");
             }
         }
         _ => info!("Unknown command: '{}'. Type 'help' for available commands.", command_verb),

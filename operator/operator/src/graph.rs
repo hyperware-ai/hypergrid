@@ -25,12 +25,13 @@ use crate::structs::{
     IdentityStatus, DelegationStatus, 
     MintOperatorWalletActionNodeData,
 };
-use crate::wallet::service::{
+use crate::hyperwallet_client::service::{
     get_wallet_summary_for_address,
     get_all_onchain_linked_hot_wallet_addresses,
-    //verify_single_hot_wallet_delegation_detailed,
+    verify_single_hot_wallet_delegation_detailed,
+    get_wallet_spending_limits,
 };
-use crate::wallet::payments::{
+use crate::hyperwallet_client::payments::{
     check_operator_tba_funding_detailed,
     check_single_hot_wallet_funding_detailed,
 };
@@ -48,7 +49,7 @@ fn truncate_address(address_str: &str) -> String {
 // New public function to build graph data
 pub fn build_hypergrid_graph_data(
     our: &Address,
-    state: &State,
+    state: &mut State,
 ) -> anyhow::Result<HypergridGraphResponse> {
     info!("Building Hypergrid graph data for node {}...", our.node);
 
@@ -161,7 +162,7 @@ pub fn build_hypergrid_graph_data(
                 if let Some(selected_hw_id) = &state.selected_wallet_id {
                     if let Some(selected_hw) = state.managed_wallets.get(selected_hw_id) {
                         let hw_address_str = &selected_hw.id.to_string();
-                        match crate::wallet::service::verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
+                        match verify_single_hot_wallet_delegation_detailed(state, Some(entry_name), hw_address_str) {
                             DelegationStatus::Verified => {
                                 signers_note_status_text = format!("Signers Note: Set (Verified for {})", truncate_address(hw_address_str));
                                 signers_note_is_set = true;
@@ -302,6 +303,7 @@ pub fn build_hypergrid_graph_data(
             let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
             let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
             let paymaster = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec"; // Circle paymaster
+            //let paymaster = "0x861a1Be40c595db980341e41A7a5D09C772f7c2b"; // Hyperware paymaster
             
             match wallet::erc20_allowance(usdc_addr, &tba_address, paymaster, &provider) {
                 Ok(allowance) => allowance > alloy_primitives::U256::ZERO,
@@ -389,6 +391,27 @@ pub fn build_hypergrid_graph_data(
     if operator_wallet_node_id.is_some() {
         match get_all_onchain_linked_hot_wallet_addresses(fresh_operator_entry_name.as_deref()) {
             Ok(linked_hw_addresses) => {
+                // Auto-select first delegated wallet if no wallet is currently selected
+                if state.selected_wallet_id.is_none() && !linked_hw_addresses.is_empty() {
+                    info!("No wallet selected - checking for delegated wallets to auto-select");
+                    for candidate_address in &linked_hw_addresses {
+                        if let Some(summary) = get_wallet_summary_for_address(state, candidate_address) {
+                            // This wallet exists in hyperwallet's list AND is delegated on-chain
+                            // Directly set it as selected (skip individual validation that may fail due to API issues)
+                            let wallet_name = summary.name.clone().unwrap_or_else(|| "unnamed".to_string());
+                            info!("Found delegated wallet in hyperwallet: {} ({})", wallet_name, summary.id);
+                            
+                            state.selected_wallet_id = Some(summary.id.clone());
+                            state.save();
+                            
+                            info!("Auto-selected delegated wallet: {} ({})", wallet_name, summary.id);
+                            break; // Stop after first successful selection
+                        } else {
+                            info!("Skipping delegated wallet {} - not found in hyperwallet", candidate_address);
+                        }
+                    }
+                }
+                
                 for hw_address_str in linked_hw_addresses {
                     let hot_wallet_node_id = format!("hot-wallet-{}", hw_address_str);
                     let summary_opt = get_wallet_summary_for_address(state, &hw_address_str);
@@ -424,7 +447,7 @@ pub fn build_hypergrid_graph_data(
                         }
 
                         // Get spending limits from hyperwallet (works for both managed and external wallets)
-                        let spending_limits = crate::hyperwallet_client::service::get_wallet_spending_limits(hw_address_str.clone())
+                        let spending_limits = get_wallet_spending_limits(state, hw_address_str.clone())
                             .unwrap_or_else(|e| {
                                 info!("Could not fetch spending limits for {}: {}", hw_address_str, e);
                                 None
@@ -449,7 +472,7 @@ pub fn build_hypergrid_graph_data(
                     } else {
                         // No summary found - create a minimal node for external wallet
                         // Still try to get spending limits from hyperwallet
-                        let spending_limits = crate::hyperwallet_client::service::get_wallet_spending_limits(hw_address_str.clone())
+                        let spending_limits = get_wallet_spending_limits(state, hw_address_str.clone())
                             .unwrap_or_else(|e| {
                                 info!("Could not fetch spending limits for external wallet {}: {}", hw_address_str, e);
                                 None
