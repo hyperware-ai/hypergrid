@@ -17,11 +17,19 @@ import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
   HttpMethod,
   RegisterProviderResponse,
-  RegisteredProvider
+  RegisteredProvider,
+  IndexedProvider
 } from "./types/hypergrid_provider";
-import { fetchRegisteredProvidersApi, registerProviderApi } from "./utils/api";
+import { 
+  fetchRegisteredProvidersApi, 
+  registerProviderApi,
+  getProviderSyncStatusApi
+} from "./utils/api";
 import ProviderConfigModal from "./components/ProviderConfigModal";
 import RegisteredProviderView from './components/RegisteredProviderView';
+import IndexedProviderView from './components/IndexedProviderView';
+import ProviderSyncStatus from './components/ProviderSyncStatus';
+import FloatingNotification from './components/FloatingNotification';
 import {
   processRegistrationResponse,
   populateFormFromProvider,
@@ -35,6 +43,7 @@ import { updateProviderApi } from "./utils/api";
 import { useProviderRegistration, useProviderUpdate } from "./registration/hypermapUtils";
 import { lookupProviderTbaAddressFromBackend } from "./registration/hypermap";
 import AppSwitcher from "./components/AppSwitcher";
+import ProviderSearch from "./components/ProviderSearch";
 
 // Import logos
 import logoGlow from './assets/logo_glow.png';
@@ -135,6 +144,13 @@ function AppContent() {
     return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
   });
 
+  // Provider view state (keeping for potential future use)
+  const [indexedProviders, setIndexedProviders] = useState<IndexedProvider[]>([]);
+  
+  // Provider loading state
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+
   // Effect to update localStorage and body class when theme changes
   useEffect(() => {
     localStorage.setItem('theme', theme);
@@ -197,13 +213,15 @@ function AppContent() {
   };
 
   const loadAndSetProviders = useCallback(async () => {
-    setIsLoadingProviders(true);
+    setProvidersLoading(true);
+    setProvidersError(null);
     try {
       const providers = await fetchRegisteredProvidersApi();
       setRegisteredProviders(providers);
       console.log("Fetched registered providers:", providers);
     } catch (error) {
       console.error("Failed to load registered providers in App:", error);
+      setProvidersError(error instanceof Error ? error.message : 'Failed to load providers');
       setRegisteredProviders([]);
       // alert(`Error fetching providers: ${(error as Error).message}`);
     } finally {
@@ -221,6 +239,19 @@ function AppContent() {
     setRegisteredProviders(updatedProviders);
     console.log("Provider updated locally:", updatedProvider);
   }, [registeredProviders, setRegisteredProviders]);
+
+
+
+  // Effect to auto-refresh providers
+  useEffect(() => {
+    // Initial load
+    loadAndSetProviders();
+
+    // Set up periodic refresh (every 60 seconds)
+    const interval = setInterval(loadAndSetProviders, 60000);
+    
+    return () => clearInterval(interval);
+  }, [loadAndSetProviders]);
 
   const handleCopyProviderMetadata = useCallback(async (provider: RegisteredProvider) => {
     const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid.hypr";
@@ -362,6 +393,7 @@ function AppContent() {
     <div className={`min-h-screen bg-gray flex grow self-stretch w-full h-screen overflow-hidden`}>
       <header className="flex flex-col py-8 px-6  bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
+        <ProviderSearch />
         <AppSwitcher currentApp="provider" />
 
         {/* Mobile node info */}

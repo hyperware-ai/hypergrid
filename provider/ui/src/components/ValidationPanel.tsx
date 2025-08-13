@@ -172,48 +172,73 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   const allParams = getAllParamKeysWithTypes();
 
   return (
-    <div className="validation-panel form-section">
-      <h3 style={{ marginTop: 0 }}>Validate Your Provider</h3>
-      <p>Let's test your API endpoint to make sure it is configured correctly:</p>
+    <div className="flex flex-col">
+      {/* Header Section */}
+      <div className="text-center mb-8">
+        <h1 className="text-xl font-bold text-gray-900 mb-2">Validate Your Provider</h1>
+        <p className="text-gray-600 max-w-lg mx-auto">
+          Let's test your API endpoint to make sure it is configured correctly:
+        </p>
+      </div>
       
-      <div className="validation-columns">
+      {/* Main Content */}
+      <div className="flex flex-col items-center space-y-6">
+        {/* Test Parameters Section */}
         {allParams.length > 0 && (
-          <div className="validation-inputs">
-            <h4>Test Parameters</h4>
-            <div className="validation-params-grid">
-              {allParams.map(({ key, type }) => (
-                <div key={key} className="validation-param-item">
-                  <label htmlFor={`validation-${key}`} className="validation-param-label">
-                    {key} ({type})
-                  </label>
-                  <input
-                    id={`validation-${key}`}
-                    type="text"
-                    value={validationArgs[key] || ''}
-                    onChange={(e) => handleValidationArgChange(key, e.target.value)}
-                    placeholder={getSampleValue(key, type)}
-                    className="validation-param-input"
-                  />
-                </div>
-              ))}
+          <div className="w-full max-w-xl">
+            <div className="bg-gradient-to-b from-gray-50 to-white border border-gray-200 rounded-xl shadow-md p-6">
+              <h3 className="text-lg font-bold text-gray-900 text-center mb-6">Test Parameters</h3>
+              <div className={allParams.length === 1 ? "flex justify-center" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
+                {allParams.map(({ key, type }) => (
+                  <div key={key} className={allParams.length === 1 ? "w-full max-w-xs" : "group"}>
+                    <label 
+                      htmlFor={`validation-${key}`} 
+                      className="block text-sm font-semibold text-gray-700 mb-1.5 text-center"
+                    >
+                      {key} <span className="text-gray-400 font-normal">({type})</span>
+                    </label>
+                    <input
+                      id={`validation-${key}`}
+                      type="text"
+                      value={validationArgs[key] || ''}
+                      onChange={(e) => handleValidationArgChange(key, e.target.value)}
+                      placeholder={getSampleValue(key, type)}
+                      className="w-full px-4 py-2.5 text-center border border-gray-200 rounded-lg 
+                               bg-white text-gray-900 placeholder-gray-400
+                               focus:bg-gray-50 focus:border-gray-400 focus:outline-none
+                               hover:border-gray-300 transition-all duration-200
+                               shadow-sm focus:shadow-md"
+                    />
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         )}
         
-        <div className="curl-preview">
-          <h4>Preview API Call</h4>
-          <pre className="api-scaffold-content">
-            <code>{generateCurlPreview()}</code>
-          </pre>
+        {/* Preview API Call Section */}
+        <div className="w-full max-w-xl">
+          <div className="bg-gradient-to-b from-gray-50 to-white border border-gray-200 rounded-xl shadow-md p-6">
+            <h3 className="text-lg font-bold text-gray-900 text-center mb-4">Preview API Call</h3>
+            <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto shadow-inner">
+              <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap text-center">
+                <code>{generateCurlPreview()}</code>
+              </pre>
+            </div>
+          </div>
         </div>
-              </div>
+      </div>
         
-        <div className="validation-actions">
+      {/* Action Buttons */}
+      <div className="flex justify-center gap-3 mt-6 pt-4 border-t border-gray-100">
         <button
           type="button"
           onClick={handleValidate}
           disabled={isValidating}
-          className="btn-primary"
+          className="px-6 py-2.5 bg-gray-900 text-white font-medium rounded-lg
+                   hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
+                   disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
+                   shadow-sm hover:shadow-md"
         >
           {isValidating ? 'Validating...' : 'Validate & Register'}
         </button>
@@ -221,7 +246,10 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
           type="button"
           onClick={onCancel}
           disabled={isValidating}
-          className="btn-secondary"
+          className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
+                   hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
+                   disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
+                   shadow-sm hover:shadow-md"
         >
           Back to Configuration
         </button>

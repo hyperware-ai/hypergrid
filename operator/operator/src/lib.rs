@@ -7,13 +7,14 @@ mod chain;
 mod helpers;
 mod identity;
 mod authorized_services;
+pub mod constants;
 // Keep local module for functions not yet available in the library
 pub mod hyperwallet_client;
 
 
 use hyperware_process_lib::homepage::add_to_homepage;
 use hyperware_process_lib::http::server::{HttpBindingConfig, HttpServer};
-use hyperware_process_lib::logging::{info, init_logging, Level, error};
+use hyperware_process_lib::logging::{info, init_logging, Level, error, RemoteLogSettings};
 use hyperware_process_lib::{await_message, call_init, Address, Message};
 use hyperware_process_lib::sqlite::Sqlite;
 // Import the new hyperwallet client library with alias to avoid naming conflict
@@ -68,7 +69,8 @@ fn init_http() -> anyhow::Result<HttpServer> {
 
 call_init!(init);
 fn init(our: Address) {
-    init_logging(Level::DEBUG, Level::INFO, None, None, None).unwrap();
+    let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.os", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };   
+    init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).unwrap();
     info!("begin hypergrid operator for: {}", our.node);
 
     let mut state = State::load();

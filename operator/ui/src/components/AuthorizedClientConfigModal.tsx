@@ -43,6 +43,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     const [isRegenerating, setIsRegenerating] = useState(false);
     const [isDeleting, setIsDeleting] = useState(false);
     const [newToken, setNewToken] = useState<string | null>(null);
+    const [nodeName, setNodeName] = useState<string | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [confirmDelete, setConfirmDelete] = useState(false);
     const [copiedCommand, setCopiedCommand] = useState(false);
@@ -79,6 +80,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         // Reset state for next time
         setHasChanges(false);
         setNewToken(null);
+        setNodeName(null);
         setError(null);
         setConfirmDelete(false);
         setIsEditingName(false);
@@ -147,6 +149,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         setIsRegenerating(true);
         setError(null);
         setNewToken(null);
+        setNodeName(null);
 
         const newApiKey = generateApiKey(32);
 
@@ -168,6 +171,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
 
             const responseData = await response.json();
             setNewToken(responseData.raw_token);
+            setNodeName(responseData.node_name);
             setHasChanges(true); // Mark that changes were made
         } catch (err) {
             setError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -219,8 +223,8 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         });
     };
 
-    const authCommand = newToken ?
-        `Use the authorize tool with url "${window.location.origin + window.location.pathname + '/shim/mcp'}", token "${newToken}", client_id "${clientId}", and node "${window.location.hostname}"` : '';
+    const authCommand = newToken && nodeName ?
+        `Use the authorize tool with url "${window.location.origin + window.location.pathname + 'shim/mcp'}", token "${newToken}", client_id "${clientId}", and node "${nodeName}"` : '';
 
     return (
         <Modal

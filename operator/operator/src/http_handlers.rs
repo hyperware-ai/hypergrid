@@ -19,6 +19,7 @@ use hyperware_process_lib::{
 use serde_json::{json, Value};
 use sha2::{Sha256, Digest};
 use uuid::Uuid;
+use crate::constants::PUBLISHER;
 
 use crate::{
     authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities},
@@ -1068,7 +1069,7 @@ fn execute_provider_call(
     // Prepare target address
     let target_address = Address::new(
         &provider_details.provider_id,
-        ("provider", "hypergrid", "ware.hypr")
+        ("provider", "hypergrid", PUBLISHER)
     );
     
     let payment_tx_hash_clone = payment_tx_hash.clone();
@@ -1210,7 +1211,7 @@ fn perform_provider_health_check(provider_details: &ProviderDetails) -> anyhow::
     
     let target_address = Address::new(
         &provider_details.provider_id,
-        ("provider", "hypergrid", "ware.hypr")
+        ("provider", "hypergrid", PUBLISHER)
     );
     
     let DummyArgument = serde_json::json!({

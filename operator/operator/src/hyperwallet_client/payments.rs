@@ -8,6 +8,7 @@ use hyperware_process_lib::{
     hyperwallet_client,
 };
 use alloy_primitives::Address as EthAddress;
+use crate::constants::{USDC_BASE_ADDRESS, PUBLISHER};
 
 use crate::structs::{State, PaymentAttemptResult};
 
@@ -370,7 +371,7 @@ pub fn check_operator_tba_funding_detailed(
     };
 
     let provider = eth::Provider::new(crate::structs::CHAIN_ID, 30000);
-    let usdc_addr = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"; // Base USDC
+    let usdc_addr = USDC_BASE_ADDRESS; // Base USDC
     
     // Check USDC balance
     let (usdc_balance_str, usdc_error) = match wallet::erc20_balance_of(usdc_addr, tba_addr, &provider) {

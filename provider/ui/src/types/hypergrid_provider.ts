@@ -89,5 +89,34 @@ export interface GetProviderNamehashResponse {
 export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
 export type AuthChoice = "none" | "query" | "header";
 
+// --- Indexed Provider Types ---
+// Interface for indexed providers from the operator's database
+// Note: These are generic JSON objects from the database, might have different structure than RegisteredProvider
+export interface IndexedProvider {
+  provider_id: string;
+  name: string;
+  description?: string;
+  price?: number | string; // Can be string from database or number
+  [key: string]: any; // Allow additional dynamic fields from the database
+}
+
+// Response types for indexed provider endpoints
+// Note: Backend now returns JSON as strings, so we get string responses that need to be parsed
+export type GetIndexedProvidersResponse = RustResponse<string>; // Backend returns JSON string
+export type SearchIndexedProvidersResponse = RustResponse<string>; // Backend returns JSON string
+export type GetIndexedProviderDetailsResponse = RustResponse<string>; // Backend returns JSON string
+
+// Provider sync status types
+export interface ProviderSyncStatus {
+  is_synchronized: boolean;
+  summary: string;
+  total_local: number;
+  missing_from_index: string[];
+  mismatched: string[];
+  has_issues: boolean;
+}
+
+export type GetProviderSyncStatusResponse = RustResponse<string>; // Backend returns JSON string
+
 
 

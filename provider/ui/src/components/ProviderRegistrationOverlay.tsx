@@ -137,11 +137,11 @@ const Step: React.FC<{
       }`}>
       {isComplete ? '✓' : number}
     </div>
-    <span className={`text-xs transition-colors ${isComplete
+    <span className={`text-xs font-medium transition-colors ${isComplete
         ? 'text-green-400'
         : isActive
-          ? 'text-white'
-          : 'text-gray-400'
+          ? 'text-gray-900'
+          : 'text-gray-500'
       }`}>
       {label}
     </span>

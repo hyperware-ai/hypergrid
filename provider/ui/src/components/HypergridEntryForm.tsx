@@ -1,4 +1,5 @@
 import React from 'react';
+import { HYPR_SUFFIX } from '../constants';
 
 export interface HypergridEntryFormProps {
   nodeId: string;

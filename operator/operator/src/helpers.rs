@@ -13,6 +13,7 @@ use hyperware_process_lib::hypermap;
 use hyperware_process_lib::eth;
 use hyperware_process_lib::http::{StatusCode, server::send_response};
 use hyperware_process_lib::signer::Signer;
+use crate::constants::{HYPR_HASH, USDC_BASE_ADDRESS};
 use alloy_primitives::{U256, B256};
 use alloy_sol_types::{SolValue, SolCall};
 use hex;
@@ -1382,7 +1383,7 @@ pub fn handle_terminal_debug(
             }
             
             // Show hypr parent hash for reference
-            let hypr_hash = "0x29575a1a0473dcc0e00d7137198ed715215de7bffd92911627d5e008410a5826";
+            let hypr_hash = HYPR_HASH;
             info!("\nFor reference:");
             info!("  hypr hash (parent of grid): {}", hypr_hash);
             info!("  grid.hypr expected hash: {}", hypermap::namehash("grid.hypr"));

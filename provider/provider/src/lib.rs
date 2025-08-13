@@ -1,15 +1,17 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::get_server;
 use hyperware_app_common::hyperware_process_lib::kiprintln;
-use hyperware_process_lib::eth::Address as EthAddress;
-use hyperware_process_lib::vfs::{create_drive, create_file, open_file};
-use hyperware_process_lib::{
-    eth::Provider,
+use hyperware_app_common::hyperware_process_lib::logging::RemoteLogSettings;
+use hyperware_app_common::hyperware_process_lib::{
+    eth::{Provider, Address as EthAddress},
     get_state,
     hypermap,
-    logging::{error, info},
+    logging::{debug, error, info, warn, init_logging, Level},
     our,
+    vfs::{create_drive, create_file, open_file},
+    Address,
 };
+use crate::constants::HYPR_SUFFIX;
 use hyperware_app_common::{source, SaveOptions};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
@@ -21,7 +23,10 @@ pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
 mod util; // Declare the util module
 use util::*; // Use its public items
 
-const ICON: &str = include_str!("./icon");
+mod db; // Declare the db module  
+use db::*; // Use its public items
+
+pub mod constants; // Declare the constants module
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderRequest {
     pub provider_name: String,
@@ -68,6 +73,7 @@ pub enum TerminalCommand {
     UnregisterProvider(String),
     TestProvider(ProviderRequest),
     ExportProviders,
+    ViewDatabase,
 }
 
 // --- Modified EndpointDefinition ---
@@ -225,7 +231,7 @@ impl HypergridProviderState {
         match get_state() {
             Some(bytes) => match rmp_serde::from_slice::<Self>(&bytes) {
                 Ok(state) => {
-                    println!("Successfully loaded HypergridProviderState from checkpoint.");
+                    info!("Successfully loaded HypergridProviderState from checkpoint.");
                     state
                 }
                 Err(e) => {
@@ -269,7 +275,11 @@ impl Default for HypergridProviderState {
 impl HypergridProviderState {
     #[init]
     async fn initialize(&mut self) {
-        println!("Initializing provider registry");
+        let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.os", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };
+        // Initialize tracing-based logging for the provider process
+        init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).expect("Failed to initialize logging");
+        info!("Initializing Hypergrid Provider");
+        
         *self = HypergridProviderState::load();
         let server = get_server().expect("HTTP server should be initialized");
 
@@ -295,15 +305,19 @@ impl HypergridProviderState {
         provider: RegisteredProvider,
     ) -> Result<RegisteredProvider, String> {
         info!("Registering provider: {:?}", provider);
+
+        // need to check if provider already exists in db + our registry, add that later
         if self
             .registered_providers
             .iter()
             .any(|p| p.provider_name == provider.provider_name)
         {
-            return Err(format!(
+            let error_msg = format!(
                 "Provider with name '{}' already registered.",
                 provider.provider_name
-            ));
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
         }
 
         // Provider ID is set by frontend to match node identity
@@ -346,10 +360,12 @@ impl HypergridProviderState {
             .iter()
             .any(|p| p.provider_name == provider.provider_name)
         {
-            return Err(format!(
+            let error_msg = format!(
                 "Provider with name '{}' already registered.",
                 provider.provider_name
-            ));
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
         }
         
         // Validate the endpoint by making a test call
@@ -377,7 +393,7 @@ impl HypergridProviderState {
         provider_name: String,
         updated_provider: RegisteredProvider,
     ) -> Result<RegisteredProvider, String> {
-        info!("Updating provider: {}", provider_name);
+        info!("Provider update request received: {}", provider_name);
 
         // Find the provider to update
         let provider_index = self
@@ -397,10 +413,12 @@ impl HypergridProviderState {
                         .iter()
                         .any(|p| p.provider_name == updated_provider.provider_name)
                     {
-                        return Err(format!(
+                        let error_msg = format!(
                             "A provider with name '{}' already exists. Please choose a different name.",
                             updated_provider.provider_name
-                        ));
+                        );
+                        warn!("{}", error_msg);
+                        return Err(error_msg);
                     }
                 }
 
@@ -464,10 +482,12 @@ impl HypergridProviderState {
             .iter()
             .any(|p| p.provider_name == mcp_request.provider_name)
         {
-            return Err(format!(
+            let error_msg = format!(
                 "Provider '{}' not found - please make sure to enter a valid, registered provider name",
                 mcp_request.provider_name
-            ));
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
         }
 
         // Get the source node ID ---
@@ -479,6 +499,10 @@ impl HypergridProviderState {
         if let Err(validation_err) =
             validate_transaction_payment(&mcp_request, self, source_node_id.clone()).await
         {
+            error!(
+                "Payment validation failed for provider '{}' from node '{}': {}",
+                mcp_request.provider_name, source_node_id, validation_err
+            );
             return Err(validation_err);
         }
         // We can safely unwrap here since validate_transaction_payment already checked
@@ -510,7 +534,7 @@ impl HypergridProviderState {
 
     #[http]
     async fn get_registered_providers(&self) -> Result<Vec<RegisteredProvider>, String> {
-        info!("Fetching registered providers");
+        debug!("Fetching registered providers");
         Ok(self.registered_providers.clone())
     }
 
@@ -522,7 +546,7 @@ impl HypergridProviderState {
 
     #[http]
     async fn get_provider_namehash(&self, provider_name: String) -> Result<String, String> {
-        info!("Getting namehash for provider: {}", provider_name);
+        debug!("Getting namehash for provider: {}", provider_name);
         
         // Verify provider exists in our registry
         let provider = self
@@ -533,39 +557,142 @@ impl HypergridProviderState {
 
         // Use the hypermap library to calculate the correct namehash
         // This ensures consistency with the on-chain registration
-        // TODO: Make this configurable via environment variable or config
-        let namespace = "grid.hypr"; // Replace with your actual namespace
+        let namespace = &HYPR_SUFFIX[1..]; // Remove the leading dot from ".grid.hypr" to get "grid.hypr"
         let full_name = format!("{}.{}", provider.provider_name, namespace);
         let namehash = hypermap::namehash(&full_name);
         
-        info!("Calculated namehash for '{}': {}", full_name, namehash);
+        debug!("Calculated namehash for '{}': {}", full_name, namehash);
         Ok(namehash)
+    }
+
+    /// Get all providers from the operator's indexed database
+    #[http]
+    async fn get_indexed_providers(&self) -> Result<String, String> {
+        debug!("Fetching indexed providers");
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let providers = get_all_indexed_providers(&db).map_err(|e| {
+            format!("Failed to fetch indexed providers: {}", e)
+        })?;
+        
+        let json_providers: Vec<serde_json::Value> = providers
+            .into_iter()
+            .map(|provider| serde_json::to_value(provider).unwrap_or_default())
+            .collect();
+            
+        debug!("Retrieved {} indexed providers", json_providers.len());
+        
+        serde_json::to_string(&json_providers).map_err(|e| {
+            format!("Failed to serialize providers to JSON: {}", e)
+        })
+    }
+
+    /// Search indexed providers by query
+    #[http]
+    async fn search_indexed_providers(&self, query: String) -> Result<String, String> {
+        debug!("Searching indexed providers with query: {}", query);
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let providers = search_indexed_providers(&db, query.clone()).map_err(|e| {
+            format!("Failed to search indexed providers: {}", e)
+        })?;
+        
+        let json_providers: Vec<serde_json::Value> = providers
+            .into_iter()
+            .map(|provider| serde_json::to_value(provider).unwrap_or_default())
+            .collect();
+            
+        debug!("Found {} providers matching query '{}'", json_providers.len(), query);
+        
+        serde_json::to_string(&json_providers).map_err(|e| {
+            format!("Failed to serialize providers to JSON: {}", e)
+        })
+    }
+
+    /// Get specific provider details from indexed database by name
+    #[http]
+    async fn get_indexed_provider_details(&self, name: String) -> Result<String, String> {
+        debug!("Getting indexed provider details for name: {}", name);
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let provider = get_indexed_provider_by_name(&db, &name).map_err(|e| {
+            format!("Failed to get provider details: {}", e)
+        })?;
+        
+        let result = provider.map(|p| serde_json::to_value(p).unwrap_or_default());
+        
+        match &result {
+            Some(_) => info!("Found indexed provider details for '{}'", name),
+            None => info!("No indexed provider found for '{}'", name),
+        }
+        
+        serde_json::to_string(&result).map_err(|e| {
+            format!("Failed to serialize provider details to JSON: {}", e)
+        })
+    }
+
+    /// Get provider state synchronization status
+    #[http]
+    async fn get_provider_sync_status(&self) -> Result<String, String> {
+        debug!("Checking provider sync status");
+        
+        let db = load_provider_db().map_err(|e| {
+            format!("Failed to load provider database: {}", e)
+        })?;
+        
+        let comparison = compare_with_indexed_state(&self.registered_providers, &db).map_err(|e| {
+            format!("Failed to compare provider states: {}", e)
+        })?;
+        
+        let status = serde_json::json!({
+            "is_synchronized": comparison.is_synchronized(),
+            "summary": comparison.summary(),
+            "total_local": comparison.total_local,
+            "missing_from_index": comparison.missing_from_index,
+            "mismatched": comparison.mismatched,
+            "has_issues": !comparison.is_synchronized()
+        });
+        
+        serde_json::to_string(&status).map_err(|e| {
+            format!("Failed to serialize sync status to JSON: {}", e)
+        })
     }
 
     #[local]
     async fn terminal_command(&mut self, command: TerminalCommand) -> Result<String, String> {
         match command {
             TerminalCommand::ListProviders => {
-                kiprintln!("Listing registered providers");
+                debug!("Listing registered providers");
                 Ok(format!(
                     "Registered providers: {:?}",
                     self.registered_providers
                 ))
             }
             TerminalCommand::RegisterProvider(provider) => {
-                kiprintln!("Registering provider: {:?}", provider);
+                debug!("Registering provider: {:?}", provider);
                 if self
                     .registered_providers
                     .iter()
                     .any(|p| p.provider_name == provider.provider_name)
                 {
-                    return Err(format!(
+                    let error_msg = format!(
                         "Provider with name '{}' already registered.",
                         provider.provider_name
-                    ));
+                    );
+                    warn!("{}", error_msg);
+                    return Err(error_msg);
                 }
                 self.registered_providers.push(provider.clone());
-                kiprintln!(
+                debug!(
                     "Successfully registered provider: {}",
                     provider.provider_name
                 );
@@ -581,7 +708,7 @@ impl HypergridProviderState {
                 ))
             }
             TerminalCommand::UnregisterProvider(provider_name) => {
-                kiprintln!("Unregistering provider: {}", provider_name);
+                debug!("Unregistering provider: {}", provider_name);
                 self.registered_providers
                     .retain(|p| p.provider_name != provider_name);
 
@@ -590,14 +717,14 @@ impl HypergridProviderState {
                     error!("Failed to save providers to VFS after unregister: {}", e);
                 }
 
-                kiprintln!("Successfully unregistered provider: {}", provider_name);
+                debug!("Successfully unregistered provider: {}", provider_name);
                 Ok(format!(
                     "Successfully unregistered provider: {}",
                     provider_name
                 ))
             }
             TerminalCommand::TestProvider(provider_request) => {
-                kiprintln!(
+                debug!(
                     "Testing provider: {}, with dynamic args: {:?}, and tx hash: {:?}",
                     provider_request.provider_name,
                     provider_request.arguments,
@@ -616,14 +743,16 @@ impl HypergridProviderState {
                 {
                     Some(provider) => provider,
                     None => {
-                        return Err(format!(
+                        let error_msg = format!(
                             "Provider with name '{}' not found in registered providers.",
                             provider_request.provider_name
-                        ));
+                        );
+                        warn!("{}", error_msg);
+                        return Err(error_msg);
                     }
                 };
 
-                kiprintln!("Registered provider: {:?}", registered_provider);
+                debug!("Registered provider: {:?}", registered_provider);
 
                 let result = call_provider(
                     registered_provider.provider_name.clone(),
@@ -633,7 +762,7 @@ impl HypergridProviderState {
                 )
                 .await;
 
-                kiprintln!("Result: {:?}", result);
+                debug!("Result: {:?}", result);
 
                 match result {
                     Ok(response) => Ok(response),
@@ -641,10 +770,10 @@ impl HypergridProviderState {
                 }
             }
             TerminalCommand::ExportProviders => {
-                kiprintln!("Exporting providers as JSON");
+                debug!("Exporting providers as JSON");
                 match self.export_providers_json() {
                     Ok(json_data) => {
-                        kiprintln!(
+                        debug!(
                             "Exported {} providers:\n{}",
                             self.registered_providers.len(),
                             json_data
@@ -655,334 +784,30 @@ impl HypergridProviderState {
                         ))
                     }
                     Err(e) => {
-                        kiprintln!("Failed to export providers: {}", e);
+                        debug!("Failed to export providers: {}", e);
                         Err(e)
                     }
                 }
+            },
+            TerminalCommand::ViewDatabase => {
+                debug!("Viewing database");
+
+                let db = load_provider_db().map_err(|e| {
+                    format!("Failed to load provider database: {}", e)
+                })?;
+
+                let providers = get_all_indexed_providers(&db).map_err(|e| {
+                    format!("Failed to fetch indexed providers: {}", e)
+                })?;
+
+                let json_providers: Vec<serde_json::Value> = providers
+                    .into_iter()
+                    .map(|provider| serde_json::to_value(provider).unwrap_or_default())
+                    .collect();
+
+                Ok(format!("Database: {:?}", json_providers))
             }
         }
     }
 }
 
-//use hyperprocess_macro::hyperprocess;
-//use hyperware_app_common::hyperware_process_lib::kiprintln;
-//use hyperware_process_lib::eth::Address as EthAddress;
-//use hyperware_process_lib::{eth::Provider, hypermap, our, homepage::add_to_homepage};
-//use serde::{Deserialize, Serialize};
-//use serde_json;
-//use std::str::FromStr; // Needed for EthAddress::from_str
-//
-//pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
-//
-//mod util; // Declare the util module
-//use util::*; // Use its public items
-//
-//
-//const ICON: &str = include_str!("./icon");
-//#[derive(Clone, Debug, Serialize, Deserialize)]
-//pub struct ProviderRequest {
-//    pub provider_name: String,
-//    pub arguments: Vec<(String, String)>,
-//    pub payment_tx_hash: Option<String>,
-//}
-//
-//// Type system for API endpoints
-//#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-//pub enum HttpMethod {
-//    GET,
-//    POST,
-//}
-//
-//// --- Added Enum for Request Structure ---
-//#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-//pub enum RequestStructureType {
-//    GetWithPath,
-//    GetWithQuery,
-//    PostWithJson,
-//}
-//
-//#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-//pub enum TerminalCommand {
-//    ListProviders,
-//    RegisterProvider(RegisteredProvider),
-//    UnregisterProvider(String),
-//    TestProvider(TestProviderArgs),
-//}
-//#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-//pub struct TestProviderArgs {
-//    pub provider_name: String,
-//    pub args: Vec<(String, String)>,
-//}
-//
-//// --- Modified EndpointDefinition ---
-//#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-//pub struct EndpointDefinition {
-//    pub name: String,                            // Operation name, e.g., "getUserById"
-//    pub method: HttpMethod,                      // GET, POST
-//    pub request_structure: RequestStructureType, // Explicitly define the structure
-//    pub base_url_template: String, // e.g., "https://api.example.com/users/{id}" or "https://api.example.com/v{apiVersion}/users"
-//    pub path_param_keys: Option<Vec<String>>, // Keys for placeholders in base_url_template, relevant for GetWithPath, PostWithJson
-//    pub query_param_keys: Option<Vec<String>>, // Keys for dynamic query params, relevant for GetWithQuery, PostWithJson
-//    pub header_keys: Option<Vec<String>>, // Keys for dynamic headers (always potentially relevant)
-//    pub body_param_keys: Option<Vec<String>>, // Keys for dynamic body params, relevant for PostWithJson
-//
-//    pub api_key: Option<String>, // The actual secret key
-//
-//    pub api_key_query_param_name: Option<String>, // e.g., "api_key"
-//    pub api_key_header_name: Option<String>,      // e.g., "X-API-Key"
-//}
-//
-//// --- New Provider Struct ---
-//#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
-//pub struct RegisteredProvider {
-//    pub provider_name: String,
-//    // Provide Node Identity (HNS entry (Node Identity) of the the process serving as the provider)
-//    pub provider_id: String,
-//    pub description: String,
-//    // TODO: This should be an EthAddress, but that is not supported by WIT parser (yet)
-//    // We should validate this is a valid address before storing it
-//    pub registered_provider_wallet: String,
-//    // Price per call in USDC, should be clear in HNS entry
-//    pub price: f64,
-//    pub endpoint: EndpointDefinition,
-//}
-//
-//#[derive(Clone, Debug, Serialize, Deserialize)]
-//pub struct HypergridProviderState {
-//    pub registered_providers: Vec<RegisteredProvider>,
-//    pub spent_tx_hashes: Vec<String>,
-//    pub rpc_provider: Provider, // For general ETH RPC (e.g., tx receipts on various chains)
-//    pub hypermap: hypermap::Hypermap, // For Hypermap specific calls (e.g., on Base chain)
-//}
-//
-//impl Default for HypergridProviderState {
-//    fn default() -> Self {
-//        let hypermap_timeout = 60; // RPC Provider timeout
-//
-//        // Provider specifically for Hypermap, using its defined chain and address
-//        let provider = Provider::new(hypermap::HYPERMAP_CHAIN_ID, hypermap_timeout);
-//        let hypermap_contract_address = EthAddress::from_str(hypermap::HYPERMAP_ADDRESS)
-//            .expect("HYPERMAP_ADDRESS const should be a valid Ethereum address");
-//
-//        Self {
-//            registered_providers: Vec::new(),
-//            spent_tx_hashes: Vec::new(),
-//            rpc_provider: provider.clone(), // Example: Default to Ethereum Mainnet (chain 1), 60s timeout
-//            hypermap: hypermap::Hypermap::new(provider.clone(), hypermap_contract_address),
-//        }
-//    }
-//}
-//
-//
-//// --- Hyperware Process ---
-//#[hyperprocess(
-//    name = "hpn-provider",
-//    ui = Some(HttpBindingConfig::default()),
-//    endpoints = vec![
-//        Binding::Http {
-//            path: "/api",
-//            config: HttpBindingConfig::new(false, false, false, None),
-//        },
-//        Binding::Ws {
-//            path: "/ws",
-//            config: WsBindingConfig::new(false, false, false),
-//        }
-//    ],
-//    save_config = SaveOptions::EveryMessage,
-//    wit_world = "hpn-provider-template-dot-os-v0"
-//)]
-//
-//// --- Hyperware Process API definitions ---
-//impl HypergridProviderState {
-//    #[init]
-//    async fn initialize(&mut self) {
-//        println!("Initializing provider registry");
-//        *self = HypergridProviderState::default();
-//        add_to_homepage("HPN Provider Dashboard", Some(ICON), Some("/"), None);
-//    }
-//
-//    #[http]
-//    async fn register_provider(
-//        &mut self,
-//        provider: RegisteredProvider,
-//    ) -> Result<RegisteredProvider, String> {
-//        println!("Registering provider: {:?}", provider);
-//        if self
-//            .registered_providers
-//            .iter()
-//            .any(|p| p.provider_name == provider.provider_name)
-//        {
-//            return Err(format!(
-//                "Provider with name '{}' already registered.",
-//                provider.provider_name
-//            ));
-//        }
-//
-//        let provider_with_id = RegisteredProvider {
-//            provider_id: our().node.to_string(),
-//            ..provider
-//        };
-//
-//        self.registered_providers.push(provider_with_id.clone());
-//        println!(
-//            "Successfully registered provider: {}",
-//            provider_with_id.provider_name
-//        );
-//        Ok(provider_with_id)
-//    }
-//
-//
-//    #[remote]
-//    async fn call_provider(
-//        &mut self,
-//        request: ProviderRequest,
-//    ) -> Result<String, String> {
-//
-//        let mcp_request = match request {
-//            req => req,
-//            _ => return Err("Invalid provider request structure, got: {:?}. Please make sure to use the correct request structure for the provider call.".to_string()),
-//        };
-//
-//        println!("Received remote call for provider: {}", mcp_request.provider_name);
-//
-//        // --- 0. Check if provider exists at all ---
-//        // First validate the payment before accessing registered_provider
-//        if !self.registered_providers.iter().any(|p| p.provider_name == mcp_request.provider_name) {
-//            return Err(format!(
-//                "Provider '{}' not found - please make sure to enter a valid, registered provider name",
-//                mcp_request.provider_name
-//            ));
-//        }
-//
-//        // Get the source node ID ---
-//        let source_address = source();
-//        // goobersync.os
-//        let source_node_id = source_address.node().to_string();
-//
-//        // --- 1. Validate the payment ---
-//        if let Err(validation_err) =
-//            validate_transaction_payment(&mcp_request, self, source_node_id.clone()).await
-//        {
-//            return Err(validation_err);
-//        }
-//        // We can safely unwrap here since validate_transaction_payment already checked
-//        // that the provider exists in the registered_providers list
-//        let registered_provider = self
-//            .registered_providers
-//            .iter()
-//            .find(|p| p.provider_name == mcp_request.provider_name)
-//            .expect(&format!(
-//                "Provider '{}' not found - this should never happen as it was validated in `validate_transaction_payment`",
-//                mcp_request.provider_name
-//            ));
-//
-//        // --- 2. Call the provider ---
-//        let api_call_result = call_provider(
-//            // This is the HTTP call_provider
-//            registered_provider.provider_name.clone(),
-//            registered_provider.endpoint.clone(),
-//            &mcp_request.arguments,
-//            source_node_id, // this makes sure User-Agent is node ID
-//        )
-//        .await;
-//
-//        match api_call_result {
-//            Ok(response) => Ok(response),
-//            Err(e) => Err(e), // The error from call_provider is already a String
-//        }
-//    }
-//
-//    #[http]
-//    async fn get_registered_providers(&self) -> Result<Vec<RegisteredProvider>, String> {
-//        println!("Fetching registered providers");
-//        Ok(self.registered_providers.clone())
-//    }
-//
-//
-//    #[local]
-//    async fn terminal_command(&mut self, command: TerminalCommand) -> Result<String, String> {
-//        match command {
-//            TerminalCommand::ListProviders => {
-//                kiprintln!("Listing registered providers");
-//                Ok(format!(
-//                    "Registered providers: {:?}",
-//                    self.registered_providers
-//                ))
-//            }
-//            TerminalCommand::RegisterProvider(provider) => {
-//                kiprintln!("Registering provider: {:?}", provider);
-//                if self
-//                    .registered_providers
-//                    .iter()
-//                    .any(|p| p.provider_name == provider.provider_name)
-//                {
-//                    return Err(format!(
-//                        "Provider with name '{}' already registered.",
-//                        provider.provider_name
-//                    ));
-//                }
-//                self.registered_providers.push(provider.clone());
-//                kiprintln!(
-//                    "Successfully registered provider: {}",
-//                    provider.provider_name
-//                );
-//
-//                Ok(format!(
-//                    "Successfully registered provider: {}",
-//                    provider.provider_name
-//                ))
-//            }
-//            TerminalCommand::UnregisterProvider(provider_name) => {
-//                kiprintln!("Unregistering provider: {}", provider_name);
-//                self.registered_providers
-//                    .retain(|p| p.provider_name != provider_name);
-//
-//                kiprintln!("Successfully unregistered provider: {}", provider_name);
-//                Ok(format!(
-//                    "Successfully unregistered provider: {}",
-//                    provider_name
-//                ))
-//            }
-//            TerminalCommand::TestProvider(test_provider_args) => {
-//                kiprintln!(
-//                    "Testing provider: {}, with dynamic args: {:?}",
-//                    test_provider_args.provider_name,
-//                    test_provider_args.args
-//                );
-//
-//                let registered_provider = match self
-//                    .registered_providers
-//                    .iter()
-//                    .find(|p| p.provider_name == test_provider_args.provider_name)
-//                {
-//                    Some(provider) => provider,
-//                    None => {
-//                        return Err(format!(
-//                            "Provider with name '{}' not found in registered providers.",
-//                            test_provider_args.provider_name
-//                        ));
-//                    }
-//                };
-//
-//                kiprintln!("Registered provider: {:?}", registered_provider);
-//
-//                let source_str = "default-node".to_string();
-//
-//                let result = call_provider(
-//                    registered_provider.provider_name.clone(),
-//                    registered_provider.endpoint.clone(),
-//                    &test_provider_args.args,
-//                    source_str
-//                )
-//                .await;
-//
-//                kiprintln!("Result: {:?}", result);
-//
-//                match result {
-//                    Ok(response) => Ok(response),
-//                    Err(e) => Err(e),
-//                }
-//            }
-//        }
-//    }
-//}
