@@ -1,18 +1,18 @@
 {
     "name": "Hypergrid",
-    "description": "give your language model a wallet and let it spend your money",
-    "image": "",
+    "description": "The Universal Data Protocol",
+    "image": "https://raw.githubusercontent.com/hyperware-ai/hpn/refs/heads/develop/hypergrid-logo.webp?token=GHSAT0AAAAAAC5MKLU53RWWOVW7JW7MXOCY2E4I7XA",
     "properties": {
         "package_name": "hypergrid",
-        "current_version": "0.1.0",
+        "current_version": "1.0.0",
         "publisher": "ware.hypr",
         "mirrors": [],
         "code_hashes": {
-            "0.1.0": ""
+            "1.0.0": "9c3e73a73378ace76cb84f433d44c9423790ee96f3c6e64309da596dc99e7e57"
         },
         "wit_version": 1,
         "dependencies": []
     },
-    "external_url": "",
+    "external_url": "https://grid.hyperware.ai",
     "animation_url": ""
 }
