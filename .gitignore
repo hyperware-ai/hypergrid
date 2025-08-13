@@ -4,7 +4,14 @@
 **/package-lock.json
 **/node_modules
 **/app.zip
-pkg/*.wasm
+
+# TODO: better integrate chat;
+#       until then, bring kibitz.wasm
+#       directly into pkg/
+# pkg/*.wasm
+pkg/operator.wasm
+pkg/provider.wasm
+
 pkg/*.zip
 pkg/provider-ui
 pkg/ui/
