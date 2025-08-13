@@ -1,0 +1,28 @@
+import { parseAbi } from "viem";
+
+export { fetchNode, fetchNodeInfo, mintFunction, noteFunction } from "./helpers";
+
+export const API_PATH = "/explorer:hypermap-explorer:nick.hypr/api";
+
+import { HYPERMAP_ADDRESS } from './constants';
+
+export const HYPERMAP: `0x${string}` = HYPERMAP_ADDRESS as `0x${string}`;
+export const MULTICALL: `0x${string}` = "0xcA11bde05977b3631167028862bE2a173976CA11";
+export const HYPER_ACCOUNT_IMPL: `0x${string}` = "0x0000000000EDAd72076CBe7b9Cfa3751D5a85C97";
+
+export const multicallAbi = parseAbi([
+    `function aggregate(Call[] calls) external payable returns (uint256 blockNumber, bytes[] returnData)`,
+    `struct Call { address target; bytes callData; }`,
+]);
+
+export const hypermapAbi = parseAbi([
+    "function mint(address, bytes calldata, bytes calldata, bytes calldata, address) external returns (address tba)",
+    "function fact(bytes calldata,bytes calldata) external returns (bytes32)",
+    "function note(bytes calldata,bytes calldata) external returns (bytes32)",
+    "function get(bytes32 node) external view returns (address tokenBoundAccount, address tokenOwner, bytes memory note)",
+]);
+
+export const mechAbi = parseAbi([
+    "function execute(address to, uint256 value, bytes calldata data, uint8 operation) returns (bytes memory returnData)",
+])
+

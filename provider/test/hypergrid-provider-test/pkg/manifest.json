@@ -1,0 +1,17 @@
+[
+    {
+        "process_name": "hypergrid-provider-test",
+        "process_wasm_path": "/hypergrid-provider-test.wasm",
+        "on_exit": "None",
+        "request_networking": true,
+        "request_capabilities": [
+            "http-client:distro:sys",
+            "hypergrid-provider:hypergrid-provider:ware.hypr"
+        ],
+        "grant_capabilities": [
+            "http-client:distro:sys",
+            "hypergrid-provider:hypergrid-provider:ware.hypr"
+        ],
+        "public": true
+    }
+]

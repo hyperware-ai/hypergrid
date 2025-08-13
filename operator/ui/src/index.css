@@ -1,0 +1,67 @@
+@import "tailwindcss";
+
+:root {
+  --white: #fcfcfc;
+  --black: #000;
+  --dark-gray: #4b4847;
+  --gray: #f5f5f5;
+  --mid-gray: #cbcccc;
+  --cyan: #27ffff;
+  --warning: #c24e0f;
+  --warning-background: #fff3cd;
+}
+
+
+@theme {
+  --color-cyan: var(--cyan);
+  --color-warning: var(--warning);
+  --color-warning-background: var(--warning-background);
+  --color-dark-gray: var(--dark-gray);
+  --color-gray: var(--gray);
+  --color-mid-gray: var(--mid-gray);
+  --color-white: var(--white);
+  --color-black: var(--black);
+}
+
+@font-face {
+  font-family: 'Neue Haas Grotesk';
+  src: url('/NHaasGroteskTXPro-55Rg.woff') format('woff');
+  font-weight: 500;
+}
+
+@font-face {
+  font-family: 'Neue Haas Grotesk';
+  src: url('/NHaasGroteskTXPro-75Bd.woff') format('woff');
+  font-weight: 700;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  font-family: 'Neue Haas Grotesk', sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--dark-gray);
+  background-color: var(--gray);
+  overflow-x: hidden;
+}
+
+.font-sans {
+  font-family: 'Neue Haas Grotesk', sans-serif;
+}
+
+button,
+.button {
+  @apply hover:opacity-75 flex items-center justify-center rounded-xl gap-2 cursor-pointer transition-all duration-200 disabled:opacity-75 disabled:cursor-not-allowed border border-transparent;
+
+  &[class*=react-flow] {
+    @apply shadow-xl;
+  }
+}
+
+div.react-flow__panel {
+  @apply !bg-transparent !shadow-none flex gap-1;
+}

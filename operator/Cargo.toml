@@ -1,0 +1,10 @@
+[profile.release]
+panic = "abort"
+opt-level = "s"
+lto = true
+
+[workspace]
+members = [
+    "operator"
+]
+resolver = "2"

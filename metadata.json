@@ -1,0 +1,18 @@
+{
+    "name": "Hypergrid",
+    "description": "The Universal Data Protocol",
+    "image": "https://raw.githubusercontent.com/hyperware-ai/hpn/ccd0e9c0d08b2344b06ce4a5b8584f819b92e43e/hypergrid-logo.webp",
+    "properties": {
+        "package_name": "hypergrid",
+        "current_version": "1.0.0",
+        "publisher": "ware.hypr",
+        "mirrors": [],
+        "code_hashes": {
+            "1.0.0": "9c3e73a73378ace76cb84f433d44c9423790ee96f3c6e64309da596dc99e7e57"
+        },
+        "wit_version": 1,
+        "dependencies": []
+    },
+    "external_url": "https://grid.hyperware.ai",
+    "animation_url": ""
+}
