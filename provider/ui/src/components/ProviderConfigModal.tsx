@@ -223,7 +223,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       onClose={handleClose}
       preventAccidentalClose={true}
     >
-      <div className="relative" style={{ maxWidth: showValidation ? "min(500px, 95vw)" : "min(1200px, 95vw)" }}>
+      <div className="relative mx-auto" style={{ maxWidth: showValidation ? "min(800px, 95vw)" : "min(1200px, 95vw)" }}>
         {!isWalletConnected ? (
           <div className="flex flex-col gap-6 items-center text-center p-8">
             <h3 className="text-xl font-semibold">Connect Wallet to Add a Provider</h3>
