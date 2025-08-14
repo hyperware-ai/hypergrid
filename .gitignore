@@ -23,6 +23,4 @@ operator/ui/src/constants.ts
 provider/ui/src/constants.ts
 
 # Machine-generated WIT files (except operator)
-pkg/api/hypergrid-provider.wit
-pkg/api/provider-template-dot-os-v0.wit
-pkg/api/types-provider-template-dot-os-v0.wit
+pkg/api/*

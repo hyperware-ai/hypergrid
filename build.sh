@@ -127,11 +127,11 @@ cd ..
 mv operator/metadata.json.bak operator/metadata.json
 mv provider/metadata.json.bak provider/metadata.json
 
-# Copy operator pkg contents (except manifest.json and api)
+# Copy operator pkg contents (except manifest.json, api, and scripts.json)
 echo -e "${BLUE}Copying operator build artifacts...${NC}"
 for item in operator/pkg/*; do
     basename=$(basename "$item")
-    if [[ "$basename" != "manifest.json" && "$basename" != "api" ]]; then
+    if [[ "$basename" != "manifest.json" && "$basename" != "api" && "$basename" != "scripts.json" ]]; then
         if [ -d "$item" ]; then
             # If it's the ui directory, rename it to just "ui"
             if [ "$basename" = "ui" ]; then
@@ -145,11 +145,11 @@ for item in operator/pkg/*; do
     fi
 done
 
-# Copy provider pkg contents (except manifest.json and api)
+# Copy provider pkg contents (except manifest.json, api, and scripts.json)
 echo -e "${BLUE}Copying provider build artifacts...${NC}"
 for item in provider/pkg/*; do
     basename=$(basename "$item")
-    if [[ "$basename" != "manifest.json" && "$basename" != "api" ]]; then
+    if [[ "$basename" != "manifest.json" && "$basename" != "api" && "$basename" != "scripts.json" ]]; then
         if [ -d "$item" ]; then
             # If it's the ui directory, rename it to "provider-ui"
             if [ "$basename" = "ui" ]; then
