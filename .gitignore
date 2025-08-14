@@ -5,14 +5,10 @@
 **/node_modules
 **/app.zip
 
-# TODO: better integrate chat;
-#       until then, bring kibitz.wasm
-#       directly into pkg/
-# pkg/*.wasm
-pkg/operator.wasm
-pkg/provider.wasm
+pkg/*.wasm
 
 pkg/*.zip
+pkg/kibitz-ui
 pkg/provider-ui
 pkg/ui/
 operator/pkg/ui/
