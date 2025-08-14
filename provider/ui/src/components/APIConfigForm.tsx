@@ -46,6 +46,7 @@ export interface APIConfigFormProps {
   submitButtonText?: string; // Optional prop for button text
   showSubmitButton?: boolean; // Optional prop to control button visibility
   isWalletConnected?: boolean; // Optional prop to control button enabled state
+  onImportFromCurl?: () => void; // Optional prop for curl import functionality
 }
 
 const APIConfigForm: React.FC<APIConfigFormProps> = ({
@@ -67,6 +68,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
   submitButtonText = "Register Provider Configuration", // Default value for backward compatibility
   showSubmitButton = true, // Default to showing the button for backward compatibility
   isWalletConnected = true, // Default to enabled for backward compatibility
+  onImportFromCurl, // Optional curl import handler
 }) => {
 
   // Local state for individual key inputs
@@ -215,8 +217,20 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
 
   if (!apiCallFormatSelected) {
     return (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        <h5 className="text-center text-lg font-semibold col-span-3">Select API Call Format</h5>
+      <div className="flex flex-col gap-6">
+        <div className="flex items-center justify-between">
+          <h5 className="text-lg font-semibold">Select API Call Format</h5>
+          {onImportFromCurl && (
+            <button
+              onClick={onImportFromCurl}
+              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium flex items-center gap-2"
+            >
+              📋 Import from Curl
+            </button>
+          )}
+        </div>
+        
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
 
         <button
           onMouseEnter={() => setHoveredIndex(0)}
@@ -287,6 +301,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
             <code className="block">{`{ "product_id": "123", "quantity": 2 }`}</code>
           </pre>
         </button>
+        </div>
       </div>
     );
   }

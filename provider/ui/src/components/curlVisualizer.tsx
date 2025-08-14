@@ -35,21 +35,54 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   apiKey,
   apiKeyQueryParamName,
   apiKeyHeaderName,
-  exampleDynamicArgs = { arg1: "value1", path_id: "123" },
+  exampleDynamicArgs = {},
 }) => {
   let displayUrl = endpointBaseUrl || "{BASE_URL}";
   const opName = providerName || "";
 
+  // Generate smart example values for parameters
+  const generateExampleValue = (key: string): string => {
+    // Check if user provided a value
+    if (exampleDynamicArgs[key]) {
+      return exampleDynamicArgs[key];
+    }
+    
+    // Generate smart defaults based on parameter name
+    const lowerKey = key.toLowerCase();
+    if (lowerKey.includes('id')) {
+      return '123';
+    } else if (lowerKey.includes('name') || lowerKey.includes('title')) {
+      return 'example';
+    } else if (lowerKey.includes('email')) {
+      return 'user@example.com';
+    } else if (lowerKey.includes('limit') || lowerKey.includes('count') || lowerKey.includes('size')) {
+      return '10';
+    } else if (lowerKey.includes('page') || lowerKey.includes('offset')) {
+      return '1';
+    } else if (lowerKey.includes('format')) {
+      return 'json';
+    } else if (lowerKey.includes('include') || lowerKey.includes('fields')) {
+      return 'details';
+    } else if (lowerKey.includes('sort')) {
+      return 'name';
+    } else if (lowerKey.includes('order')) {
+      return 'asc';
+    } else {
+      return 'value';
+    }
+  };
+
   // Simulate path parameter substitution for preview
   (pathParamKeys || []).forEach(key => {
     const placeholder = `{${key}}`;
-    let value = exampleDynamicArgs[key] || `{${key}_value}`;
+    const value = generateExampleValue(key);
     displayUrl = displayUrl.replace(placeholder, value);
   });
 
   const queryParts: string[] = [];
   (queryParamKeys || []).forEach(key => {
-    queryParts.push(`${key}=${exampleDynamicArgs[key] || `{${key}_value}`}`);
+    const value = generateExampleValue(key);
+    queryParts.push(`${key}=${value}`);
   });
 
   if (apiKey && apiKeyQueryParamName) {
@@ -64,7 +97,8 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   }
 
   (headerKeys || []).forEach(key => {
-    headersToShow.push({ key: key, value: exampleDynamicArgs[key] || `{${key}_value}` });
+    const value = generateExampleValue(key);
+    headersToShow.push({ key: key, value: value });
   });
 
   if (apiKey && apiKeyHeaderName) {
@@ -74,7 +108,7 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   let exampleBody = {};
   if (endpointMethod === HttpMethod.POST && bodyKeys.length > 0) {
     exampleBody = bodyKeys.reduce((acc, key) => {
-      acc[key] = exampleDynamicArgs[key] || `{${key}_value}`;
+      acc[key] = generateExampleValue(key);
       return acc;
     }, {} as { [key: string]: string });
   }
@@ -101,19 +135,24 @@ const CurlVisualizer: React.FC<CurlVisualizerProps> = ({
   curlCommand += ` \\\n  "${displayUrl}${displayQuery}"`;
 
   return (
-    <div className="flex self-stretch px-8 py-4 gap-4 bg-white rounded-lg">
-      <h3 className="text-lg font-bold w-1/2 text-right ">API Structure Preview</h3>
-      <div className="overflow-x-auto w-1/2 relative">
-        <pre className="font-mono whitespace-pre-wrap text-sm p-2 bg-gray">
+    <div className="flex flex-col gap-4 bg-white rounded-lg p-6">
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-bold">API Structure Preview</h3>
+        <button 
+          className="text-xs bg-gray-200 hover:bg-gray-300 rounded px-3 py-1.5 flex items-center gap-1.5 transition-colors" 
+          onClick={() => {
+            navigator.clipboard.writeText(curlCommand);
+          }}
+        >
+          📋 Copy
+        </button>
+      </div>
+      <div className="relative">
+        <pre className="font-mono text-sm p-4 bg-gray-50 border border-gray-200 rounded-lg overflow-x-auto whitespace-pre-wrap break-all">
           <code>
             {curlCommand}
           </code>
         </pre>
-        <button className="text-xs absolute top-1 right-1 bg-mid-gray rounded px-2 p-1" onClick={() => {
-          navigator.clipboard.writeText(curlCommand);
-        }}>
-          Copy
-        </button>
       </div>
     </div>
   );
