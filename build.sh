@@ -81,38 +81,29 @@ if [[ -f "metadata.json" ]]; then
     rm metadata.json.bak
 fi
 
-if [[ -f "pkg/scripts.json" ]]; then
-    sed -i.bak "s/\"grant_capabilities\": \[\s*\"operator:hypergrid:[^\"]*\"/\"grant_capabilities\": [\n            \"operator:hypergrid:$PUBLISHER\"/g" pkg/scripts.json
-    rm pkg/scripts.json.bak
-fi
+
 
 echo -e "${GREEN}Environment setup complete for $ENVIRONMENT${NC}"
 echo -e "${BLUE}Building HPN packages...${NC}"
 
-# Clean up any existing pkg directory at root (but preserve manifest.json and scripts.json)
+# Clean up any existing pkg directory at root (but preserve manifest.json)
 if [ -d "pkg" ]; then
-    echo -e "${BLUE}Cleaning existing pkg directory (preserving manifest.json and scripts.json)...${NC}"
-    # Save manifest.json and scripts.json if they exist
+    echo -e "${BLUE}Cleaning existing pkg directory (preserving manifest.json)...${NC}"
+    # Save manifest.json if it exists
     if [ -f "pkg/manifest.json" ]; then
         cp pkg/manifest.json /tmp/hpn_manifest_backup.json
     fi
-    if [ -f "pkg/scripts.json" ]; then
-        cp pkg/scripts.json /tmp/hpn_scripts_backup.json
-    fi
     
     # Remove everything else in pkg
-    find pkg -mindepth 1 ! -name 'manifest.json' ! -name 'scripts.json' -exec rm -rf {} + 2>/dev/null || true
+    find pkg -mindepth 1 ! -name 'manifest.json' -exec rm -rf {} + 2>/dev/null || true
 else
     # Create the pkg directory if it doesn't exist
     mkdir -p pkg
 fi
 
-# Restore manifest.json and scripts.json if they were backed up
+# Restore manifest.json if it was backed up
 if [ -f "/tmp/hpn_manifest_backup.json" ]; then
     mv /tmp/hpn_manifest_backup.json pkg/manifest.json
-fi
-if [ -f "/tmp/hpn_scripts_backup.json" ]; then
-    mv /tmp/hpn_scripts_backup.json pkg/scripts.json
 fi
 
 # Update publisher in metadata.json files before building
@@ -136,11 +127,11 @@ cd ..
 mv operator/metadata.json.bak operator/metadata.json
 mv provider/metadata.json.bak provider/metadata.json
 
-# Copy operator pkg contents (except manifest.json, scripts.json, and api)
+# Copy operator pkg contents (except manifest.json and api)
 echo -e "${BLUE}Copying operator build artifacts...${NC}"
 for item in operator/pkg/*; do
     basename=$(basename "$item")
-    if [[ "$basename" != "manifest.json" && "$basename" != "scripts.json" && "$basename" != "api" ]]; then
+    if [[ "$basename" != "manifest.json" && "$basename" != "api" ]]; then
         if [ -d "$item" ]; then
             # If it's the ui directory, rename it to just "ui"
             if [ "$basename" = "ui" ]; then
@@ -208,12 +199,12 @@ else
     echo -e "${RED}Warning: No WIT files found in api directories${NC}"
 fi
 
-# Verify manifest.json and scripts.json are present
-if [ -f "pkg/manifest.json" ] && [ -f "pkg/scripts.json" ]; then
-    echo -e "${GREEN}manifest.json and scripts.json preserved in pkg/${NC}"
+# Verify manifest.json is present
+if [ -f "pkg/manifest.json" ]; then
+    echo -e "${GREEN}manifest.json preserved in pkg/${NC}"
 else
-    echo -e "${RED}Error: manifest.json or scripts.json not found in pkg/${NC}"
-    echo "Please ensure these files exist in the pkg/ directory before running this script."
+    echo -e "${RED}Error: manifest.json not found in pkg/${NC}"
+    echo "Please ensure this file exists in the pkg/ directory before running this script."
     exit 1
 fi
 
