@@ -131,8 +131,7 @@ const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB'
         }
     }
 
-console.log("layoutedNodes", layoutedNodes);
-
+    console.log("layoutedNodes", layoutedNodes);
     return { nodes: layoutedNodes, edges };
 };
 
