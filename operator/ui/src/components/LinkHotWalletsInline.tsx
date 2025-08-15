@@ -349,7 +349,7 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
             >
                 <button
                     onClick={handleGenerateWallet}
-                    className="p-2 bg-black text-white grow"
+                    className="p-2 bg-black dark:bg-white text-white dark:text-black grow"
                     disabled={isCreatingWallet}
                 >
                     <FiPlusCircle className="text-xl" />
@@ -389,4 +389,4 @@ const LinkHotWalletsInline: React.FC<LinkHotWalletsInlineProps> = ({
     );
 };
 
-export default LinkHotWalletsInline; 
+export default LinkHotWalletsInline;

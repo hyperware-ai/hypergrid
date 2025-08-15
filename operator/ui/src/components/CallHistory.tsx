@@ -174,7 +174,8 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
         }
     }, [allHistory, selectedAccountId]);
 
-
+    const thClass = "border border-dark-gray px-3 py-2 text-left bg-gray text-dark-gray dark:text-gray dark:bg-dark-gray font-medium"
+    const tdClass = "border border-gray dark:border-dark-gray px-3 py-2 text-left align-top"
     return (
         <div className="history-container">
             {/* Header is now conditional based on isNonCollapsible */}
@@ -206,9 +207,9 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
 
                     {/* Loading/Empty checks based on filteredHistory */}
                     {isLoading ? (
-                        <p className="text-gray-500 text-base p-6 text-center">Loading history...</p>
+                        <p className="text-dark-gray dark:text-gray text-base p-6 text-center">Loading history...</p>
                     ) : filteredHistory.length === 0 && !error ? (
-                        <p className="text-gray-500 text-base p-6 text-center">
+                        <p className="text-dark-gray dark:text-gray text-base p-6 text-center">
                             {selectedAccountId
                                 ? 'No call history recorded for this account.'
                                 : (isNonCollapsible ? 'No call history available for this wallet.' : 'Select an account to view its history.')}
@@ -218,28 +219,28 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
                             <table className="w-full border-collapse mt-4 text-sm">
                                 <thead>
                                     <tr>
-                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Time</th>
-                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Provider</th>
-                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Args</th>
-                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Duration</th>
-                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Status</th>
-                                        <th className="border border-gray-300 px-3 py-2 text-left bg-gray-50 font-medium text-gray-700">Payment</th>
+                                        <th className={thClass}>Time</th>
+                                        <th className={thClass}>Provider</th>
+                                        <th className={thClass}>Args</th>
+                                        <th className={thClass}>Duration</th>
+                                        <th className={thClass}>Status</th>
+                                        <th className={thClass}>Payment</th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {/* Map over filteredHistory */}
                                     {filteredHistory.map((record, index) => (
-                                        <tr key={`${record.timestamp_start_ms}-${index}-${record.operator_wallet_id}`} className="even:bg-gray-50"> {/* Add account to key */}
-                                            <td className="border border-gray-300 px-3 py-2 text-left align-top" title={`Start: ${record.timestamp_start_ms}, End: ${record.response_timestamp_ms}`}>{formatTimestamp(record.timestamp_start_ms)}</td>
-                                            <td className="border border-gray-300 px-3 py-2 text-left align-top" title={record.target_provider_id}>{truncateString(record.provider_lookup_key, 25)}</td>
-                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">{formatArgs(record.call_args_json)}</td>
-                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">{formatDuration(record.duration_ms)}</td>
-                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">
+                                        <tr key={`${record.timestamp_start_ms}-${index}-${record.operator_wallet_id}`} className="even:bg-gray dark:even:bg-dark-gray"> {/* Add account to key */}
+                                            <td className={tdClass} title={`Start: ${record.timestamp_start_ms}, End: ${record.response_timestamp_ms}`}>{formatTimestamp(record.timestamp_start_ms)}</td>
+                                            <td className={tdClass} title={record.target_provider_id}>{truncateString(record.provider_lookup_key, 25)}</td>
+                                            <td className={tdClass}>{formatArgs(record.call_args_json)}</td>
+                                            <td className={tdClass}>{formatDuration(record.duration_ms)}</td>
+                                            <td className={tdClass}>
                                                 <span className={record.call_success ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
                                                     {record.call_success ? 'Success' : 'Failed'}
                                                 </span>
                                             </td>
-                                            <td className="border border-gray-300 px-3 py-2 text-left align-top">{renderPaymentResult(record.payment_result)}</td>
+                                            <td className={tdClass}>{renderPaymentResult(record.payment_result)}</td>
                                         </tr>
                                     ))}
                                 </tbody>
@@ -252,4 +253,4 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
     );
 }
 
-export default CallHistory; 
+export default CallHistory;

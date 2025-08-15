@@ -50,7 +50,7 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 <button
                     onClick={(e) => { e.stopPropagation(); onOpenSettingsModal(); }}
                     title="Open Settings"
-                    className="text-lg hover:text-gray-300"
+                    className="text-lg"
                 >
                     <SlPencil />
                 </button>
@@ -69,8 +69,8 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 </span>
 
                 <div className="text-sm leading-relaxed flex justify-between items-center">
-                    <span className="text-gray-400 mr-2 whitespace-nowrap">Address:</span>
-                    <span className="text-gray-300 break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-dark-gray dark:text-gray mr-2 whitespace-nowrap">Address:</span>
+                    <span className="text-dark-gray dark:text-gray break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
                         <CopyToClipboardText textToCopy={address || ''} className="text-blue-400 cursor-pointer no-underline hover:underline">
                             {truncate(address)}
                         </CopyToClipboardText>
@@ -92,8 +92,8 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 )}
 
                 <div className="text-sm leading-relaxed flex justify-between items-center">
-                    <span className="text-gray-400 mr-2 whitespace-nowrap">Transaction Limit:</span>
-                    <span className="text-gray-300 text-right flex-grow">
+                    <span className="text-dark-gray dark:text-gray mr-2 whitespace-nowrap">Transaction Limit:</span>
+                    <span className="text-dark-gray dark:text-gray text-right flex-grow">
                         {(initialLimits && initialLimits.maxPerCall && initialLimits.maxPerCall.trim() !== '')
                             ? `${initialLimits.maxPerCall} ${(initialLimits.currency || 'USDC')}`
                             : 'Unlimited'
@@ -102,8 +102,8 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
                 </div>
 
                 <div className="text-sm leading-relaxed flex justify-between items-center">
-                    <span className="text-gray-400 mr-2 whitespace-nowrap">Spending Limit:</span>
-                    <span className="text-gray-300 text-right flex-grow">
+                    <span className="text-dark-gray dark:text-gray mr-2 whitespace-nowrap">Spending Limit:</span>
+                    <span className="text-dark-gray dark:text-gray text-right flex-grow">
                         {(initialLimits && initialLimits.maxTotal && initialLimits.maxTotal.trim() !== '')
                             ? `${initialLimits.maxTotal} ${(initialLimits.currency || 'USDC')}`
                             : 'Unlimited'
@@ -136,4 +136,4 @@ const HotWalletNodeComponent: React.FC<HotWalletNodeComponentProps> = ({ data, i
     );
 };
 
-export default HotWalletNodeComponent; 
+export default HotWalletNodeComponent;

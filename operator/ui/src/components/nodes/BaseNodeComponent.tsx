@@ -27,11 +27,11 @@ const BaseNodeComponent: React.FC<BaseNodeProps> = ({
     const getVariantClasses = () => {
         switch (variant) {
             case 'action':
-                return 'bg-dark-gray hover:bg-cyan hover:text-black transition-all duration-300 text-white border-2 border-transparent hover:border-cyan';
-            case 'accent':
-                return 'bg-gray border border-cyan text-dark-gray';
+                return 'bg-dark-gray dark:bg-white dark:text-black hover:bg-cyan hover:text-black transition-all duration-300 text-white border-2 border-transparent hover:border-cyan';
+                case 'accent':
+                return 'bg-gray dark:bg-dark-gray dark:text-gray border border-cyan text-dark-gray';
             default:
-                return 'bg-gray border border-black text-dark-gray';
+                return 'bg-gray dark:bg-dark-gray dark:text-gray border border-black dark:border-white text-dark-gray';
         }
     };
 

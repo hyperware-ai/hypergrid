@@ -150,7 +150,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                         </pre>
                         <button
                             onClick={() => copyToClipboard(JSON.stringify(mcpServerConfig, null, 2), setCopiedMcpConfig)}
-                            className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer"
+                            className="absolute top-2 right-2 px-2 py-1 text-sm bg-dark-gray text-white rounded-md cursor-pointer"
                         >
                             {copiedMcpConfig ? '✓' : 'Copy'}
                         </button>
@@ -163,7 +163,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
 
                 {/* Step 2: Generate Credentials */}
                 <div className="flex flex-col gap-2">
-                    <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                    <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
                         <h4 className="text-lg font-bold">Step 2: Generate Authorization Credentials</h4>
                         <p className="text-sm">
                             Each generation creates a new authorized client for this hot wallet.
@@ -185,7 +185,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
 
                     {/* Step 3: Authorize in Claude */}
                     {apiConfig && (
-                        <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                        <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
                             <h4 className="text-lg font-bold">Step 3: Authorize in Claude</h4>
                             <p className="text-sm">
                                 Copy this command and paste it into Claude:
@@ -209,7 +209,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
 
                     {/* That's it! */}
                     {apiConfig && <>
-                        <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                        <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
                             <p className="text-sm">
                                 <strong>That's it!</strong> Once you run the authorize command in Claude,
                                 you can use these tools:
@@ -240,7 +240,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                             </button>
 
                             {showManualInstructions && (
-                                <div className="p-4 bg-white rounded-lg flex flex-col gap-2">
+                                <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
                                     <p>Alternative: Save this as <code className="bg-dark-gray text-white p-2 rounded-lg">grid-shim-api.json</code>:</p>
                                     <div className="relative">
                                         <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
@@ -268,4 +268,4 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     );
 };
 
-export default ShimApiConfigModal; 
+export default ShimApiConfigModal;
