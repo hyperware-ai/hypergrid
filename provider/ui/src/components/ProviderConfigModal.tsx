@@ -4,6 +4,7 @@ import ValidationPanel from "./ValidationPanel";
 import APIConfigForm from "./APIConfigForm";
 import HypergridEntryForm from "./HypergridEntryForm";
 import CurlVisualizer from "./curlVisualizer";
+import CurlImportModal from "./CurlImportModal";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { RegisteredProvider, HttpMethod, TopLevelRequestType, AuthChoice } from "../types/hypergrid_provider";
@@ -17,6 +18,7 @@ import {
   processUpdateResponse,
   createSmartUpdatePlan
 } from "../utils/providerFormUtils";
+import type { CurlToFormMapping } from "../utils/curlParser.ts";
 import { ImSpinner8 } from "react-icons/im";
 
 interface ProviderConfigModalProps {
@@ -44,6 +46,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 }) => {
   const [showValidation, setShowValidation] = useState(false);
   const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
+  const [showCurlImport, setShowCurlImport] = useState(false);
 
   // Form state
   const [apiCallFormatSelected, setApiCallFormatSelected] = useState(false);
@@ -64,6 +67,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const [headerKeys, setHeaderKeys] = useState<string[]>([]);
   const [bodyKeys, setBodyKeys] = useState<string[]>([]);
   const [price, setPrice] = useState<string>("");
+  const [exampleValues, setExampleValues] = useState<Record<string, string>>({});
 
   const resetFormFields = () => {
     setTopLevelRequestType("getWithPath");
@@ -83,9 +87,51 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setBodyKeys([]);
     setRegisteredProviderWallet("");
     setPrice("");
+    setExampleValues({});
 
     setShowValidation(false);
     setProviderToValidate(null);
+    setShowCurlImport(false);
+  };
+
+  const handleCurlImport = (importedData: Partial<CurlToFormMapping>) => {
+    // Populate form fields with imported data
+    if (importedData.endpointBaseUrl) {
+      setEndpointBaseUrl(importedData.endpointBaseUrl);
+    }
+    if (importedData.topLevelRequestType) {
+      setTopLevelRequestType(importedData.topLevelRequestType);
+    }
+    if (importedData.pathParamKeys) {
+      setPathParamKeys(importedData.pathParamKeys);
+    }
+    if (importedData.queryParamKeys) {
+      setQueryParamKeys(importedData.queryParamKeys);
+    }
+    if (importedData.headerKeys) {
+      setHeaderKeys(importedData.headerKeys);
+    }
+    if (importedData.bodyKeys) {
+      setBodyKeys(importedData.bodyKeys);
+    }
+    if (importedData.endpointApiParamKey) {
+      setEndpointApiKey(importedData.endpointApiParamKey);
+    }
+    if (importedData.authChoice) {
+      setAuthChoice(importedData.authChoice);
+    }
+    if (importedData.apiKeyQueryParamName) {
+      setApiKeyQueryParamName(importedData.apiKeyQueryParamName);
+    }
+    if (importedData.apiKeyHeaderName) {
+      setApiKeyHeaderName(importedData.apiKeyHeaderName);
+    }
+    if (importedData.exampleValues) {
+      setExampleValues(importedData.exampleValues);
+    }
+    
+    // Mark API call format as selected so the form shows
+    setApiCallFormatSelected(true);
   };
 
   const populateFormWithProvider = (provider: RegisteredProvider) => {
@@ -266,6 +312,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   apiKey={endpointApiParamKey}
                   apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
                   apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
+                  exampleDynamicArgs={exampleValues}
                 />
 
                 <APIConfigForm
@@ -294,6 +341,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   onRegisterProvider={handleProviderRegistration}
                   submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
                   isWalletConnected={isWalletConnected}
+                  onImportFromCurl={!isEditMode ? () => setShowCurlImport(true) : undefined}
                 />
               </div>
             )}
@@ -310,6 +358,12 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
               mintError={providerRegistration.mintError}
               notesError={providerRegistration.notesError}
               onClose={handleRegistrationOverlayClose}
+            />
+
+            <CurlImportModal
+              isOpen={showCurlImport}
+              onClose={() => setShowCurlImport(false)}
+              onImport={handleCurlImport}
             />
 
             {providerUpdate.isUpdating && (
