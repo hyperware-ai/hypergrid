@@ -366,13 +366,13 @@ function AppContent() {
 
   return (
     <div className={`min-h-screen bg-gray flex grow self-stretch w-full h-screen overflow-hidden`}>
-      <header className="flex flex-col py-8 px-6  bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
+      <header className="flex flex-col py-8 px-6  bg-white dark:bg-black shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <ProviderSearch />
         <AppSwitcher currentApp="provider" />
 
         {/* Mobile node info */}
-        <div className="md:hidden text-sm text-gray-600">
+        <div className="md:hidden text-sm text-dark-gray dark:text-gray">
           {nodeConnected
             ? <strong className="font-mono text-xs max-w-[150px] truncate inline-block">{window.our?.node || "N/A"}</strong>
             : <strong className="text-red-600">Offline</strong>
