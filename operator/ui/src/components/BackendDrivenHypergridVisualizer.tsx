@@ -106,8 +106,32 @@ const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB'
         return node;
     });
 
-    console.log("layoutedNodes", layoutedNodes);
+    // Special positioning logic to prevent overlap of operator wallet and hot wallet action nodes
+    const operatorWalletNode = layoutedNodes.find(n => n.type === 'operatorWalletNode');
+    const addHotWalletActionNode = layoutedNodes.find(n => n.type === 'addHotWalletActionNode');
+    
+    if (operatorWalletNode && addHotWalletActionNode) {
+        // Check if they're too close (likely overlapping)
+        const xDiff = Math.abs(operatorWalletNode.position.x - addHotWalletActionNode.position.x);
+        const yDiff = Math.abs(operatorWalletNode.position.y - addHotWalletActionNode.position.y);
+        
+        // Check if nodes are overlapping or too close vertically/horizontally
+        const operatorNodeHeight = 250; // From line 84
+        const addHotWalletNodeHeight = 300; // From line 86
+        
+        // They overlap if they're on the same X coordinate or very close horizontally
+        const horizontallyAligned = xDiff < NODE_WIDTH + 50; // Within node width + small margin
+        
+        // Check if they need repositioning due to overlap or poor spacing
+        if (horizontallyAligned) {
+            addHotWalletActionNode.position = {
+                x: operatorWalletNode.position.x - 50, // Position only slightly to the left
+                y: operatorWalletNode.position.y + 400 // Position more down
+            };
+        }
+    }
 
+    console.log("layoutedNodes", layoutedNodes);
     return { nodes: layoutedNodes, edges };
 };
 
