@@ -93,7 +93,7 @@ if [ -d "pkg" ]; then
     if [ -f "pkg/manifest.json" ]; then
         cp pkg/manifest.json /tmp/hpn_manifest_backup.json
     fi
-    
+
     # Remove everything else in pkg
     find pkg -mindepth 1 ! -name 'manifest.json' -exec rm -rf {} + 2>/dev/null || true
 else
@@ -105,6 +105,9 @@ fi
 if [ -f "/tmp/hpn_manifest_backup.json" ]; then
     mv /tmp/hpn_manifest_backup.json pkg/manifest.json
 fi
+
+# Copy pre-built gridchat into pkg/
+cp -r gridchat-pkg/* pkg/
 
 # Update publisher in metadata.json files before building
 echo -e "${BLUE}Updating publisher in metadata files...${NC}"

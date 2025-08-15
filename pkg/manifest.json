@@ -41,6 +41,24 @@
       "sqlite:distro:sys"
     ],
     "public": false
+  },
+  {
+      "process_name": "gridchat",
+      "process_wasm_path": "/kibitz.wasm",
+      "on_exit": "Restart",
+      "request_networking": false,
+      "request_capabilities": [
+          "homepage:homepage:sys",
+          "http-server:distro:sys",
+          "kv:distro:sys",
+          "vfs:distro:sys"
+      ],
+      "grant_capabilities": [
+          "homepage:homepage:sys",
+          "http-server:distro:sys",
+          "kv:distro:sys",
+          "vfs:distro:sys"
+      ],
+      "public": false
   }
-
 ]
