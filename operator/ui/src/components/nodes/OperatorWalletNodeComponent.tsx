@@ -316,7 +316,7 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
                     </span>
                 </div>
                 {showUsdcWithdrawInput && (
-                    <div className="flex flex-col gap-2 mt-2 p-2 bg-darkgray rounded ">
+                    <div className="flex flex-col gap-2 mt-2 p-2 bg-dark-gray rounded ">
                         <span className="font-bold">Withdraw USDC</span>
                         <input
                             type="text"
@@ -460,4 +460,4 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
     );
 };
 
-export default OperatorWalletNodeComponent; 
+export default OperatorWalletNodeComponent;

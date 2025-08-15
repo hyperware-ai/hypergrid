@@ -94,7 +94,7 @@ const ProviderSearch: React.FC = () => {
         className="flex grow items-stretch gap-1"
       >
         <button
-          className="bg-gray rounded-full px-3 py-1 hover:bg-mid-gray text-xl"
+          className="bg-gray dark:bg-dark-gray rounded-full px-3 py-1 hover:bg-mid-gray text-xl"
           onClick={executeSearch}
         >
           <PiMagnifyingGlass className="rotate-90" />
@@ -111,13 +111,13 @@ const ProviderSearch: React.FC = () => {
               executeSearch();
             }
           }}
-          className="border-none outline-none box-shadow-none py-2 px-4 flex-grow rounded-full bg-gray"
+          className="border-none outline-none box-shadow-none py-2 px-4 flex-grow rounded-full bg-gray dark:bg-dark-gray"
         />
       </div>
 
       {isDropdownOpen && (
         <div
-          className="absolute top-full left-0 right-0 z-50 overflow-y-auto mt-2 bg-gray p-2 shadow-lg shadow-mid-gray rounded-xl min-h-0 max-h-[80vh]"
+          className="absolute top-full left-0 right-0 z-50 overflow-y-auto mt-2 bg-gray dark:bg-dark-gray p-2 shadow-lg shadow-mid-gray rounded-xl min-h-0 max-h-[80vh]"
           style={{
             scrollbarWidth: 'thin',
           }}
@@ -127,26 +127,26 @@ const ProviderSearch: React.FC = () => {
           )}
 
           {!loading && error && ( // Display any error, including "No providers found" or "Please enter term"
-            <div className="p-2 text-center text-red-500">{error}</div>
+            <div className="p-2 text-center text-red-500 dark:text-red-500">{error}</div>
           )}
 
           {!loading && !error && searchResults.length > 0 && searchResults.map((provider, index) => <div
             key={provider.provider_id || provider.name}
             className={classNames("p-2 flex flex-col", {
-              'border-b border-gray-300': index !== searchResults.length - 1,
+              'border-b border-gray-300 dark:border-white': index !== searchResults.length - 1,
             })}
           >
             <div className="font-bold">
               {provider.name}
             </div>
-            {provider.provider_id && <code className="text-sm text-gray-500 wrap-anywhere">{provider.provider_id}</code>}
+            {provider.provider_id && <code className="text-sm text-gray-500 dark:text-white wrap-anywhere">{provider.provider_id}</code>}
             {provider.price && (
-              <div className="font-medium text-sm text-gray-500">
+              <div className="font-medium text-sm text-gray-500 dark:text-white">
                 {provider.price} USDC
               </div>
             )}
             {provider.description && (
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-gray-500 dark:text-white">
                 {provider.description.length > 80 // Slightly shorter for more compact view with new fields
                   ? provider.description.substring(0, 80) + "..."
                   : provider.description}

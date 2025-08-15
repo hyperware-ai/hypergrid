@@ -109,19 +109,19 @@ const getLayoutedElements = (nodes: Node<any>[], edges: Edge[], direction = 'TB'
     // Special positioning logic to prevent overlap of operator wallet and hot wallet action nodes
     const operatorWalletNode = layoutedNodes.find(n => n.type === 'operatorWalletNode');
     const addHotWalletActionNode = layoutedNodes.find(n => n.type === 'addHotWalletActionNode');
-    
+
     if (operatorWalletNode && addHotWalletActionNode) {
         // Check if they're too close (likely overlapping)
         const xDiff = Math.abs(operatorWalletNode.position.x - addHotWalletActionNode.position.x);
         const yDiff = Math.abs(operatorWalletNode.position.y - addHotWalletActionNode.position.y);
-        
+
         // Check if nodes are overlapping or too close vertically/horizontally
         const operatorNodeHeight = 250; // From line 84
         const addHotWalletNodeHeight = 300; // From line 86
-        
+
         // They overlap if they're on the same X coordinate or very close horizontally
         const horizontallyAligned = xDiff < NODE_WIDTH + 50; // Within node width + small margin
-        
+
         // Check if they need repositioning due to overlap or poor spacing
         if (horizontallyAligned) {
             addHotWalletActionNode.position = {
@@ -791,7 +791,7 @@ const BackendDrivenHypergridVisualizerWrapper: React.FC<BackendDrivenHypergridVi
 
     if (isLoadingGraph && !initialGraphData) {
         return <div className="flex gap-2 flex-col grow self-stretch place-items-center place-content-center">
-            <span className="tetx-lg">Loading graph ...</span>
+            <span className="text-lg">Loading graph ...</span>
             <ImSpinner8 className="animate-spin" />
         </div>
     }

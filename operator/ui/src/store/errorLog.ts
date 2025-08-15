@@ -58,6 +58,7 @@ export const useErrorLogStore = create<ErrorLogState>((set, get) => ({
         }
 
         toast(truncate(message, 280, 0), {
+            theme: window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light',
             type,
             position: "top-right",
             autoClose: duration,

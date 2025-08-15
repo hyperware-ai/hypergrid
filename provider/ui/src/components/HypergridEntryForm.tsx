@@ -35,7 +35,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         value={providerName}
         onChange={(e) => setProviderName(e.target.value)}
         placeholder="provider-name"
-        className="text-black  bg-mid-gray rounded px-2 py-1 h-full w-full "
+        className="text-black bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 h-full w-full "
       />
       <span className="">.obfusc-grid123.hypr</span>
 
@@ -52,7 +52,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         value={registeredProviderWallet}
         onChange={(e) => setRegisteredProviderWallet(e.target.value)}
         placeholder="0x... (ETH Address on Base)"
-        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
       />
 
       <label htmlFor="pform-price" className=" pl-1 whitespace-pre text-left">~price:</label>
@@ -64,7 +64,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         placeholder="e.g., 0.01 (USDC)"
         inputMode="decimal"
         pattern="[0-9]*\.?[0-9]*"
-        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
       />
 
 
@@ -75,7 +75,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         onChange={(e) => setProviderDescription(e.target.value)}
         placeholder="Purpose of this provider (can be multiple lines)"
         rows={3}
-        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
       />
 
       <label htmlFor="pform-instructions" className=" whitespace-pre text-left">~instructions:</label>
@@ -85,7 +85,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         onChange={(e) => setInstructions(e.target.value)}
         placeholder="Instructions for the provider"
         rows={3}
-        className="text-black  bg-mid-gray rounded px-2 py-1 col-span-2"
+        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
       />
 
     </div>

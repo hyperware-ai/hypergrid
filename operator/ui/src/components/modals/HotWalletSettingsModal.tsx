@@ -188,7 +188,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
                 onBlur={handleNameInputBlur}
                 onKeyDown={handleNameInputKeyDown}
                 onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
-                className={classNames("p-2 rounded bg-dark-gray/5", {
+                className={classNames("p-2 rounded bg-dark-gray/5 dark:bg-gray/5", {
                     "border border-black": isEditingName,
                 })}
                 disabled={isActionLoading}
@@ -203,7 +203,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
                     placeholder="Max Per Call (USDC)"
                     value={limitPerCall}
                     onChange={e => setLimitPerCall(e.target.value)}
-                    className="p-2 rounded bg-dark-gray/5 grow"
+                    className="p-2 rounded bg-dark-gray/5 dark:bg-gray/5 grow"
                     disabled={limitsDisabled}
                     onClick={(e) => e.stopPropagation()}
                 />
@@ -214,7 +214,7 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
                     placeholder="Max Total (USDC)"
                     value={limitTotal}
                     onChange={e => setLimitTotal(e.target.value)}
-                    className="p-2 rounded bg-dark-gray/5 grow"
+                    className="p-2 rounded bg-dark-gray/5 dark:bg-gray/5 grow"
                     disabled={limitsDisabled}
                     onClick={(e) => e.stopPropagation()}
                 />
@@ -232,4 +232,4 @@ const HotWalletSettingsModal: React.FC<HotWalletSettingsModalProps> = ({
     );
 };
 
-export default HotWalletSettingsModal; 
+export default HotWalletSettingsModal;

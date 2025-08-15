@@ -99,7 +99,7 @@ const HeaderSearch: React.FC = () => {
         className="flex grow items-stretch gap-1"
       >
         <button
-          className="bg-gray rounded-full px-3 py-1 hover:bg-mid-gray text-xl"
+          className="bg-gray dark:bg-dark-gray rounded-full px-3 py-1 hover:bg-mid-gray text-xl"
           onClick={executeSearch}
         >
           <PiMagnifyingGlass className="rotate-90" />
@@ -116,13 +116,13 @@ const HeaderSearch: React.FC = () => {
               executeSearch();
             }
           }}
-          className="border-none outline-none box-shadow-none py-2 px-4 flex-grow rounded-full bg-gray"
+          className="border-none outline-none box-shadow-none py-2 px-4 flex-grow rounded-full bg-gray dark:bg-dark-gray"
         />
       </div>
 
       {isDropdownOpen && (
         <div
-          className="absolute top-full left-0 right-0 z-50 overflow-y-auto mt-2 bg-gray p-2 shadow-lg shadow-mid-gray rounded-xl min-h-0 max-h-[80vh]"
+          className="absolute top-full left-0 right-0 z-50 overflow-y-auto mt-2 bg-gray dark:bg-dark-gray p-2 shadow-lg shadow-mid-gray rounded-xl min-h-0 max-h-[80vh]"
           style={{
             scrollbarWidth: 'thin',
           }}
@@ -138,20 +138,20 @@ const HeaderSearch: React.FC = () => {
           {!loading && !error && searchResults.length > 0 && searchResults.map((provider, index) => <div
             key={provider.provider_id || provider.name}
             className={classNames("p-2 flex flex-col", {
-              'border-b border-gray-300': index !== searchResults.length - 1,
+              'border-b border-gray dark:border-dark-gray': index !== searchResults.length - 1,
             })}
           >
             <div className="font-bold">
               {provider.provider_name || provider.name}
             </div>
-            {provider.provider_id && <code className="text-sm text-gray-500 wrap-anywhere">{provider.provider_id}</code>}
+            {provider.provider_id && <code className="text-sm text-dark-gray dark:text-gray wrap-anywhere">{provider.provider_id}</code>}
             {provider.price && (
-              <div className="font-medium text-sm text-gray-500">
+              <div className="font-medium text-sm text-dark-gray dark:text-gray">
                 {provider.price} USDC
               </div>
             )}
             {provider.description && (
-              <div className="text-sm text-gray-500">
+              <div className="text-sm text-dark-gray dark:text-gray">
                 {provider.description.length > 80 // Slightly shorter for more compact view with new fields
                   ? provider.description.substring(0, 80) + "..."
                   : provider.description}
@@ -170,7 +170,7 @@ const HeaderSearch: React.FC = () => {
                   setError(null);
                   setHasSearched(false);
                 }}
-                className="text-blue-500 text-sm mt-2"
+                className="text-blue-500 dark:text-cyan text-sm mt-2"
               >
                 Visit Site
               </a>
@@ -183,4 +183,4 @@ const HeaderSearch: React.FC = () => {
   );
 };
 
-export default HeaderSearch; 
+export default HeaderSearch;

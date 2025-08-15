@@ -41,7 +41,7 @@ const ErrorLogModal: React.FC<ErrorLogModalProps> = ({ isOpen, onClose }) => {
 
             <div className="flex-grow overflow-y-auto pr-1">
                 {errors.length === 0 ? (
-                    <div className="flex flex-col items-center justify-center py-12 text-gray-500">
+                    <div className="flex flex-col items-center justify-center py-12 text-dark-gray text-gray">
                         <svg
                             width="64"
                             height="64"
@@ -87,11 +87,11 @@ const ErrorLogModal: React.FC<ErrorLogModalProps> = ({ isOpen, onClose }) => {
                                             Error
                                         </span>
                                     </div>
-                                    <span className="text-xs text-gray-500 flex-shrink-0">
+                                    <span className="text-xs text-dark-gray dark:text-gray flex-shrink-0">
                                         {formatTimestamp(error.timestamp)}
                                     </span>
                                 </div>
-                                <p className="text-sm text-gray-800 leading-relaxed whitespace-pre-wrap break-words">
+                                <p className="text-sm text-dark-gray dark:text-gray leading-relaxed whitespace-pre-wrap break-words">
                                     {error.message}
                                 </p>
                             </div>
