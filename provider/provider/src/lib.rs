@@ -12,7 +12,7 @@ use hyperware_app_common::hyperware_process_lib::{
     Address,
 };
 use crate::constants::HYPR_SUFFIX;
-use hyperware_app_common::{source, SaveOptions};
+use hyperware_app_common::{source, SaveOptions, sleep};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -516,20 +516,45 @@ impl HypergridProviderState {
                 mcp_request.provider_name
             ));
 
-        // --- 2. Call the provider ---
-        let api_call_result = call_provider(
-            // This is the HTTP call_provider
-            registered_provider.provider_name.clone(),
-            registered_provider.endpoint.clone(),
-            &mcp_request.arguments,
-            source_node_id, // this makes sure User-Agent is node ID
-        )
-        .await;
+        // --- 2. Call the provider with retry mechanism ---
+        const MAX_RETRIES: usize = 3;
+        let mut last_error = String::new();
+        
+        for attempt in 1..=MAX_RETRIES {
+            debug!("Attempting provider call {} of {}", attempt, MAX_RETRIES);
+            
+            let api_call_result = call_provider(
+                // This is the HTTP call_provider
+                registered_provider.provider_name.clone(),
+                registered_provider.endpoint.clone(),
+                &mcp_request.arguments,
+                source_node_id.clone(), // this makes sure User-Agent is node ID
+            )
+            .await;
 
-        match api_call_result {
-            Ok(response) => Ok(response),
-            Err(e) => Err(e), // The error from call_provider is already a String
+            match api_call_result {
+                Ok(response) => {
+                    if attempt > 1 {
+                        info!("Provider call succeeded on attempt {} of {}", attempt, MAX_RETRIES);
+                    }
+                    return Ok(response);
+                },
+                Err(e) => {
+                    last_error = e.clone();
+                    warn!("Provider call failed on attempt {} of {}: {}", attempt, MAX_RETRIES, e);
+                    
+                    // Don't sleep after the last attempt
+                    if attempt < MAX_RETRIES {
+                        // Add a small delay between retries to handle rate limiting and temporary issues
+                        let _ = sleep(500).await;
+                    }
+                }
+            }
         }
+        
+        // If we get here, all retries failed
+        error!("All {} provider call attempts failed. Last error: {}", MAX_RETRIES, last_error);
+        Err(last_error)
     }
 
     #[http]
