@@ -10,7 +10,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
 
   const formatPrice = (price: number) => {
     if (typeof price !== 'number' || isNaN(price)) return 'N/A';
-    
+
     // Format the number and remove trailing zeros
     let formatted: string;
     if (price < 0.01) {
@@ -20,10 +20,10 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
     } else {
       formatted = price.toFixed(2);
     }
-    
+
     // Remove trailing zeros after decimal point
     formatted = formatted.replace(/\.?0+$/, '');
-    
+
     return formatted + ' USDC';
   };
 
@@ -36,7 +36,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
 
   return (
     <div
-      className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-all cursor-pointer"
+      className="bg-white dark:bg-black p-5 rounded-xl shadow-sm border border-gray-200 dark:border-white hover:shadow-md  transition-all cursor-pointer"
       onClick={handleClick}
     >
       <div className="flex flex-col gap-3">
@@ -53,9 +53,9 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
               )}
             </div>
           </div>
-          
+
           <button
-            className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-white rounded-lg text-sm transition-colors flex items-center gap-1.5 font-medium flex-shrink-0"
+            className="px-3 py-1.5 bg-gray dark:bg-dark-gray text-white dark:text-black rounded-lg text-sm flex-shrink-0"
             onClick={(e) => {
               e.stopPropagation();
               onEdit?.(provider);
@@ -65,11 +65,11 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
             <span>Edit</span>
           </button>
         </div>
-        
+
         {/* Bottom row with price */}
-        <div className="flex items-center gap-1.5 text-sm">
-          <span className="text-gray-500">💰 Price:</span>
-          <span className="font-semibold text-gray-900">{formatPrice(provider.price)}</span>
+        <div className=" text-sm">
+          <span >💰 Price:</span>
+          <span className="font-semibold ">{formatPrice(provider.price)}</span>
         </div>
       </div>
     </div>

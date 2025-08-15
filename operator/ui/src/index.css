@@ -49,6 +49,14 @@ body {
   overflow-x: hidden;
 }
 
+@media (prefers-color-scheme: dark) {
+  html,
+  body {
+    background-color: var(--black);
+    color: var(--white);
+  }
+}
+
 .font-sans {
   font-family: 'Neue Haas Grotesk', sans-serif;
 }

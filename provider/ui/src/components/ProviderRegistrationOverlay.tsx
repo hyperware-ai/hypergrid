@@ -55,8 +55,8 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   const hasError = !!(mintError || notesError);
 
   return (
-    <div className="fixed inset-0 bg-white flex flex-col justify-center items-center z-50 p-5">
-      <div className="bg-gray p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-4">
+    <div className="fixed inset-0 bg-white dark:bg-black flex flex-col justify-center items-center z-50 p-5">
+      <div className="bg-gray dark:bg-dark-gray p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-4">
         <h3 className="text-2xl font-bold">
           Blockchain Registration
         </h3>
@@ -92,16 +92,16 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
         {/* Success State */}
         {step === 'complete' && mintedProviderAddress && (
           <div className="flex flex-col gap-2">
-            <div className="text-green-400 text-lg">
+            <div className="text-green-400 dark:text-green-400 text-lg">
               ✓ Provider registered successfully
             </div>
-            <div className="font-mono text-xs break-all p-3 bg-white/5 rounded-md">
+            <div className="font-mono text-xs break-all p-3 bg-white/5 dark:bg-black/5 rounded-md">
               {mintedProviderAddress}
             </div>
             {onClose && (
               <button
                 onClick={onClose}
-                className="px-5 py-2 bg-black text-cyan"
+                className="px-5 py-2 bg-black text-cyan dark:bg-cyan dark:text-black"
               >
                 Continue to Dashboard
               </button>
@@ -111,7 +111,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 
         {/* Error Display */}
         {hasError && (
-          <div className="text-red-400 p-4 bg-red-400/10 rounded-md text-sm">
+          <div className="text-red-400 p-4 bg-red-400/10 dark:bg-red-400/10 rounded-md text-sm">
             {(mintError || notesError)?.message}
           </div>
         )}

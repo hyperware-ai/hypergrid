@@ -118,14 +118,14 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
         <div
           className={classNames(
             "w-4 h-4 rounded-full flex items-center justify-center font-bold cursor-pointer flex-shrink-0 transition-all border",
-            isVisible ? 'bg-black text-white' : 'bg-gray text-dark-gray'
+            isVisible ? 'bg-black text-white dark:bg-white dark:text-black' : 'bg-gray text-dark-gray dark:bg-white/50 dark:text-black'
           )}
         >
           ?
         </div>
         {isVisible && (
           <div
-            className="absolute top-0 right-0 bg-black text-white rounded-lg p-2 z-10001 text-center"
+            className="absolute top-0 right-0 bg-black text-white dark:bg-white dark:text-black rounded-lg p-2 z-10001 text-center"
             onClick={isMobile ? handleClick : undefined}
           >
             {helpText}
@@ -179,7 +179,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           value={currentValue}
           onChange={(e) => setter(e.target.value)}
           placeholder={placeholder}
-          className="bg-white rounded-lg px-2 py-1 self-stretch  grow"
+          className="bg-white dark:bg-black rounded-lg px-2 py-1 self-stretch  grow"
           onKeyDown={(e) => {
             if (e.key === 'Enter') {
               e.preventDefault();
@@ -191,7 +191,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
         <button
           type="button"
           onClick={() => { addKeyToList(currentValue, keyList, listSetter); setter(''); }}
-          className="px-3 py-2 bg-black text-cyan rounded-md text-sm self-stretch"
+          className="px-3 py-2 bg-black text-cyan dark:bg-cyan dark:text-black rounded-md text-sm self-stretch"
         >
           <span className='text-sm'>Add</span>
           <FiPlusCircle />
@@ -201,7 +201,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
         {keyList.map(key => (
           <button
             key={key}
-            className="px-3 py-1 bg-mid-gray text-sm"
+            className="px-3 py-1 bg-mid-gray text-sm dark:text-black"
             onClick={() => removeKeyFromList(key, keyList, listSetter)}
             title={`Remove ${key}`}
           >
@@ -236,12 +236,12 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           onMouseEnter={() => setHoveredIndex(0)}
           onMouseLeave={() => setHoveredIndex(null)}
           className={classNames("p-4 rounded-lg flex-col text-left !justify-start !items-start", {
-            'bg-white': hoveredIndex !== 0,
+            'bg-white dark:bg-black': hoveredIndex !== 0,
             '!opacity-100 bg-cyan/30': hoveredIndex === 0,
           })}
           onClick={() => handleSelectFormat("getWithPath")}
         >
-          <h6 className="text-lg font-semibold text-dark-gray flex gap-2 items-start">
+          <h6 className="text-lg font-semibold text-dark-gray dark:text-mid-gray flex gap-2 items-start">
             <span>GET with Path Parameters</span>
             <span className='bg-mid-gray py-1 px-2 rounded-full animate-pulse'>
               <FaRegHandPointLeft />
@@ -250,7 +250,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           <p className="text-sm">
             Use for APIs where primary identifiers are part of the URL path.
           </p>
-          <pre className="text-xs p-2 bg-gray rounded whitespace-pre-wrap">
+          <pre className="text-xs p-2 bg-gray dark:bg-dark-gray rounded whitespace-pre-wrap">
             <code>GET /api/users/{'{user_id}'}/profile</code>
           </pre>
         </button>
@@ -259,7 +259,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           onMouseEnter={() => setHoveredIndex(1)}
           onMouseLeave={() => setHoveredIndex(null)}
           className={classNames("p-4 rounded-lg flex-col text-left !justify-start !items-start", {
-            'bg-white': hoveredIndex !== 1,
+            'bg-white dark:bg-black': hoveredIndex !== 1,
             '!opacity-100 bg-cyan/30': hoveredIndex === 1,
           })}
           onClick={() => handleSelectFormat("getWithQuery")}
@@ -273,7 +273,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           <p className="text-sm">
             Use for APIs that accept filters or options as URL query parameters.
           </p>
-          <pre className="text-xs p-2 bg-gray rounded whitespace-pre-wrap">
+          <pre className="text-xs p-2 bg-gray dark:bg-dark-gray rounded whitespace-pre-wrap">
             <code>GET /api/search?q={'{searchTerm}'}&limit={'{limit}'}</code>
           </pre>
         </button>
@@ -282,7 +282,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           onMouseEnter={() => setHoveredIndex(2)}
           onMouseLeave={() => setHoveredIndex(null)}
           className={classNames("p-4 rounded-lg flex-col text-left !justify-start !items-start", {
-            'bg-white': hoveredIndex !== 2,
+            'bg-white dark:bg-black': hoveredIndex !== 2,
             '!opacity-100 bg-cyan/30': hoveredIndex === 2,
           })}
           onClick={() => handleSelectFormat("postWithJson")}
@@ -296,7 +296,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           <p className="text-sm">
             Use for APIs that create or update resources using a JSON payload.
           </p>
-          <pre className="text-xs p-2 bg-gray rounded whitespace-pre-wrap">
+          <pre className="text-xs p-2 bg-gray dark:bg-dark-gray rounded whitespace-pre-wrap">
             <code className="block">POST /api/orders</code>
             <code className="block">{`{ "product_id": "123", "quantity": 2 }`}</code>
           </pre>
@@ -311,13 +311,13 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
       <button
         type="button"
         onClick={() => setApiCallFormatSelected(false)}
-        className="px-4 py-2 text-sm bg-gray rounded-md self-start"
+        className="px-4 py-2 text-sm bg-gray dark:bg-dark-gray rounded-md self-start"
       >
         &larr; Change API Call Format
       </button>
 
       <div className="flex flex-col gap-6">
-        <h3 className="text-black text-xl flex gap-2 items-center">
+        <h3 className="text-black dark:text-white text-xl flex gap-2 items-center">
           <span className="font-bold">Selected API Format: </span>
           <span>{
             topLevelRequestType === 'getWithPath' ? 'GET with Path Parameters' :
@@ -326,8 +326,8 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           }</span>
         </h3>
 
-        <div className="flex flex-col gap-4 bg-gray rounded-lg p-4">
-          <h4 className="text-black text-lg font-bold">API Key Placement</h4>
+        <div className="flex flex-col gap-4 bg-gray dark:bg-dark-gray rounded-lg p-4">
+          <h4 className="text-black dark:text-white text-lg font-bold">API Key Placement</h4>
           <div className="flex  gap-2 cursor-pointer">
 
             {([
@@ -341,7 +341,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
                   "flex items-center gap-2 rounded-xl px-2 py-1",
                   authChoice === value
                     ? 'bg-cyan text-black border-cyan'
-                    : 'bg-white border-black text-black hover:opacity-75'
+                    : 'bg-white dark:bg-black border-black text-black dark:text-white hover:opacity-75'
                 )}
                 title={label}
               >
@@ -361,12 +361,12 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
           </div>
         </div>
         {/* API Key Configuration */}
-        <div className="flex flex-col gap-4 bg-gray rounded-lg p-4">
+        <div className="flex flex-col gap-4 bg-gray dark:bg-dark-gray rounded-lg p-4">
 
           <div className="flex flex-col gap-2">
             {(authChoice === 'query' || authChoice === 'header') && (
               <div className="flex flex-col gap-2">
-                <label htmlFor={authChoice === 'query' ? "apiKeyQueryParamName" : "apiKeyHeaderName"} className="block text-black font-bold">
+                <label htmlFor={authChoice === 'query' ? "apiKeyQueryParamName" : "apiKeyHeaderName"} className="block text-black dark:text-white font-bold">
                   API Key Identifier
                 </label>
                 {!(authChoice === 'query' ? apiKeyQueryParamName : apiKeyHeaderName) ? (
@@ -377,7 +377,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
                       value={authChoice === 'query' ? currentApiKeyQueryNameInput : currentApiKeyHeaderNameInput}
                       onChange={(e) => authChoice === 'query' ? setCurrentApiKeyQueryNameInput(e.target.value) : setCurrentApiKeyHeaderNameInput(e.target.value)}
                       placeholder={authChoice === 'query' ? "e.g., api_key" : "e.g., X-API-Key"}
-                      className="self-stretch grow p-2 bg-white rounded-md text-sm"
+                      className="self-stretch grow p-2 bg-white dark:bg-black rounded-md text-sm"
                     />
                     <button
                       type="button"
@@ -390,18 +390,18 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
                           setCurrentApiKeyHeaderNameInput('');
                         }
                       }}
-                      className="px-3 py-2 bg-black text-white rounded-md text-sm hover:opacity-75 transition-colors"
+                      className="px-3 py-2 bg-black text-white dark:bg-white dark:text-black rounded-md text-sm hover:opacity-75 transition-colors"
                     >
                       Set
                     </button>
                   </div>
                 ) : (
                   <div className="flex items-center">
-                    <span className="inline-flex items-center px-3 py-1 bg-gray border border-black rounded-md text-sm">
+                    <span className="inline-flex items-center px-3 py-1 bg-gray dark:bg-dark-gray border border-black dark:border-white rounded-md text-sm">
                       {authChoice === 'query' ? apiKeyQueryParamName : apiKeyHeaderName}
                       <button
                         onClick={() => authChoice === 'query' ? setApiKeyQueryParamName('') : setApiKeyHeaderName('')}
-                        className="text-dark-gray hover:opacity-75"
+                        className="text-dark-gray dark:text-white hover:opacity-75"
                         title={`Remove ${authChoice === 'query' ? apiKeyQueryParamName : apiKeyHeaderName}`}
                       >
                         <BsX />
@@ -415,7 +415,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
 
           {/* Right Side: API Key Value */}
           <div className="flex flex-col gap-2">
-            <label htmlFor="endpointApiKey" className="block text-black font-bold">
+            <label htmlFor="endpointApiKey" className="block text-black dark:text-white font-bold">
               API Key Value (Secret)
             </label>
             <div className="flex flex-col items-stretch gap-2">
@@ -425,7 +425,7 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
                 value={endpointApiParamKey}
                 onChange={(e) => setEndpointApiKey(e.target.value)}
                 placeholder="Super Secret API Key"
-                className="self-stretch p-2 bg-white rounded-md text-sm"
+                className="self-stretch p-2 bg-white dark:bg-black rounded-md text-sm"
               />
               <span className='text-sm'>Your secret API key that proves you have permission to access this service. Keep this private!</span>
             </div>
@@ -433,10 +433,10 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 bg-gray rounded-lg p-4">
-        <h5 className="text-lg font-bold text-black">API Endpoint Details</h5>
+      <div className="flex flex-col gap-2 bg-gray dark:bg-dark-gray rounded-lg p-4">
+        <h5 className="text-lg font-bold text-black dark:text-white">API Endpoint Details</h5>
         <div className="flex flex-col gap-2">
-          <label htmlFor="endpointBaseUrl" className="block text-black font-bold">
+          <label htmlFor="endpointBaseUrl" className="block text-black dark:text-white font-bold">
             Base URL Template
           </label>
           <div className="flex flex-col items-stretch gap-2">
@@ -446,15 +446,15 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
               value={endpointBaseUrl}
               onChange={(e) => setEndpointBaseUrl(e.target.value)}
               placeholder="https://api.example.com/{id}"
-              className="self-stretch p-2 bg-white rounded-md text-sm"
+              className="self-stretch p-2 bg-white dark:bg-black rounded-md text-sm"
             />
             <span className='text-sm'>Enter the complete web address for your API. For dynamic parts like user IDs, use placeholders like {`{userId}`} and make sure to add 'userId' as a Path Parameter below.</span>
           </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-4 bg-gray rounded-lg p-4">
-        <h5 className="text-lg font-bold text-black">Request Parameters Configuration</h5>
+      <div className="flex flex-col gap-4 bg-gray dark:bg-dark-gray rounded-lg p-4">
+        <h5 className="text-lg font-bold text-black dark:text-white">Request Parameters Configuration</h5>
 
         {/* All parameters in a responsive grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-2 gap-4">
@@ -484,15 +484,15 @@ const APIConfigForm: React.FC<APIConfigFormProps> = ({
       </div>
 
       {showSubmitButton && (
-        <div className="border-t border-black pt-6">
+        <div className="border-t border-black dark:border-white pt-6">
           <button
             type="button"
             onClick={onRegisterProvider}
             className={classNames(
               "w-full px-6 py-3 rounded-lg font-medium text-sm transition-all",
               isWalletConnected
-                ? 'bg-black text-white hover:opacity-75'
-                : 'bg-gray text-dark-gray cursor-not-allowed'
+                ? 'bg-black text-white dark:bg-white dark:text-black hover:opacity-75'
+                : 'bg-gray text-dark-gray dark:bg-dark-gray dark:text-white cursor-not-allowed'
             )}
             disabled={!isWalletConnected}
             title={!isWalletConnected ? 'Connect your wallet to register provider' : ''}

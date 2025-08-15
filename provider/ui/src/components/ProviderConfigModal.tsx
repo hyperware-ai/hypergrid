@@ -367,8 +367,8 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
             />
 
             {providerUpdate.isUpdating && (
-              <div className="fixed inset-0 bg-gray flex flex-col justify-center items-center z-50 p-5">
-                <div className="bg-white p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-8">
+              <div className="fixed inset-0 bg-gray dark:bg-dark-gray flex flex-col justify-center items-center z-50 p-5">
+                <div className="bg-white dark:bg-black p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-8">
                   <h3 className="text-2xl font-medium">
                     Updating Provider
                   </h3>

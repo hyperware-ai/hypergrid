@@ -54,7 +54,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
           });
         }
         break;
-      
+
       case RequestStructureType.GetWithQuery:
         if (provider.endpoint.query_param_keys) {
           provider.endpoint.query_param_keys.forEach(key => {
@@ -63,7 +63,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
           });
         }
         break;
-      
+
       case RequestStructureType.PostWithJson:
         if (provider.endpoint.path_param_keys) {
           provider.endpoint.path_param_keys.forEach(key => {
@@ -92,32 +92,32 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     if (provider.endpoint.method === HttpMethod.POST) {
       headers.push('-H "Content-Type: application/json"');
     }
-    
+
     if (provider.endpoint.header_keys) {
       provider.endpoint.header_keys.forEach(key => {
         const value = validationArgs[key] || getSampleValue(key, 'header');
         headers.push(`-H "${key}: ${value}"`);
       });
     }
-    
+
     if (provider.endpoint.api_key && provider.endpoint.api_key_header_name) {
       headers.push(`-H "${provider.endpoint.api_key_header_name}: ${provider.endpoint.api_key.substring(0, 3)}..."`);
     }
 
     const finalUrl = queryParams.length > 0 ? `${url}?${queryParams.join('&')}` : url;
-    
+
     let curlCommand = `curl -X ${provider.endpoint.method}`;
-    
+
     if (headers.length > 0) {
       curlCommand += ` \\\n  ${headers.join(' \\\n  ')}`;
     }
-    
+
     if (provider.endpoint.method === HttpMethod.POST && Object.keys(bodyData).length > 0) {
       curlCommand += ` \\\n  -d '${JSON.stringify(bodyData)}'`;
     }
-    
+
     curlCommand += ` \\\n  "${finalUrl}"`;
-    
+
     return curlCommand;
   };
 
@@ -133,10 +133,10 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
     try {
       const validationArguments: [string, string][] = Object.entries(validationArgs);
-      
+
       // Validate and cache the provider in backend
       const result = await validateProviderApi(provider, validationArguments);
-      
+
       if (result.success) {
         onValidationSuccess(provider);
       } else {
@@ -152,7 +152,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
   const getAllParamKeysWithTypes = (): Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> => {
     const params: Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> = [];
-    
+
     if (provider.endpoint.path_param_keys) {
       provider.endpoint.path_param_keys.forEach(key => params.push({ key, type: 'path' }));
     }
@@ -165,7 +165,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
       provider.endpoint.body_param_keys.forEach(key => params.push({ key, type: 'body' }));
     }
-    
+
     return params;
   };
 
@@ -175,27 +175,27 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     <div className="flex flex-col">
       {/* Header Section */}
       <div className="text-center mb-8">
-        <h1 className="text-xl font-bold text-gray-900 mb-2">Validate Your Provider</h1>
-        <p className="text-gray-600 max-w-lg mx-auto">
+        <h1 className="text-xl font-bold text-dark-gray dark:text-gray mb-2">Validate Your Provider</h1>
+        <p className="text-dark-gray dark:text-gray max-w-lg mx-auto">
           Let's test your API endpoint to make sure it is configured correctly:
         </p>
       </div>
-      
+
       {/* Main Content */}
       <div className="flex flex-col items-center space-y-6">
         {/* Test Parameters Section */}
         {allParams.length > 0 && (
           <div className="w-full max-w-xl">
-            <div className="bg-gradient-to-b from-gray-50 to-white border border-gray-200 rounded-xl shadow-md p-6">
-              <h3 className="text-lg font-bold text-gray-900 text-center mb-6">Test Parameters</h3>
+            <div className="bg-gradient-to-b from-gray-50 to-white dark:to-black border border-gray-200 rounded-xl shadow-md p-6">
+              <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-6">Test Parameters</h3>
               <div className={allParams.length === 1 ? "flex justify-center" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
                 {allParams.map(({ key, type }) => (
                   <div key={key} className={allParams.length === 1 ? "w-full max-w-xs" : "group"}>
-                    <label 
-                      htmlFor={`validation-${key}`} 
-                      className="block text-sm font-semibold text-gray-700 mb-1.5 text-center"
+                    <label
+                      htmlFor={`validation-${key}`}
+                      className="block text-sm font-semibold text-dark-gray dark:text-gray mb-1.5 text-center"
                     >
-                      {key} <span className="text-gray-400 font-normal">({type})</span>
+                      {key} <span className="text-dark-gray dark:text-gray font-normal">({type})</span>
                     </label>
                     <input
                       id={`validation-${key}`}
@@ -203,10 +203,9 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
                       value={validationArgs[key] || ''}
                       onChange={(e) => handleValidationArgChange(key, e.target.value)}
                       placeholder={getSampleValue(key, type)}
-                      className="w-full px-4 py-2.5 text-center border border-gray-200 rounded-lg 
-                               bg-white text-gray-900 placeholder-gray-400
-                               focus:bg-gray-50 focus:border-gray-400 focus:outline-none
-                               hover:border-gray-300 transition-all duration-200
+                      className="w-full px-4 py-2.5 text-center border border-gray-200 rounded-lg
+                               bg-white text-dark-gray dark:bg-black dark:text-gray
+                                transition-all duration-200
                                shadow-sm focus:shadow-md"
                     />
                   </div>
@@ -215,20 +214,20 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
             </div>
           </div>
         )}
-        
+
         {/* Preview API Call Section */}
         <div className="w-full max-w-xl">
-          <div className="bg-gradient-to-b from-gray-50 to-white border border-gray-200 rounded-xl shadow-md p-6">
-            <h3 className="text-lg font-bold text-gray-900 text-center mb-4">Preview API Call</h3>
-            <div className="bg-gray-900 rounded-lg p-4 overflow-x-auto shadow-inner">
-              <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap text-center">
+          <div className="bg-gradient-to-b from-gray-50 to-white dark:to-black border border-gray-200 dark:border-white rounded-xl shadow-md p-6">
+            <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-4">Preview API Call</h3>
+            <div className="bg-gray dark:bg-dark-gray rounded-lg p-4 overflow-x-auto shadow-inner">
+              <pre className="text-green-400 dark:text-green-400 text-sm font-mono whitespace-pre-wrap text-center">
                 <code>{generateCurlPreview()}</code>
               </pre>
             </div>
           </div>
         </div>
       </div>
-        
+
       {/* Action Buttons */}
       <div className="flex justify-center gap-3 mt-6 pt-4 border-t border-gray-100">
         <button
@@ -258,4 +257,4 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   );
 };
 
-export default ValidationPanel; 
+export default ValidationPanel;

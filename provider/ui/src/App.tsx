@@ -15,24 +15,17 @@ import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 
 import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
-  HttpMethod,
-  RegisterProviderResponse,
   RegisteredProvider,
   IndexedProvider
 } from "./types/hypergrid_provider";
-import { 
-  fetchRegisteredProvidersApi, 
+import {
+  fetchRegisteredProvidersApi,
   registerProviderApi,
-  getProviderSyncStatusApi
 } from "./utils/api";
 import ProviderConfigModal from "./components/ProviderConfigModal";
 import RegisteredProviderView from './components/RegisteredProviderView';
-import IndexedProviderView from './components/IndexedProviderView';
-import ProviderSyncStatus from './components/ProviderSyncStatus';
-import FloatingNotification from './components/FloatingNotification';
 import {
   processRegistrationResponse,
-  populateFormFromProvider,
   ProviderFormData,
   processUpdateResponse,
   createSmartUpdatePlan
@@ -46,8 +39,6 @@ import AppSwitcher from "./components/AppSwitcher";
 import ProviderSearch from "./components/ProviderSearch";
 
 // Import logos
-import logoGlow from './assets/logo_glow.png';
-import logoIris from './assets/logo_iris.png';
 import classNames from "classnames";
 import { BsArrowClockwise } from "react-icons/bs";
 import { FiPlusCircle } from "react-icons/fi";
@@ -138,24 +129,12 @@ function AppContent() {
   const [editingProvider, setEditingProvider] = useState<RegisteredProvider | null>(null);
   const [isLoadingProviders, setIsLoadingProviders] = useState(false);
 
-  // Theme state
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
-    const storedTheme = localStorage.getItem('theme');
-    return (storedTheme as 'light' | 'dark') || 'light'; // Default to light theme
-  });
-
   // Provider view state (keeping for potential future use)
   const [indexedProviders, setIndexedProviders] = useState<IndexedProvider[]>([]);
-  
+
   // Provider loading state
   const [providersLoading, setProvidersLoading] = useState(false);
   const [providersError, setProvidersError] = useState<string | null>(null);
-
-  // Effect to update localStorage and body class when theme changes
-  useEffect(() => {
-    localStorage.setItem('theme', theme);
-    document.documentElement.setAttribute('data-theme', theme); // Or apply to app-container
-  }, [theme]);
 
   // Close menus on escape key and click outside
   useEffect(() => {
@@ -189,10 +168,6 @@ function AppContent() {
       };
     }
   }, [mobileMenuOpen, desktopMenuOpen]);
-
-  const toggleTheme = () => {
-    setTheme(prevTheme => (prevTheme === 'light' ? 'dark' : 'light'));
-  };
 
   const resetEditState = () => {
     setIsEditMode(false);
@@ -249,7 +224,7 @@ function AppContent() {
 
     // Set up periodic refresh (every 60 seconds)
     const interval = setInterval(loadAndSetProviders, 60000);
-    
+
     return () => clearInterval(interval);
   }, [loadAndSetProviders]);
 
@@ -407,7 +382,7 @@ function AppContent() {
       <main className="pt-20 pb-24 px-8 md:pb-8 flex flex-col grow self-stretch overflow-y-auto">
 
         <div className="flex items-center gap-3 absolute top-4 right-4 z-10">
-          <div className={classNames(" shadow-xl  flex items-center gap-2 rounded-xl px-4 py-2", {
+          <div className={classNames(" shadow-xl dark:shadow-white/10 flex items-center gap-2 rounded-xl px-4 py-2", {
             'bg-red-500 text-white': !nodeConnected,
             'bg-black text-cyan': nodeConnected
           })}>
@@ -459,18 +434,18 @@ function AppContent() {
 
 
         {/* Mobile bottom action bar */}
-        <div className="fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 md:hidden z-40">
+        <div className="fixed bottom-0 left-0 right-0 bg-white dark:bg-black border-t border-gray-200 px-4 py-3 md:hidden z-40">
           <div className="flex gap-3">
             <button
               onClick={handleOpenAddNewModal}
-              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 px-4 py-3 bg-cyan text-black rounded-lg hover:bg-blue-700 transition-colors"
             >
               <FaPlus />
               <span>Add Provider</span>
             </button>
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="flex items-center justify-center gap-2 px-4 py-3 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+              className=" px-4 py-3 bg-white dark:bg-black rounded-lg"
               aria-label="Toggle menu"
             >
               <FaBars />
@@ -481,8 +456,8 @@ function AppContent() {
 
         {/* Mobile menu dropdown - now appears from bottom */}
         {mobileMenuOpen && (
-          <div className="fixed inset-0 bg-black/50 z-50 md:hidden" onClick={() => setMobileMenuOpen(false)}>
-            <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+          <div className="fixed inset-0 bg-black/50 dark:bg-white/50 z-50 md:hidden" onClick={() => setMobileMenuOpen(false)}>
+            <div className="absolute bottom-0 left-0 right-0 bg-white dark:bg-black rounded-t-lg max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between p-4 border-b border-gray-200">
                 <h3 className="text-lg font-semibold">Settings</h3>
                 <button

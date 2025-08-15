@@ -15,11 +15,11 @@ export default function Modal({
 }) {
     return (
         <div
-            className="fixed inset-0 bg-black/5 backdrop-blur-xs flex place-items-center place-content-center z-50"
+            className="fixed inset-0 bg-black/5 dark:bg-white/5 backdrop-blur-xs flex place-items-center place-content-center z-50"
             onClick={preventAccidentalClose ? undefined : onClose}
         >
             <div
-                className="ml-100 max-w-screen-xl grow self-stretch my-8 mr-8 bg-white p-6 rounded-lg overflow-y-auto relative shadow-xl flex flex-col gap-2"
+                className="ml-100 max-w-screen-xl grow self-stretch my-8 mr-8 bg-white dark:bg-black p-6 rounded-lg overflow-y-auto relative shadow-xl flex flex-col gap-2"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div
