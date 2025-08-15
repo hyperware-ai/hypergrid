@@ -58,8 +58,8 @@ const AppSwitcher: React.FC<AppSwitcherProps> = ({ currentApp = 'operator' }) =>
         })}
       >
         <span className={classNames("h-12 rounded-2xl flex place-items-center place-content-center aspect-square p-3", {
-          'text-black dark:text-white bg-gray dark:bg-dark-gray': currentApp !== 'operator',
-          'text-cyan dark:text-black bg-black dark:bg-cyan': currentApp === 'operator',
+          'text-black bg-gray dark:bg-dark-gray': currentApp !== 'operator',
+          'text-cyan bg-black': currentApp === 'operator',
         })} >
           <img
             src={`${import.meta.env.BASE_URL}/operator.svg`}
