@@ -26,7 +26,6 @@ import ProviderConfigModal from "./components/ProviderConfigModal";
 import RegisteredProviderView from './components/RegisteredProviderView';
 import {
   processRegistrationResponse,
-  ProviderFormData,
   processUpdateResponse,
   createSmartUpdatePlan
 } from "./utils/providerFormUtils";
@@ -236,7 +235,7 @@ function AppContent() {
       "~price": provider.price.toString(),
       "~wallet": provider.registered_provider_wallet,
       "~provider-id": provider.provider_id,
-      "~site": provider.endpoint.base_url_template,
+      "~site": provider.endpoint.curl_template,
     };
     const structuredDataToCopy = {
       [hnsName]: metadata,
@@ -266,22 +265,16 @@ function AppContent() {
     }
   }, [isWalletConnected, providerRegistration]);
 
-  const handleProviderUpdate = useCallback(async (provider: RegisteredProvider, formData: ProviderFormData) => {
+  const handleProviderUpdate = useCallback(async (updatedProvider: RegisteredProvider) => {
     // This will handle the smart update system
     try {
-      const updatePlan = createSmartUpdatePlan(provider, formData);
-
-      // Warn about instructions if config changed but instructions weren't updated
-      if (updatePlan.shouldWarnAboutInstructions) {
-        const confirmUpdate = confirm(
-          'You\'ve made changes to the API configuration but haven\'t updated the instructions. ' +
-          'This might create a mismatch between your actual API and the instructions users see. ' +
-          'Do you want to continue with the update anyway?'
-        );
-        if (!confirmUpdate) {
-          return;
-        }
+      // Use editingProvider as the original provider for comparison
+      if (!editingProvider) {
+        alert('No provider selected for editing');
+        return;
       }
+      
+      const updatePlan = createSmartUpdatePlan(editingProvider, updatedProvider);
 
       // Check if wallet is needed for on-chain updates
       if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
@@ -294,7 +287,7 @@ function AppContent() {
       // Step 1: Update off-chain data (backend) if needed
       if (updatePlan.needsOffChainUpdate) {
         console.log('Updating off-chain data...');
-        const response = await updateProviderApi(provider.provider_name, updatePlan.updatedProvider);
+        const response = await updateProviderApi(updatedProvider.provider_name, updatePlan.updatedProvider);
         const feedback = processUpdateResponse(response);
 
         if (!response.Ok) {
@@ -312,14 +305,14 @@ function AppContent() {
 
         try {
           // Look up the actual TBA address for this provider from backend
-          const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
+          const tbaAddress = await lookupProviderTbaAddressFromBackend(updatedProvider.provider_name, publicClient);
 
           if (!tbaAddress) {
-            alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
+            alert(`No blockchain entry found for provider "${updatedProvider.provider_name}". Please register on the hypergrid first.`);
             return;
           }
 
-          console.log(`Found TBA address: ${tbaAddress} for provider: ${provider.provider_name}`);
+          console.log(`Found TBA address: ${tbaAddress} for provider: ${updatedProvider.provider_name}`);
 
           // Execute the blockchain update
           await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
@@ -339,7 +332,7 @@ function AppContent() {
       console.error('Failed to update provider: ', err);
       alert('Failed to update provider.');
     }
-  }, [isWalletConnected, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal]);
+  }, [isWalletConnected, editingProvider, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal]);
 
 
 

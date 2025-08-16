@@ -1,24 +1,12 @@
 import { useState, useEffect } from "react";
 import Modal from './Modal';
 import ValidationPanel from "./ValidationPanel";
-import APIConfigForm from "./APIConfigForm";
+import CurlTemplateEditor from "./CurlTemplateEditor";
 import HypergridEntryForm from "./HypergridEntryForm";
-import CurlVisualizer from "./curlVisualizer";
 import CurlImportModal from "./CurlImportModal";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { RegisteredProvider, HttpMethod, TopLevelRequestType, AuthChoice } from "../types/hypergrid_provider";
-import {
-  validateProviderConfig,
-  buildProviderPayload,
-  ProviderFormData,
-  processRegistrationResponse,
-  populateFormFromProvider,
-  buildUpdateProviderPayload,
-  processUpdateResponse,
-  createSmartUpdatePlan
-} from "../utils/providerFormUtils";
-import type { CurlToFormMapping } from "../utils/curlParser.ts";
+import { RegisteredProvider, Variable } from "../types/hypergrid_provider";
 import { ImSpinner8 } from "react-icons/im";
 
 interface ProviderConfigModalProps {
@@ -28,7 +16,7 @@ interface ProviderConfigModalProps {
   editingProvider: RegisteredProvider | null;
   isWalletConnected: boolean;
   onProviderRegistration: (provider: RegisteredProvider) => void;
-  onProviderUpdate: (provider: RegisteredProvider, formData: ProviderFormData) => void;
+  onProviderUpdate: (provider: RegisteredProvider) => void;
   providerRegistration: any;
   providerUpdate: any;
 }
@@ -49,136 +37,50 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const [showCurlImport, setShowCurlImport] = useState(false);
 
   // Form state
-  const [apiCallFormatSelected, setApiCallFormatSelected] = useState(false);
-  const [topLevelRequestType, setTopLevelRequestType] = useState<TopLevelRequestType>("getWithPath");
-  const [authChoice, setAuthChoice] = useState<AuthChoice>("query");
-  const [apiKeyQueryParamName, setApiKeyQueryParamName] = useState("");
-  const [apiKeyHeaderName, setApiKeyHeaderName] = useState("");
-  const [endpointApiParamKey, setEndpointApiKey] = useState("");
-
   const [providerName, setProviderName] = useState("");
   const [providerDescription, setProviderDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [registeredProviderWallet, setRegisteredProviderWallet] = useState("");
-  const [endpointBaseUrl, setEndpointBaseUrl] = useState("");
-
-  const [pathParamKeys, setPathParamKeys] = useState<string[]>([]);
-  const [queryParamKeys, setQueryParamKeys] = useState<string[]>([]);
-  const [headerKeys, setHeaderKeys] = useState<string[]>([]);
-  const [bodyKeys, setBodyKeys] = useState<string[]>([]);
   const [price, setPrice] = useState<string>("");
-  const [exampleValues, setExampleValues] = useState<Record<string, string>>({});
+  
+  // Curl template state
+  const [curlTemplate, setCurlTemplate] = useState("");
+  const [variables, setVariables] = useState<Variable[]>([]);
 
   const resetFormFields = () => {
-    setTopLevelRequestType("getWithPath");
-    setAuthChoice("query");
-    setApiKeyQueryParamName("");
-    setApiKeyHeaderName("");
-    setEndpointApiKey("");
-    setApiCallFormatSelected(false);
-
     setProviderName("");
     setProviderDescription("");
     setInstructions("");
-    setEndpointBaseUrl("");
-    setPathParamKeys([]);
-    setQueryParamKeys([]);
-    setHeaderKeys([]);
-    setBodyKeys([]);
     setRegisteredProviderWallet("");
     setPrice("");
-    setExampleValues({});
-
+    setCurlTemplate("");
+    setVariables([]);
+    
     setShowValidation(false);
     setProviderToValidate(null);
     setShowCurlImport(false);
   };
 
-  const handleCurlImport = (importedData: Partial<CurlToFormMapping>) => {
-    // Populate form fields with imported data
-    if (importedData.endpointBaseUrl) {
-      setEndpointBaseUrl(importedData.endpointBaseUrl);
-    }
-    if (importedData.topLevelRequestType) {
-      setTopLevelRequestType(importedData.topLevelRequestType);
-    }
-    if (importedData.pathParamKeys) {
-      setPathParamKeys(importedData.pathParamKeys);
-    }
-    if (importedData.queryParamKeys) {
-      setQueryParamKeys(importedData.queryParamKeys);
-    }
-    if (importedData.headerKeys) {
-      setHeaderKeys(importedData.headerKeys);
-    }
-    if (importedData.bodyKeys) {
-      setBodyKeys(importedData.bodyKeys);
-    }
-    if (importedData.endpointApiParamKey) {
-      setEndpointApiKey(importedData.endpointApiParamKey);
-    }
-    if (importedData.authChoice) {
-      setAuthChoice(importedData.authChoice);
-    }
-    if (importedData.apiKeyQueryParamName) {
-      setApiKeyQueryParamName(importedData.apiKeyQueryParamName);
-    }
-    if (importedData.apiKeyHeaderName) {
-      setApiKeyHeaderName(importedData.apiKeyHeaderName);
-    }
-    if (importedData.exampleValues) {
-      setExampleValues(importedData.exampleValues);
-    }
-    
-    // Mark API call format as selected so the form shows
-    setApiCallFormatSelected(true);
+  const handleCurlImport = (template: string, importedVariables: Variable[]) => {
+    // Set the imported curl template and variables
+    setCurlTemplate(template);
+    setVariables(importedVariables);
   };
 
   const populateFormWithProvider = (provider: RegisteredProvider) => {
-    const formData = populateFormFromProvider(provider);
-
-    setTopLevelRequestType(formData.topLevelRequestType || "getWithPath");
-    setAuthChoice(formData.authChoice || "query");
-    setApiKeyQueryParamName(formData.apiKeyQueryParamName || "");
-    setApiKeyHeaderName(formData.apiKeyHeaderName || "");
-    setEndpointApiKey(formData.endpointApiParamKey || "");
-    setApiCallFormatSelected(true);
-
-    setProviderName(formData.providerName || "");
-    setProviderDescription(formData.providerDescription || "");
-    setInstructions(formData.instructions || "");
-    setEndpointBaseUrl(formData.endpointBaseUrl || "");
-    setPathParamKeys(formData.pathParamKeys || []);
-    setQueryParamKeys(formData.queryParamKeys || []);
-    setHeaderKeys(formData.headerKeys || []);
-    setBodyKeys(formData.bodyKeys || []);
-    setRegisteredProviderWallet(formData.registeredProviderWallet || "");
-    setPrice(formData.price || "");
+    setProviderName(provider.provider_name);
+    setProviderDescription(provider.description);
+    setInstructions(provider.instructions);
+    setRegisteredProviderWallet(provider.registered_provider_wallet);
+    setPrice(provider.price.toString());
+    setCurlTemplate(provider.endpoint.curl_template);
+    setVariables(provider.endpoint.variables);
   };
 
   const handleProviderRegistration = async () => {
-    const formData: ProviderFormData = {
-      providerName,
-      providerDescription,
-      providerId: isEditMode ? editingProvider?.provider_id || "" : (window.our?.node || ""),
-      instructions,
-      registeredProviderWallet,
-      price,
-      topLevelRequestType,
-      endpointBaseUrl,
-      pathParamKeys,
-      queryParamKeys,
-      headerKeys,
-      bodyKeys,
-      endpointApiParamKey,
-      authChoice,
-      apiKeyQueryParamName,
-      apiKeyHeaderName,
-    };
-
-    const validationResult = validateProviderConfig(formData);
-    if (!validationResult.isValid) {
-      alert(validationResult.error);
+    // Basic validation
+    if (!providerName.trim() || !curlTemplate.trim()) {
+      alert("Provider Name and Curl Template are required.");
       return;
     }
 
@@ -187,13 +89,25 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       return;
     }
 
-    if (isEditMode && editingProvider) {
-      // For updates, we pass both the provider and form data to the parent's update handler
-      onProviderUpdate(editingProvider, formData);
+    // Build provider object
+    const provider: RegisteredProvider = {
+      provider_name: providerName,
+      provider_id: isEditMode ? editingProvider?.provider_id || "" : (window.our?.node || ""),
+      description: providerDescription,
+      instructions: instructions,
+      registered_provider_wallet: registeredProviderWallet,
+      price: parseFloat(price) || 0,
+      endpoint: {
+        name: providerName,
+        curl_template: curlTemplate,
+        variables: variables
+      }
+    };
+
+    if (isEditMode) {
+      onProviderUpdate(provider);
     } else {
-      const payload = buildProviderPayload(formData);
-      const providerToValidate = payload.RegisterProvider;
-      setProviderToValidate(providerToValidate);
+      setProviderToValidate(provider);
       setShowValidation(true);
     }
   };
@@ -287,7 +201,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                 onCancel={handleValidationCancel}
               />
             ) : (
-              <div className="flex flex-col items-stretch  gap-6">
+              <div className="flex flex-col items-stretch gap-6">
                 <HypergridEntryForm
                   nodeId={window.our?.node || "N/A"}
                   providerName={providerName}
@@ -301,48 +215,36 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   price={price}
                   setPrice={setPrice}
                 />
-                <CurlVisualizer
-                  providerName={providerName}
-                  endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
-                  endpointBaseUrl={endpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  headerKeys={headerKeys}
-                  bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
-                  apiKey={endpointApiParamKey}
-                  apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
-                  apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
-                  exampleDynamicArgs={exampleValues}
-                />
+                
+                <div className="border border-gray-200 rounded-lg p-4">
+                  <CurlTemplateEditor
+                    value={curlTemplate}
+                    variables={variables}
+                    onChange={(template, vars) => {
+                      setCurlTemplate(template);
+                      setVariables(vars);
+                    }}
+                  />
+                </div>
 
-                <APIConfigForm
-                  topLevelRequestType={topLevelRequestType}
-                  setTopLevelRequestType={setTopLevelRequestType}
-                  authChoice={authChoice}
-                  setAuthChoice={setAuthChoice}
-                  apiKeyQueryParamName={apiKeyQueryParamName}
-                  setApiKeyQueryParamName={setApiKeyQueryParamName}
-                  apiKeyHeaderName={apiKeyHeaderName}
-                  setApiKeyHeaderName={setApiKeyHeaderName}
-                  endpointApiParamKey={endpointApiParamKey}
-                  setEndpointApiKey={setEndpointApiKey}
-                  endpointBaseUrl={endpointBaseUrl}
-                  setEndpointBaseUrl={setEndpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  setPathParamKeys={setPathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  setQueryParamKeys={setQueryParamKeys}
-                  headerKeys={headerKeys}
-                  setHeaderKeys={setHeaderKeys}
-                  bodyKeys={bodyKeys}
-                  setBodyKeys={setBodyKeys}
-                  apiCallFormatSelected={apiCallFormatSelected}
-                  setApiCallFormatSelected={setApiCallFormatSelected}
-                  onRegisterProvider={handleProviderRegistration}
-                  submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
-                  isWalletConnected={isWalletConnected}
-                  onImportFromCurl={!isEditMode ? () => setShowCurlImport(true) : undefined}
-                />
+                <div className="flex gap-3 justify-end">
+                  {!isEditMode && (
+                    <button
+                      onClick={() => setShowCurlImport(true)}
+                      className="px-4 py-2 bg-gray-200 text-gray-700 font-medium rounded-lg
+                               hover:bg-gray-300 transition-colors"
+                    >
+                      Import from Curl
+                    </button>
+                  )}
+                  <button
+                    onClick={handleProviderRegistration}
+                    className="px-4 py-2 bg-gray-900 text-white font-medium rounded-lg
+                             hover:bg-gray-800 transition-colors"
+                  >
+                    {isEditMode ? "Update Provider" : "Register Provider Configuration"}
+                  </button>
+                </div>
               </div>
             )}
 
