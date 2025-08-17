@@ -26,6 +26,9 @@ use util::*; // Use its public items
 mod db; // Declare the db module  
 use db::*; // Use its public items
 
+mod curl_executor; // Declare the curl_executor module
+use curl_executor::*; // Use its public items
+
 pub mod constants; // Declare the constants module
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProviderRequest {
@@ -51,14 +54,14 @@ pub struct ValidateAndRegisterRequest {
     pub validation_arguments: Vec<(String, String)>,
 }
 
-// Type system for API endpoints
+// Type system for API endpoints - kept for backward compatibility
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum HttpMethod {
     GET,
     POST,
 }
 
-// --- Added Enum for Request Structure ---
+// --- Added Enum for Request Structure - kept for backward compatibility ---
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum RequestStructureType {
     GetWithPath,
@@ -76,22 +79,19 @@ pub enum TerminalCommand {
     ViewDatabase,
 }
 
-// --- Modified EndpointDefinition ---
+// --- New Variable struct for curl templates ---
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+pub struct Variable {
+    pub name: String,
+    pub example_value: Option<String>,
+}
+
+// --- New EndpointDefinition with curl templates ---
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointDefinition {
-    pub name: String,                            // Operation name, e.g., "getUserById"
-    pub method: HttpMethod,                      // GET, POST
-    pub request_structure: RequestStructureType, // Explicitly define the structure
-    pub base_url_template: String, // e.g., "https://api.example.com/users/{id}" or "https://api.example.com/v{apiVersion}/users"
-    pub path_param_keys: Option<Vec<String>>, // Keys for placeholders in base_url_template, relevant for GetWithPath, PostWithJson
-    pub query_param_keys: Option<Vec<String>>, // Keys for dynamic query params, relevant for GetWithQuery, PostWithJson
-    pub header_keys: Option<Vec<String>>, // Keys for dynamic headers (always potentially relevant)
-    pub body_param_keys: Option<Vec<String>>, // Keys for dynamic body params, relevant for PostWithJson
-
-    pub api_key: Option<String>, // The actual secret key
-
-    pub api_key_query_param_name: Option<String>, // e.g., "api_key"
-    pub api_key_header_name: Option<String>,      // e.g., "X-API-Key"
+    pub name: String,
+    pub curl_template: String,
+    pub variables: Vec<Variable>,
 }
 
 // --- New Provider Struct ---

@@ -5,35 +5,30 @@ interface RustResponse<T> {
   Err?: string;
 }
 
-// Enum for HTTP methods, matching Rust's HttpMethod
+// Enum for HTTP methods, matching Rust's HttpMethod - kept for backward compatibility
 export enum HttpMethod {
   GET = "GET",
   POST = "POST",
 }
 
-// --- Added Enum for Request Structure (Matches Rust) ---
+// --- Added Enum for Request Structure (Matches Rust) - kept for backward compatibility ---
 export enum RequestStructureType {
   GetWithPath = "GetWithPath",
   GetWithQuery = "GetWithQuery",
   PostWithJson = "PostWithJson",
 }
 
+// Interface for Variable, matching Rust's struct
+export interface Variable {
+  name: string;
+  example_value?: string;
+}
+
 // Interface for EndpointDefinition, matching Rust's struct
 export interface EndpointDefinition {
   name: string;
-  method: HttpMethod;
-  request_structure: RequestStructureType; // Added field
-  base_url_template: string;
-  path_param_keys?: string[]; // Changed to optional
-  query_param_keys?: string[]; // Changed to optional
-  header_keys?: string[];      // Changed to optional
-  body_param_keys?: string[];
-
-  api_key?: string;
-
-  // API Key Authentication
-  api_key_query_param_name?: string;
-  api_key_header_name?: string;
+  curl_template: string;
+  variables: Variable[];
 }
 
 // Interface for RegisteredProvider, matching Rust's struct

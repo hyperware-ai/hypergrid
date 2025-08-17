@@ -1,4 +1,4 @@
-use crate::{EndpointDefinition, HttpMethod, ProviderRequest};
+use crate::{EndpointDefinition, ProviderRequest};
 use crate::constants::{USDC_BASE_ADDRESS, WALLET_PREFIX};
 use hyperware_app_common::hyperware_process_lib::kiprintln;
 use hyperware_app_common::hyperware_process_lib::{
@@ -170,231 +170,31 @@ pub async fn get_logs_for_tx(
 // Moved call_provider function
 pub async fn call_provider(
     provider_id_for_log: String,
-    endpoint_def: EndpointDefinition, // This type needs to be available here
+    endpoint_def: EndpointDefinition,
     dynamic_args: &Vec<(String, String)>,
     source: String,
 ) -> Result<String, String> {
     info!(
-        "Calling provider via util: {}, endpoint: {}, structure: {:?}",
+        "Calling provider via util: {}, endpoint: {}",
         provider_id_for_log,
-        endpoint_def.name,
-        endpoint_def.request_structure
+        endpoint_def.name
     );
 
-    let args_map: HashMap<String, String> = dynamic_args.iter().cloned().collect();
+    // Add the source node ID as a special variable for the curl template
+    let mut augmented_args = dynamic_args.clone();
+    augmented_args.push(("X-Insecure-HPN-Client-Node-Id".to_string(), source.clone()));
 
-    // --- 1. Prepare Headers (API Key + General) ---
-    let mut http_headers = HashMap::new();
-    let mut api_key_in_header = false;
-    if let (Some(header_name), Some(api_key_value)) =
-        (&endpoint_def.api_key_header_name, &endpoint_def.api_key)
-    {
-        if !api_key_value.is_empty() && !header_name.is_empty() {
-            http_headers.insert(header_name.clone(), api_key_value.clone());
-            debug!("API Key added to header: {}", header_name);
-            api_key_in_header = true;
-        }
-    }
-    if let Some(header_keys) = &endpoint_def.header_keys {
-        for key in header_keys {
-            if let Some(value) = args_map.get(key) {
-                if !(api_key_in_header && endpoint_def.api_key_header_name.as_deref() == Some(key))
-                {
-                    http_headers.insert(key.clone(), value.clone());
-                }
-            } else {
-                warn!(
-                    "Warning: Missing dynamic argument for header key: '{}'",
-                    key
-                );
-            }
-        }
-    }
-
-    http_headers.insert("X-Insecure-HPN-Client-Node-Id".to_string(), source);
-
-    debug!(
-        "Prepared headers (before body processing): {:?}",
-        http_headers
-    );
-
-    // --- 2. Process URL (Path Params, Query Params based on structure) ---
-    let mut processed_url_template = endpoint_def.base_url_template.clone();
-    let mut query_params_to_add: Vec<(String, String)> = Vec::new();
-    let mut body_data = HashMap::new();
-
-    match endpoint_def.request_structure {
-        // Assuming RequestStructureType is also available via super:: or globally
-        super::RequestStructureType::GetWithPath => {
-            debug!("Structure: GetWithPath - Processing path parameters.");
-            if let Some(path_keys) = &endpoint_def.path_param_keys {
-                for path_key in path_keys {
-                    if let Some(value) = args_map.get(path_key) {
-                        processed_url_template =
-                            processed_url_template.replace(&format!("{{{}}}", path_key), value);
-                    } else {
-                        warn!(
-                            "Warning: Missing path parameter '{}' for URL template",
-                            path_key
-                        );
-                    }
-                }
-            }
-        }
-        super::RequestStructureType::GetWithQuery => {
-            debug!("Structure: GetWithQuery - Processing query parameters.");
-            if let Some(query_keys) = &endpoint_def.query_param_keys {
-                for key in query_keys {
-                    if let Some(value) = args_map.get(key) {
-                        query_params_to_add.push((key.clone(), value.clone()));
-                    } else {
-                        warn!("Warning: Missing dynamic argument for query key: '{}'", key);
-                    }
-                }
-            }
-        }
-        super::RequestStructureType::PostWithJson => {
-            debug!("Structure: PostWithJson - Processing path, query, and body parameters.");
-            if let Some(path_keys) = &endpoint_def.path_param_keys {
-                for path_key in path_keys {
-                    if let Some(value) = args_map.get(path_key) {
-                        processed_url_template =
-                            processed_url_template.replace(&format!("{{{}}}", path_key), value);
-                    } else {
-                        warn!(
-                            "Warning: Missing optional path parameter '{}' for POST URL template",
-                            path_key
-                        );
-                    }
-                }
-            }
-            if let Some(query_keys) = &endpoint_def.query_param_keys {
-                for key in query_keys {
-                    if let Some(value) = args_map.get(key) {
-                        query_params_to_add.push((key.clone(), value.clone()));
-                    } else {
-                        warn!(
-                            "Warning: Missing optional dynamic argument for query key: '{}'",
-                            key
-                        );
-                    }
-                }
-            }
-            if let Some(body_keys) = &endpoint_def.body_param_keys {
-                if !body_keys.is_empty() {
-                    for key in body_keys {
-                        if let Some(value) = args_map.get(key) {
-                            body_data.insert(key.clone(), value.clone());
-                        } else {
-                            warn!("Warning: Missing dynamic argument for body key: '{}'", key);
-                        }
-                    }
-                    debug!("Collected body data: {:?}", body_data.keys());
-                } else {
-                    debug!("POST request configured with explicitly empty body_param_keys. No body generated from dynamic args.");
-                }
-            } else {
-                debug!("POST request configured without body_param_keys specified (Option is None). Body will be empty.");
-            }
-        }
-    }
-
-    // --- 3. Finalize URL with Query Params (including API Key if needed) ---
-    let mut final_url = Url::parse(&processed_url_template).map_err(|e| {
-        let error_msg = format!(
-            "Invalid base URL template after path substitution: {} -> {}: {}",
-            endpoint_def.base_url_template, processed_url_template, e
-        );
-        error!(
-            "URL parsing failed for provider '{}': original_template={}, processed_template={}, error={}",
-            provider_id_for_log, endpoint_def.base_url_template, processed_url_template, e
-        );
-        error_msg
-    })?;
-
-    {
-        let mut query_pairs = final_url.query_pairs_mut();
-        for (key, value) in query_params_to_add {
-            query_pairs.append_pair(&key, &value);
-        }
-        if !api_key_in_header {
-            if let (Some(param_name), Some(api_key_value)) = (
-                &endpoint_def.api_key_query_param_name,
-                &endpoint_def.api_key,
-            ) {
-                if !api_key_value.is_empty() && !param_name.is_empty() {
-                    query_pairs.append_pair(param_name, api_key_value);
-                    debug!("API Key added to query parameter: {}", param_name);
-                }
-            }
-        }
-    }
-
-    let final_url_str = final_url.to_string();
-    debug!("Final URL for call: {}", final_url_str);
-
-    // --- 4. Finalize Body and Headers for POST ---
-    let mut body_bytes: Vec<u8> = Vec::new();
-    if endpoint_def.method == HttpMethod::POST {
-        // HttpMethod also needs to be available
-        if !body_data.is_empty() {
-            http_headers.insert("Content-Type".to_string(), "application/json".to_string());
-            debug!("Added Content-Type: application/json header because POST body is present.");
-
-            body_bytes = serde_json::to_vec(&body_data).map_err(|e| {
-                let error_msg = format!(
-                    "Failed to serialize POST body: {}. Data: {:?}",
-                    e, body_data
-                );
-                error!(
-                    "JSON serialization failed for provider '{}': endpoint={}, body_data={:?}, error={}",
-                    provider_id_for_log, endpoint_def.name, body_data, e
-                );
-                error_msg
-            })?;
-            debug!("POST Body Bytes Length: {}", body_bytes.len());
-        } else {
-            warn!("POST request proceeding with empty body.");
-        }
-    }
-    debug!("Final Headers being sent: {:?}", http_headers);
-
-    // --- 5. Determine HTTP Method ---
-    let http_client_method = match endpoint_def.method {
-        // HttpMethod
-        HttpMethod::GET => HyperwareHttpMethod::GET,
-        HttpMethod::POST => HyperwareHttpMethod::POST,
-    };
-    debug!("HTTP Method for call: {:?}", http_client_method);
-
-    // --- 6. Execute HTTP Request --- Reuses send_async_http_request from this file
-    let timeout_seconds = 60;
-    match send_async_http_request(
-        http_client_method,
-        final_url,
-        Some(http_headers),
-        timeout_seconds,
-        body_bytes,
-    )
-    .await
-    {
-        Ok(response) => {
-            let status = response.status().as_u16();
-            let response_body_bytes = response.body().to_vec();
-            let body_result = String::from_utf8(response_body_bytes)
-                .map_err(|e| {
-                    error!("Failed to parse response body as UTF-8: {}", e);
-                    format!("Failed to parse response body as UTF-8: {}", e)
-                })?;
-            
-            // Try to parse the body as JSON to avoid double-encoding
-            let body_json = match serde_json::from_str::<serde_json::Value>(&body_result) {
+    // Use the new curl template execution
+    match crate::curl_executor::execute_curl_template(&endpoint_def.curl_template, &augmented_args).await {
+        Ok(response_body) => {
+            // Try to parse the body as JSON to format consistent with old implementation
+            let body_json = match serde_json::from_str::<serde_json::Value>(&response_body) {
                 Ok(json_value) => json_value,
-                Err(_) => serde_json::Value::String(body_result), // If not JSON, wrap as string
+                Err(_) => serde_json::Value::String(response_body), // If not JSON, wrap as string
             };
             
             let response_wrapper = serde_json::json!({
-                "status": status,
+                "status": 200, // Assuming success if we got here
                 "body": body_json
             });
             
@@ -402,7 +202,7 @@ pub async fn call_provider(
         }
         Err(e) => {
             error!(
-                "API call failed for {}: {} - Error: {:?}",
+                "API call failed for {}: {} - Error: {}",
                 provider_id_for_log, endpoint_def.name, e
             );
             Err(format!("API call failed: {}", e))
@@ -724,7 +524,7 @@ pub fn validate_response_status(response: &str) -> Result<(), String> {
     }
 }
 
-//use crate::{EndpointDefinition, HttpMethod, ProviderRequest};
+//use crate::{EndpointDefinition, ProviderRequest};
 //use hyperware_app_common::hyperware_process_lib::kiprintln;
 //use hyperware_app_common::hyperware_process_lib::{
 //    eth::{Address as EthAddress, EthError, TransactionReceipt, TxHash, U256},
