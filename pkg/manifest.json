@@ -29,7 +29,8 @@
       "http-server:distro:sys",
       "vfs:distro:sys",
       "eth:distro:sys",
-      "sqlite:distro:sys"
+      "sqlite:distro:sys",
+      "timer:distro:sys"
     ],
     "grant_capabilities": [
       "homepage:homepage:sys",
@@ -38,7 +39,8 @@
       "vfs:distro:sys",
       "terminal:terminal:sys",
       "eth:distro:sys",
-      "sqlite:distro:sys"
+      "sqlite:distro:sys",
+      "timer:distro:sys"
     ],
     "public": false
   }
