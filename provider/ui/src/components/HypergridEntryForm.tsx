@@ -24,9 +24,9 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
   price, setPrice,
 }) => {
   return (
-    <div className="bg-dark-gray self-stretch p-6 rounded-lg  grid grid-cols-3 gap-2 text-mid-gray ">
+    <div className="bg-gradient-to-br from-gray-800 to-gray-900 dark:from-gray-800 dark:to-gray-900 self-stretch p-6 rounded-xl shadow-lg border border-gray-600/30 grid grid-cols-3 gap-3 text-gray-300 items-center">
 
-      <h3 className="text-lg font-semibold col-span-3">Hypergrid Registration Form</h3>
+      <h3 className="text-xl font-semibold col-span-3 mb-1 text-gray-100 border-b border-gray-600/50 pb-2">Hypergrid Registration Form</h3>
       <span className="pl-1 whitespace-pre flex-shrink-0 text-left">~provider-name:</span>
       <input
         autoFocus
@@ -35,7 +35,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         value={providerName}
         onChange={(e) => setProviderName(e.target.value)}
         placeholder="provider-name"
-        className="text-black bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 h-full w-full "
+        className="bg-gray-700 text-gray-100 rounded-lg px-3 py-1.5 h-full w-full border border-gray-600/50 focus:border-cyan focus:ring-1 focus:ring-cyan/50 transition-all"
       />
       <span className="">.obfusc-grid123.hypr</span>
 
@@ -52,7 +52,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         value={registeredProviderWallet}
         onChange={(e) => setRegisteredProviderWallet(e.target.value)}
         placeholder="0x... (ETH Address on Base)"
-        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
+        className="bg-gray-700 text-gray-100 rounded-lg px-3 py-1.5 col-span-2 border border-gray-600/50 focus:border-cyan focus:ring-1 focus:ring-cyan/50 transition-all"
       />
 
       <label htmlFor="pform-price" className=" pl-1 whitespace-pre text-left">~price:</label>
@@ -64,7 +64,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         placeholder="e.g., 0.01 (USDC)"
         inputMode="decimal"
         pattern="[0-9]*\.?[0-9]*"
-        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
+        className="bg-gray-700 text-gray-100 rounded-lg px-3 py-1.5 col-span-2 border border-gray-600/50 focus:border-cyan focus:ring-1 focus:ring-cyan/50 transition-all"
       />
 
 
@@ -75,7 +75,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         onChange={(e) => setProviderDescription(e.target.value)}
         placeholder="Purpose of this provider (can be multiple lines)"
         rows={3}
-        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
+        className="bg-gray-700 text-gray-100 rounded-lg px-3 py-1.5 col-span-2 border border-gray-600/50 focus:border-cyan focus:ring-1 focus:ring-cyan/50 transition-all"
       />
 
       <label htmlFor="pform-instructions" className=" whitespace-pre text-left">~instructions:</label>
@@ -85,7 +85,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
         onChange={(e) => setInstructions(e.target.value)}
         placeholder="Instructions for the provider"
         rows={3}
-        className="text-black  bg-mid-gray dark:bg-black dark:text-white rounded px-2 py-1 col-span-2"
+        className="bg-gray-700 text-gray-100 rounded-lg px-3 py-1.5 col-span-2 border border-gray-600/50 focus:border-cyan focus:ring-1 focus:ring-cyan/50 transition-all"
       />
 
     </div>

@@ -102,9 +102,6 @@ export function parseCurlCommand(curlString: string): ParsedCurlRequest {
     // Use @annatarhe/curl-to-js to parse the curl command
     const parsedData = parse(normalizedCurl);
     
-    // Debug: log what we get from the parser (remove after testing)
-    console.log('Parsed data from curl-to-js:', parsedData);
-    
     // The parser returns a URL object, extract components
     const urlObj = parsedData.url;
     if (!urlObj) {

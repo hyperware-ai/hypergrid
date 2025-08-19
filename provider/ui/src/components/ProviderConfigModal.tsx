@@ -5,26 +5,35 @@ import HypergridEntryForm from "./HypergridEntryForm";
 import EnhancedCurlImportModal from "./EnhancedCurlImportModal";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
-import { RegisteredProvider, HttpMethod, TopLevelRequestType, AuthChoice } from "../types/hypergrid_provider";
-import {
-  validateProviderConfig,
-  buildProviderPayload,
-  ProviderFormData,
-  populateFormFromProvider,
-} from "../utils/providerFormUtils";
-
+import { RegisteredProvider } from "../types/hypergrid_provider";
+import { ProviderRegistrationStep } from "../registration/hypermapUtils";
 import { ImSpinner8 } from "react-icons/im";
+import { Address } from "viem";
 
 interface ProviderConfigModalProps {
   isOpen: boolean;
   onClose: () => void;
   isEditMode: boolean;
-  editingProvider: RegisteredProvider | null;
+  editingProvider?: RegisteredProvider;
   isWalletConnected: boolean;
   onProviderRegistration: (provider: RegisteredProvider) => void;
-  onProviderUpdate: (provider: RegisteredProvider, formData: ProviderFormData) => void;
-  providerRegistration: any;
-  providerUpdate: any;
+  onProviderUpdate: (updatedProvider: RegisteredProvider) => void;
+  providerRegistration: {
+    isRegistering: boolean;
+    step: ProviderRegistrationStep;
+    currentNoteIndex: number;
+    mintedProviderAddress: Address | null;
+    isMinting: boolean;
+    isSettingNotes: boolean;
+    isMintTxLoading: boolean;
+    isNotesTxLoading: boolean;
+    mintError: Error | null;
+    notesError: Error | null;
+    startRegistration: (curlTemplateData: any) => void; // Accepts cURL template + metadata
+  };
+  providerUpdate: {
+    isUpdating: boolean;
+  };
 }
 
 const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
@@ -40,135 +49,87 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 }) => {
   const [showValidation, setShowValidation] = useState(false);
   const [curlTemplateToValidate, setCurlTemplateToValidate] = useState<any>(null);
+  const [validatedCurlTemplate, setValidatedCurlTemplate] = useState<any>(null);
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [showModifyExisting, setShowModifyExisting] = useState(false);
+  const [configuredCurlTemplate, setConfiguredCurlTemplate] = useState<any>(null);
 
-  // Form state
-  const [apiCallFormatSelected, setApiCallFormatSelected] = useState(false);
-  const [topLevelRequestType, setTopLevelRequestType] = useState<TopLevelRequestType>("getWithPath");
-  const [authChoice, setAuthChoice] = useState<AuthChoice>("query");
-  const [apiKeyQueryParamName, setApiKeyQueryParamName] = useState("");
-  const [apiKeyHeaderName, setApiKeyHeaderName] = useState("");
-  const [endpointApiParamKey, setEndpointApiKey] = useState("");
-
+  // Hypergrid metadata state (only what we need)
   const [providerName, setProviderName] = useState("");
   const [providerDescription, setProviderDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [registeredProviderWallet, setRegisteredProviderWallet] = useState("");
-  const [endpointBaseUrl, setEndpointBaseUrl] = useState("");
-
-  const [pathParamKeys, setPathParamKeys] = useState<string[]>([]);
-  const [queryParamKeys, setQueryParamKeys] = useState<string[]>([]);
-  const [headerKeys, setHeaderKeys] = useState<string[]>([]);
-  const [bodyKeys, setBodyKeys] = useState<string[]>([]);
   const [price, setPrice] = useState<string>("");
-  const [exampleValues, setExampleValues] = useState<Record<string, string>>({});
 
   const resetFormFields = () => {
-    setTopLevelRequestType("getWithPath");
-    setAuthChoice("query");
-    setApiKeyQueryParamName("");
-    setApiKeyHeaderName("");
-    setEndpointApiKey("");
-    setApiCallFormatSelected(false);
-
+    // Reset metadata form
     setProviderName("");
     setProviderDescription("");
     setInstructions("");
-    setEndpointBaseUrl("");
-    setPathParamKeys([]);
-    setQueryParamKeys([]);
-    setHeaderKeys([]);
-    setBodyKeys([]);
     setRegisteredProviderWallet("");
     setPrice("");
-    setExampleValues({});
 
+    // Reset flow state
     setShowValidation(false);
     setCurlTemplateToValidate(null);
+    setValidatedCurlTemplate(null);
     setShowCurlImport(false);
     setShowModifyExisting(false);
+    setConfiguredCurlTemplate(null);
+    console.log('RESET FORM FIELDS - showCurlImport set to false');
   };
 
   const handleCurlImport = (curlTemplateData: any) => {
-    // Move to validation step with the cURL template
-    setCurlTemplateToValidate(curlTemplateData);
+    // Store the configured cURL template
+    setConfiguredCurlTemplate(curlTemplateData);
     setShowCurlImport(false);
+  };
+ 
+
+  const handleValidationSuccess = async (curlTemplate: any) => {
+    // After validation succeeds, prepare for registration
+    setValidatedCurlTemplate(curlTemplate);
+    setShowValidation(false);
+    
+    // Proceed to registration
+    handleFinalRegistration(curlTemplate);
+  };
+
+  const handleRegisterProvider = () => {
+    if (!configuredCurlTemplate) {
+      alert('Please configure your cURL template first');
+      return;
+    }
+
+    if (!providerName || !price || !registeredProviderWallet) {
+      alert('Please fill in all required metadata fields');
+      return;
+    }
+
+    // Move to validation step
+    setCurlTemplateToValidate(configuredCurlTemplate);
     setShowValidation(true);
   };
 
-  const populateFormWithProvider = (provider: RegisteredProvider) => {
-    const formData = populateFormFromProvider(provider);
+  const handleFinalRegistration = (curlTemplate: any) => {
+    if (!isWalletConnected) {
+      alert('Please connect your wallet to complete provider registration on the hypergrid.');
+      return;
+    }
 
-    setTopLevelRequestType(formData.topLevelRequestType || "getWithPath");
-    setAuthChoice(formData.authChoice || "query");
-    setApiKeyQueryParamName(formData.apiKeyQueryParamName || "");
-    setApiKeyHeaderName(formData.apiKeyHeaderName || "");
-    setEndpointApiKey(formData.endpointApiParamKey || "");
-    setApiCallFormatSelected(true);
-
-    setProviderName(formData.providerName || "");
-    setProviderDescription(formData.providerDescription || "");
-    setInstructions(formData.instructions || "");
-    setEndpointBaseUrl(formData.endpointBaseUrl || "");
-    setPathParamKeys(formData.pathParamKeys || []);
-    setQueryParamKeys(formData.queryParamKeys || []);
-    setHeaderKeys(formData.headerKeys || []);
-    setBodyKeys(formData.bodyKeys || []);
-    setRegisteredProviderWallet(formData.registeredProviderWallet || "");
-    setPrice(formData.price || "");
-  };
-
-  const handleProviderRegistration = async () => {
-    const formData: ProviderFormData = {
-      providerName,
-      providerDescription,
-      providerId: isEditMode ? editingProvider?.provider_id || "" : (window.our?.node || ""),
-      instructions,
-      registeredProviderWallet,
-      price,
-      topLevelRequestType,
-      endpointBaseUrl,
-      pathParamKeys,
-      queryParamKeys,
-      headerKeys,
-      bodyKeys,
-      endpointApiParamKey,
-      authChoice,
-      apiKeyQueryParamName,
-      apiKeyHeaderName,
+    // Combine cURL template with metadata for backend
+    const combinedData = {
+      curlTemplate,
+      metadata: {
+        providerName,
+        providerDescription,
+        instructions,
+        registeredProviderWallet,
+        price: parseFloat(price) || 0
+      }
     };
 
-    const validationResult = validateProviderConfig(formData);
-    if (!validationResult.isValid) {
-      alert(validationResult.error);
-      return;
-    }
-
-    if (!isEditMode && !isWalletConnected) {
-      alert('Please connect your wallet to register on the hypergrid');
-      return;
-    }
-
-    if (isEditMode && editingProvider) {
-      // For updates, we pass both the provider and form data to the parent's update handler
-      onProviderUpdate(editingProvider, formData);
-    } else {
-      const payload = buildProviderPayload(formData);
-      const providerToValidate = payload.RegisterProvider;
-      setCurlTemplateToValidate(providerToValidate);
-      setShowValidation(true);
-    }
-  };
-
-  const handleValidationSuccess = async (curlTemplate: any) => {
-    if (isWalletConnected) {
-      providerRegistration.startRegistration(curlTemplate);
-    } else {
-      alert('Please connect your wallet to complete provider registration on the hypergrid.');
-      setShowValidation(false);
-      setCurlTemplateToValidate(null);
-    }
+    providerRegistration.startRegistration(combinedData);
   };
 
   const handleValidationError = (error: string) => {
@@ -180,14 +141,36 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setCurlTemplateToValidate(null);
   };
 
+  const handleMetadataCancel = () => {
+    setConfiguredCurlTemplate(null);
+    setValidatedCurlTemplate(null);
+  };
+
   const handleClose = () => {
-    resetFormFields();
+    // Only reset if user explicitly confirms or if successful registration
     onClose();
   };
 
   const handleRegistrationOverlayClose = () => {
     setShowValidation(false);
     setCurlTemplateToValidate(null);
+    // Only reset form if registration was successful
+    if (providerRegistration.step === 'complete') {
+      resetFormFields();
+    }
+    onClose();
+  };
+
+  const handleForceClose = () => {
+    // Explicit close with confirmation if form has data
+    const hasFormData = providerName || providerDescription || instructions || 
+                       registeredProviderWallet || price || configuredCurlTemplate;
+    
+    if (hasFormData) {
+      const confirmClose = confirm('You have unsaved changes. Are you sure you want to close?');
+      if (!confirmClose) return;
+    }
+    
     resetFormFields();
     onClose();
   };
@@ -195,17 +178,22 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   // Populate form when editing
   useEffect(() => {
     if (isEditMode && editingProvider) {
-      populateFormWithProvider(editingProvider);
+      // Populate metadata from existing provider
+      setProviderName(editingProvider.provider_name || "");
+      setProviderDescription(editingProvider.description || "");
+      setInstructions(editingProvider.instructions || "");
+      setRegisteredProviderWallet(editingProvider.registered_provider_wallet || "");
+      setPrice(editingProvider.price?.toString() || "");
     } else if (!isEditMode) {
       resetFormFields();
     }
   }, [isEditMode, editingProvider]);
 
-  // Handle escape key
+  // Handle escape key with confirmation
   useEffect(() => {
     const handleEscapeKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape' && isOpen) {
-        handleClose();
+        handleForceClose();
       }
     };
 
@@ -216,23 +204,25 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     return () => {
       document.removeEventListener('keydown', handleEscapeKey);
     };
-  }, [isOpen]);
+  }, [isOpen, providerName, providerDescription, instructions, registeredProviderWallet, price, configuredCurlTemplate]);
 
   if (!isOpen) {
     return null;
   }
 
+
+
   const title = showValidation
-    ? "Validate Provider Configuration"
-    : (isEditMode ? "Edit API Provider" : "Configure New API Provider");
+    ? "🔍 Validate Provider Configuration"
+    : (isEditMode ? "✏️ Edit API Provider" : "🚀 Create New API Provider");
 
   return (
     <Modal
       title={title}
-      onClose={handleClose}
+      onClose={handleForceClose}
       preventAccidentalClose={true}
     >
-      <div className="relative mx-auto" style={{ maxWidth: showValidation ? "min(800px, 95vw)" : "min(1200px, 95vw)" }}>
+      <div className="relative mx-auto w-full" style={{ maxWidth: showValidation ? "min(900px, 95vw)" : "min(1400px, 95vw)" }}>
         {!isWalletConnected ? (
           <div className="flex flex-col gap-6 items-center text-center p-8">
             <h3 className="text-xl font-semibold">Connect Wallet to Add a Provider</h3>
@@ -249,42 +239,77 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                 onValidationError={handleValidationError}
                 onCancel={handleValidationCancel}
               />
-            ) : (
+            ) : isEditMode ? (
               <div className="flex flex-col items-center gap-6 p-8">
-                <h3 className="text-xl font-semibold text-center">
-                  {isEditMode ? "Update API Provider" : "Configure New API Provider"}
-                </h3>
+                <h3 className="text-xl font-semibold text-center">Update API Provider</h3>
                 <p className="text-gray-600 dark:text-gray-400 text-center max-w-lg">
-                  {isEditMode 
-                    ? "Choose how to update your provider: import a new cURL command or modify existing settings"
-                    : "Paste a cURL command to automatically configure your API provider"
-                  }
+                  Choose how to update your provider: import a new cURL command or modify existing settings
                 </p>
                 
-                {isEditMode ? (
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <button
-                      onClick={() => setShowCurlImport(true)}
-                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                    >
-                      Import New cURL
-                    </button>
-                    <button
-                      onClick={() => {
-                        setShowModifyExisting(true);
-                      }}
-                      className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                    >
-                      Modify Existing
-                    </button>
-                  </div>
-                ) : (
+                <div className="flex flex-col sm:flex-row gap-4">
                   <button
                     onClick={() => setShowCurlImport(true)}
                     className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
                   >
-                    Import from cURL
+                    Import New cURL
                   </button>
+                  <button
+                    onClick={() => {
+                      setShowModifyExisting(true);
+                    }}
+                    className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                  >
+                    Modify Existing
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex flex-col items-stretch gap-3">
+                <HypergridEntryForm
+                  nodeId={window.our?.node || "auto-generated"}
+                  providerName={providerName}
+                  setProviderName={setProviderName}
+                  providerDescription={providerDescription}
+                  setProviderDescription={setProviderDescription}
+                  instructions={instructions}
+                  setInstructions={setInstructions}
+                  registeredProviderWallet={registeredProviderWallet}
+                  setRegisteredProviderWallet={setRegisteredProviderWallet}
+                  price={price}
+                  setPrice={setPrice}
+                />
+
+                {configuredCurlTemplate ? (
+                  <div className="bg-gradient-to-br from-gray-800 to-gray-900 self-stretch p-4 rounded-xl shadow-lg border border-gray-600/30 space-y-3">
+                    <div className="p-4 bg-emerald-500/10 border border-emerald-400/30 rounded-lg backdrop-blur-sm">
+                      <p className="text-emerald-400 text-sm font-medium">
+                        ✓ cURL template configured with {configuredCurlTemplate.parameters?.length || 0} modifiable parameters
+                      </p>
+                    </div>
+                    <div className="flex gap-4 justify-center">
+                      <button
+                        onClick={() => setConfiguredCurlTemplate(null)}
+                        className="px-6 py-3 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition-all border border-gray-600/50 font-medium"
+                      >
+                        Reconfigure cURL
+                      </button>
+                      {providerName && price && registeredProviderWallet && (
+                        <button
+                          onClick={handleRegisterProvider}
+                          className="px-8 py-3 bg-gradient-to-r from-cyan to-blue-400 text-gray-900 font-bold rounded-lg hover:from-cyan/90 hover:to-blue-400/90 transition-all shadow-lg shadow-cyan/25"
+                        >
+                          Register Provider
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  <EnhancedCurlImportModal
+                    isOpen={true}
+                    onClose={() => {}}
+                    onImport={handleCurlImport}
+                    isInline={true}
+                  />
                 )}
               </div>
             )}
@@ -303,11 +328,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
               onClose={handleRegistrationOverlayClose}
             />
 
-            <EnhancedCurlImportModal
-              isOpen={showCurlImport}
-              onClose={() => setShowCurlImport(false)}
-              onImport={handleCurlImport}
-            />
+
 
             {/* Modify Existing Provider Modal */}
             {showModifyExisting && editingProvider && (

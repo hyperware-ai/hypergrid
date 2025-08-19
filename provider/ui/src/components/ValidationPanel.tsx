@@ -152,7 +152,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
                    disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
                    shadow-sm hover:shadow-md"
         >
-          {isValidating ? 'Validating...' : 'Validate & Register'}
+          {isValidating ? 'Validating...' : 'Validate API'}
         </button>
         <button
           type="button"

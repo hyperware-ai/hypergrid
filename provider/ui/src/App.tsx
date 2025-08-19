@@ -24,12 +24,7 @@ import {
 } from "./utils/api";
 import ProviderConfigModal from "./components/ProviderConfigModal";
 import RegisteredProviderView from './components/RegisteredProviderView';
-import {
-  processRegistrationResponse,
-  ProviderFormData,
-  processUpdateResponse,
-  createSmartUpdatePlan
-} from "./utils/providerFormUtils";
+
 import { useAccount, usePublicClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { updateProviderApi } from "./utils/api";
@@ -79,8 +74,8 @@ function AppContent() {
       // Blockchain registration succeeded, now register in backend
       if (providerRegistration.pendingProviderData) {
         try {
+          // TODO: Update to handle new cURL template + metadata format
           const response = await registerProviderApi(providerRegistration.pendingProviderData);
-          const feedback = processRegistrationResponse(response);
 
           if (response.Ok) {
             console.log('Provider registered in backend after hypergrid registration success:', response.Ok);
@@ -88,8 +83,8 @@ function AppContent() {
             resetEditState();
             handleCloseAddNewModal();
           } else {
-            console.error('Failed to register in backend after hypergrid registration success:', feedback.message);
-            alert(`Blockchain registration succeeded but backend registration failed: ${feedback.message}`);
+            console.error('Failed to register in backend after hypergrid registration success:', response.Err);
+            alert(`Blockchain registration succeeded but backend registration failed: ${response.Err}`);
           }
         } catch (error) {
           console.error('Error registering in backend after hypergrid registration success:', error);
@@ -176,6 +171,7 @@ function AppContent() {
 
 
   const handleOpenAddNewModal = () => {
+    console.log('Opening new modal - isEditMode:', isEditMode);
     if (isEditMode) {
       resetEditState();
     }
@@ -266,80 +262,11 @@ function AppContent() {
     }
   }, [isWalletConnected, providerRegistration]);
 
-  const handleProviderUpdate = useCallback(async (provider: RegisteredProvider, formData: ProviderFormData) => {
-    // This will handle the smart update system
-    try {
-      const updatePlan = createSmartUpdatePlan(provider, formData);
-
-      // Warn about instructions if config changed but instructions weren't updated
-      if (updatePlan.shouldWarnAboutInstructions) {
-        const confirmUpdate = confirm(
-          'You\'ve made changes to the API configuration but haven\'t updated the instructions. ' +
-          'This might create a mismatch between your actual API and the instructions users see. ' +
-          'Do you want to continue with the update anyway?'
-        );
-        if (!confirmUpdate) {
-          return;
-        }
-      }
-
-      // Check if wallet is needed for on-chain updates
-      if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
-        alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
-        return;
-      }
-
-      console.log('Update plan:', updatePlan);
-
-      // Step 1: Update off-chain data (backend) if needed
-      if (updatePlan.needsOffChainUpdate) {
-        console.log('Updating off-chain data...');
-        const response = await updateProviderApi(provider.provider_name, updatePlan.updatedProvider);
-        const feedback = processUpdateResponse(response);
-
-        if (!response.Ok) {
-          alert(feedback.message);
-          return;
-        }
-
-        // Update local state
-        handleProviderUpdated(response.Ok);
-      }
-
-      // Step 2: Update on-chain data (blockchain notes) if needed
-      if (updatePlan.needsOnChainUpdate) {
-        console.log('Updating on-chain notes...', updatePlan.onChainNotes);
-
-        try {
-          // Look up the actual TBA address for this provider from backend
-          const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
-
-          if (!tbaAddress) {
-            alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
-            return;
-          }
-
-          console.log(`Found TBA address: ${tbaAddress} for provider: ${provider.provider_name}`);
-
-          // Execute the blockchain update
-          await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
-
-          // Success will be handled by the providerUpdate.onUpdateComplete callback
-        } catch (error) {
-          console.error('Error during blockchain update:', error);
-          alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
-        }
-      } else {
-        // Only off-chain updates needed
-        resetEditState();
-        handleCloseAddNewModal();
-        alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
-      }
-    } catch (err) {
-      console.error('Failed to update provider: ', err);
-      alert('Failed to update provider.');
-    }
-  }, [isWalletConnected, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal]);
+  const handleProviderUpdate = useCallback(async (updatedProvider: RegisteredProvider) => {
+    // TODO: Implement new cURL-based provider update flow
+    console.log('Provider update triggered:', updatedProvider);
+    alert('Provider update will be implemented with new cURL template system');
+  }, []);
 
 
 

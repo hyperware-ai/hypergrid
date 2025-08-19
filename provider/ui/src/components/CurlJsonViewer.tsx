@@ -212,7 +212,7 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
           <MdCheck size={14} className="text-blue-600" />
           <span>= Active parameter</span>
         </div>
-        <div className="text-xs">Hover over values to add them as parameters. Blue indicates dynamic parameters.</div>
+        <div className="text-xs">Click any value (headers, path segments, query params, body fields) to make it a parameter. Selecting a field automatically deselects conflicting parent/child fields.</div>
       </div>
       
       <div className="space-y-4">
@@ -292,12 +292,18 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
                         {`{${modifiableField.name}}`}
                       </span>
                     ) : (
-                      <span className="text-green-600">"{redactApiKey(value)}"</span>
+                      <span 
+                        className="text-green-600 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/20 px-1 rounded transition-colors"
+                        onClick={() => field && onFieldToggleModifiable(field)}
+                        title="Click to make this query parameter a parameter"
+                      >
+                        "{redactApiKey(value)}"
+                      </span>
                     )}
                     {field && !isModifiable && (
                       <button
                         onClick={() => onFieldToggleModifiable(field)}
-                                                 className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-slate-200/50 dark:bg-slate-700/30 text-slate-600 dark:text-slate-400 hover:bg-slate-300/50 dark:hover:bg-slate-600/40 hover:text-slate-700 dark:hover:text-slate-300"
+                        className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-slate-200/50 dark:bg-slate-700/30 text-slate-600 dark:text-slate-400 hover:bg-slate-300/50 dark:hover:bg-slate-600/40 hover:text-slate-700 dark:hover:text-slate-300"
                         title="Add as parameter"
                       >
                         <MdCode size={14} />
@@ -306,7 +312,7 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
                     {isModifiable && (
                       <button
                         onClick={() => onFieldToggleModifiable(modifiableField)}
-                                                 className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-red-200/50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-300/50 dark:hover:bg-red-800/40 hover:text-red-700 dark:hover:text-red-300"
+                        className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-red-200/50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-300/50 dark:hover:bg-red-800/40 hover:text-red-700 dark:hover:text-red-300"
                         title="Remove parameter"
                       >
                         <MdRemove size={12} />
@@ -337,12 +343,18 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
                         {`{${modifiableField.name}}`}
                       </span>
                     ) : (
-                      <span className="text-green-600">"{redactApiKey(value)}"</span>
+                      <span 
+                        className="text-green-600 cursor-pointer hover:bg-yellow-100 dark:hover:bg-yellow-900/20 px-1 rounded transition-colors"
+                        onClick={() => field && onFieldToggleModifiable(field)}
+                        title="Click to make this header a parameter"
+                      >
+                        "{redactApiKey(value)}"
+                      </span>
                     )}
                     {field && !isModifiable && (
                       <button
                         onClick={() => onFieldToggleModifiable(field)}
-                                                 className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-slate-200/50 dark:bg-slate-700/30 text-slate-600 dark:text-slate-400 hover:bg-slate-300/50 dark:hover:bg-slate-600/40 hover:text-slate-700 dark:hover:text-slate-300"
+                        className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-slate-200/50 dark:bg-slate-700/30 text-slate-600 dark:text-slate-400 hover:bg-slate-300/50 dark:hover:bg-slate-600/40 hover:text-slate-700 dark:hover:text-slate-300"
                         title="Add as parameter"
                       >
                         <MdCode size={14} />
@@ -351,7 +363,7 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
                     {isModifiable && (
                       <button
                         onClick={() => onFieldToggleModifiable(modifiableField)}
-                                                 className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-red-200/50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-300/50 dark:hover:bg-red-800/40 hover:text-red-700 dark:hover:text-red-300"
+                        className="ml-1 p-0.5 rounded-full opacity-0 group-hover:opacity-100 transition-all bg-red-200/50 dark:bg-red-900/30 text-red-600 dark:text-red-400 hover:bg-red-300/50 dark:hover:bg-red-800/40 hover:text-red-700 dark:hover:text-red-300"
                         title="Remove parameter"
                       >
                         <MdRemove size={12} />

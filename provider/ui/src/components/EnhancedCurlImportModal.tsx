@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import Modal from './Modal';
 import CurlJsonViewer from './CurlJsonViewer';
 import ModifiableFieldsList from './ModifiableFieldsList';
@@ -16,12 +16,14 @@ interface EnhancedCurlImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (curlTemplate: any) => void;
+  isInline?: boolean; // New prop to control inline rendering
 }
 
 const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   isOpen,
   onClose,
-  onImport
+  onImport,
+  isInline = false
 }) => {
   const [curlCommand, setCurlCommand] = useState('');
   const [parsedRequest, setParsedRequest] = useState<ParsedCurlRequest | null>(null);
@@ -29,18 +31,36 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   const [modifiableFields, setModifiableFields] = useState<ModifiableField[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'viewer' | 'modifiable'>('viewer');
+  const parsedContentRef = useRef<HTMLDivElement>(null);
 
-  const handleParseCurl = () => {
+  const handleParseCurl = (curlText: string) => {
+    if (!curlText.trim()) {
+      // Clear everything when input is empty
+      setParsedRequest(null);
+      setPotentialFields([]);
+      setModifiableFields([]);
+      setParseError(null);
+      return;
+    }
+
     try {
-      const parsed = parseCurlCommand(curlCommand);
+      const parsed = parseCurlCommand(curlText);
       const potential = identifyPotentialFields(parsed);
-      
-
       
       setParsedRequest(parsed);
       setPotentialFields(potential);
       setModifiableFields([]);
       setParseError(null);
+      
+      // Auto-scroll to parsed content after a brief delay for state update
+      setTimeout(() => {
+        if (parsedContentRef.current) {
+          parsedContentRef.current.scrollIntoView({ 
+            behavior: 'smooth', 
+            block: 'start' 
+          });
+        }
+      }, 100);
     } catch (error) {
       setParseError(error instanceof Error ? error.message : 'Failed to parse curl command');
       setParsedRequest(null);
@@ -49,67 +69,33 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
     }
   };
 
+  // Auto-parse when cURL input changes
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      handleParseCurl(curlCommand);
+    }, 500); // Debounce for 500ms
+
+    return () => clearTimeout(timeoutId);
+  }, [curlCommand]);
+
   const handleFieldToggleModifiable = (field: ModifiableField) => {
     const isAlreadyModifiable = modifiableFields.some(f => f.jsonPointer === field.jsonPointer);
     
     if (isAlreadyModifiable) {
-      // Removing this field - also remove any children that were auto-selected
-      setModifiableFields(modifiableFields.filter(f => 
-        !f.jsonPointer.startsWith(field.jsonPointer)
-      ));
+      // Simple removal - just remove this specific field
+      setModifiableFields(modifiableFields.filter(f => f.jsonPointer !== field.jsonPointer));
     } else {
-      // Check if this field has children that are currently selected
-      const childFields = modifiableFields.filter(f => 
-        f.jsonPointer.startsWith(field.jsonPointer + '/')
-      );
-      
-      if (childFields.length > 0) {
-        // If clicking on a parent that has selected children, deselect all children
-        setModifiableFields(modifiableFields.filter(f => 
-          !f.jsonPointer.startsWith(field.jsonPointer + '/')
-        ));
-        return;
-      }
-      
-      // Check if this is a complex type (object or array)
-      if (typeof field.value === 'object' && field.value !== null) {
-        // Find all leaf fields under this path
-        const leafFields = potentialFields.filter(f => {
-          // Field must be under this path
-          if (!f.jsonPointer.startsWith(field.jsonPointer + '/')) return false;
-          
-          // Field must be a leaf (primitive value)
-          return typeof f.value !== 'object' || f.value === null;
-        });
-        
-        if (leafFields.length > 0) {
-          // Remove any existing fields that conflict
-          let newModifiableFields = modifiableFields.filter(f => {
-            // Remove fields that are parents or children of any leaf we're adding
-            return !leafFields.some(leaf => 
-              f.jsonPointer.startsWith(leaf.jsonPointer) || 
-              leaf.jsonPointer.startsWith(f.jsonPointer)
-            );
-          });
-          
-          // Add all leaf fields
-          newModifiableFields.push(...leafFields);
-          setModifiableFields(newModifiableFields);
-          
-          // Visual feedback happens automatically through the UI update
-          return;
-        }
-      }
-      
-      // For primitive values or empty objects/arrays, just add the field itself
-      let newModifiableFields = [...modifiableFields];
-      
-      // Remove any conflicting fields
-      newModifiableFields = newModifiableFields.filter(f => {
-        return !f.jsonPointer.startsWith(field.jsonPointer + '/') && 
-               !field.jsonPointer.startsWith(f.jsonPointer + '/');
+      // Simple addition - just add this specific field
+      // Remove any conflicting parent/child relationships first
+      let newModifiableFields = modifiableFields.filter(f => {
+        // Remove if this field is a parent of the new field
+        if (field.jsonPointer.startsWith(f.jsonPointer + '/')) return false;
+        // Remove if this field is a child of the new field
+        if (f.jsonPointer.startsWith(field.jsonPointer + '/')) return false;
+        return true;
       });
       
+      // Add the new field
       newModifiableFields.push(field);
       setModifiableFields(newModifiableFields);
     }
@@ -152,17 +138,14 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
     onClose();
   };
 
-  return (
-    <Modal
-      title="Import API from cURL"
-      onClose={handleClose}
-      titleChildren={<div className="text-sm text-gray-500">Paste your cURL command to import an API configuration</div>}
-    >
-      <div className="flex flex-col gap-4">
+  // If inline, render without modal wrapper
+  const content = (
+    <div className="flex flex-col gap-4">
         {/* cURL Input Section */}
         <div className="space-y-2">
           <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
             Paste your cURL command
+            <span className="text-xs text-gray-500 ml-2">(auto-parses as you type)</span>
           </label>
           <textarea
             value={curlCommand}
@@ -170,13 +153,6 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
             placeholder="curl -X GET 'https://api.example.com/users/123' -H 'Authorization: Bearer token'"
             className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-gray-100 font-mono text-sm"
           />
-          <button
-            onClick={handleParseCurl}
-            disabled={!curlCommand.trim()}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-          >
-            Parse cURL
-          </button>
         </div>
 
         {/* Error Display */}
@@ -188,7 +164,7 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
 
         {/* Parsed Request Display */}
         {parsedRequest && (
-          <>
+          <div ref={parsedContentRef}>
             {/* Tab Navigation */}
             <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
               <button
@@ -267,9 +243,23 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
                 </button>
               </div>
             </div>
-          </>
+          </div>
         )}
-      </div>
+    </div>
+  );
+
+  // Return content wrapped in Modal for normal use, or just content for inline use
+  if (isInline) {
+    return content;
+  }
+
+  return (
+    <Modal
+      title="Import API from cURL"
+      onClose={handleClose}
+      titleChildren={<div className="text-sm text-gray-500">Paste your cURL command to import an API configuration</div>}
+    >
+      {content}
     </Modal>
   );
 };
