@@ -13,15 +13,21 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@annatarhe/curl-to-js": "npm:@jsr/annatarhe__curl-to-js@^0.0.6",
     "@hyperware-ai/client-api": "^0.1.0",
     "@rainbow-me/rainbowkit": "^2.2.8",
     "@tailwindcss/vite": "^4.1.11",
     "@tanstack/react-query": "^5.83.0",
+    "@types/json-pointer": "^1.0.34",
+    "@types/uuid": "^10.0.0",
     "classnames": "^2.5.1",
+    "curl-parser-js": "^0.0.3",
+    "json-pointer": "^0.6.2",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
     "react-icons": "^5.5.0",
     "tailwindcss": "^4.1.11",
+    "uuid": "^11.1.0",
     "viem": "^2.31.7",
     "wagmi": "^2.15.6",
     "zustand": "^4.4.7"

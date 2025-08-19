@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { RegisteredProvider } from '../types/hypergrid_provider';
-import { HttpMethod, RequestStructureType } from '../types/hypergrid_provider';
 import { validateProviderApi } from '../utils/api';
 
 interface ValidationPanelProps {
-  provider: RegisteredProvider;
-  onValidationSuccess: (provider: RegisteredProvider) => void; // Pass original provider for blockchain registration
+  curlTemplate: any; // The backend format from EnhancedCurlImportModal
+  onValidationSuccess: (curlTemplate: any) => void;
   onValidationError: (error: string) => void;
   onCancel: () => void;
 }
@@ -15,12 +13,19 @@ interface ValidationArgs {
 }
 
 const ValidationPanel: React.FC<ValidationPanelProps> = ({
-  provider,
+  curlTemplate,
   onValidationSuccess,
   onValidationError,
   onCancel,
 }) => {
-  const [validationArgs, setValidationArgs] = useState<ValidationArgs>({});
+  const [validationArgs, setValidationArgs] = useState<ValidationArgs>(() => {
+    // Pre-populate with example values from the cURL template
+    const initialArgs: ValidationArgs = {};
+    curlTemplate.parameters?.forEach((param: any) => {
+      initialArgs[param.parameter_name] = String(param.example_value || '');
+    });
+    return initialArgs;
+  });
   const [isValidating, setIsValidating] = useState(false);
 
   // Generate sample values for placeholders
@@ -39,87 +44,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     }
   };
 
-  const generateCurlPreview = (): string => {
-    let url = provider.endpoint.base_url_template;
-    const queryParams: string[] = [];
-    const headers: string[] = [];
-    let bodyData: { [key: string]: string } = {};
 
-    switch (provider.endpoint.request_structure) {
-      case RequestStructureType.GetWithPath:
-        if (provider.endpoint.path_param_keys) {
-          provider.endpoint.path_param_keys.forEach(key => {
-            const value = validationArgs[key] || getSampleValue(key, 'path');
-            url = url.replace(`{${key}}`, value);
-          });
-        }
-        break;
-
-      case RequestStructureType.GetWithQuery:
-        if (provider.endpoint.query_param_keys) {
-          provider.endpoint.query_param_keys.forEach(key => {
-            const value = validationArgs[key] || getSampleValue(key, 'query');
-            queryParams.push(`${key}=${encodeURIComponent(value)}`);
-          });
-        }
-        break;
-
-      case RequestStructureType.PostWithJson:
-        if (provider.endpoint.path_param_keys) {
-          provider.endpoint.path_param_keys.forEach(key => {
-            const value = validationArgs[key] || getSampleValue(key, 'path');
-            url = url.replace(`{${key}}`, value);
-          });
-        }
-        if (provider.endpoint.query_param_keys) {
-          provider.endpoint.query_param_keys.forEach(key => {
-            const value = validationArgs[key] || getSampleValue(key, 'query');
-            queryParams.push(`${key}=${encodeURIComponent(value)}`);
-          });
-        }
-        if (provider.endpoint.body_param_keys) {
-          provider.endpoint.body_param_keys.forEach(key => {
-            bodyData[key] = validationArgs[key] || getSampleValue(key, 'body');
-          });
-        }
-        break;
-    }
-
-    if (provider.endpoint.api_key && provider.endpoint.api_key_query_param_name) {
-      queryParams.push(`${provider.endpoint.api_key_query_param_name}=${provider.endpoint.api_key.substring(0, 3)}...`);
-    }
-
-    if (provider.endpoint.method === HttpMethod.POST) {
-      headers.push('-H "Content-Type: application/json"');
-    }
-
-    if (provider.endpoint.header_keys) {
-      provider.endpoint.header_keys.forEach(key => {
-        const value = validationArgs[key] || getSampleValue(key, 'header');
-        headers.push(`-H "${key}: ${value}"`);
-      });
-    }
-
-    if (provider.endpoint.api_key && provider.endpoint.api_key_header_name) {
-      headers.push(`-H "${provider.endpoint.api_key_header_name}: ${provider.endpoint.api_key.substring(0, 3)}..."`);
-    }
-
-    const finalUrl = queryParams.length > 0 ? `${url}?${queryParams.join('&')}` : url;
-
-    let curlCommand = `curl -X ${provider.endpoint.method}`;
-
-    if (headers.length > 0) {
-      curlCommand += ` \\\n  ${headers.join(' \\\n  ')}`;
-    }
-
-    if (provider.endpoint.method === HttpMethod.POST && Object.keys(bodyData).length > 0) {
-      curlCommand += ` \\\n  -d '${JSON.stringify(bodyData)}'`;
-    }
-
-    curlCommand += ` \\\n  "${finalUrl}"`;
-
-    return curlCommand;
-  };
 
   const handleValidationArgChange = (key: string, value: string) => {
     setValidationArgs(prev => ({
@@ -132,13 +57,19 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     setIsValidating(true);
 
     try {
-      const validationArguments: [string, string][] = Object.entries(validationArgs);
+      // Prepare arguments for validation as array of tuples
+      const argumentValues: [string, string][] = [];
+      curlTemplate.parameters?.forEach((param: any) => {
+        const value = validationArgs[param.parameter_name] || param.example_value;
+        argumentValues.push([param.parameter_name, String(value)]);
+      });
 
-      // Validate and cache the provider in backend
-      const result = await validateProviderApi(provider, validationArguments);
+      // Send both template and arguments for validation
+      const result = await validateProviderApi(curlTemplate, argumentValues);
 
       if (result.success) {
-        onValidationSuccess(provider);
+        // Pass the template back for registration
+        onValidationSuccess(curlTemplate);
       } else {
         onValidationError(result.error || 'Validation failed');
       }
@@ -150,26 +81,8 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     }
   };
 
-  const getAllParamKeysWithTypes = (): Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> => {
-    const params: Array<{ key: string; type: 'path' | 'query' | 'header' | 'body' }> = [];
-
-    if (provider.endpoint.path_param_keys) {
-      provider.endpoint.path_param_keys.forEach(key => params.push({ key, type: 'path' }));
-    }
-    if (provider.endpoint.query_param_keys) {
-      provider.endpoint.query_param_keys.forEach(key => params.push({ key, type: 'query' }));
-    }
-    if (provider.endpoint.header_keys) {
-      provider.endpoint.header_keys.forEach(key => params.push({ key, type: 'header' }));
-    }
-    if (provider.endpoint.body_param_keys && provider.endpoint.method === HttpMethod.POST) {
-      provider.endpoint.body_param_keys.forEach(key => params.push({ key, type: 'body' }));
-    }
-
-    return params;
-  };
-
-  const allParams = getAllParamKeysWithTypes();
+  // Get all parameters from the cURL template
+  const allParams = curlTemplate.parameters || [];
 
   return (
     <div className="flex flex-col">
@@ -189,20 +102,20 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
             <div className="bg-gradient-to-b from-gray-50 to-white dark:to-black border border-gray-200 rounded-xl shadow-md p-6">
               <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-6">Test Parameters</h3>
               <div className={allParams.length === 1 ? "flex justify-center" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
-                {allParams.map(({ key, type }) => (
-                  <div key={key} className={allParams.length === 1 ? "w-full max-w-xs" : "group"}>
+                {allParams.map((param: any) => (
+                  <div key={param.parameter_name} className={allParams.length === 1 ? "w-full max-w-xs" : "group"}>
                     <label
-                      htmlFor={`validation-${key}`}
+                      htmlFor={`validation-${param.parameter_name}`}
                       className="block text-sm font-semibold text-dark-gray dark:text-gray mb-1.5 text-center"
                     >
-                      {key} <span className="text-dark-gray dark:text-gray font-normal">({type})</span>
+                      {param.parameter_name} <span className="text-dark-gray dark:text-gray font-normal">({param.location})</span>
                     </label>
                     <input
-                      id={`validation-${key}`}
+                      id={`validation-${param.parameter_name}`}
                       type="text"
-                      value={validationArgs[key] || ''}
-                      onChange={(e) => handleValidationArgChange(key, e.target.value)}
-                      placeholder={getSampleValue(key, type)}
+                      value={validationArgs[param.parameter_name] || ''}
+                      onChange={(e) => handleValidationArgChange(param.parameter_name, e.target.value)}
+                      placeholder={String(param.example_value || '')}
                       className="w-full px-4 py-2.5 text-center border border-gray-200 rounded-lg
                                bg-white text-dark-gray dark:bg-black dark:text-gray
                                 transition-all duration-200
@@ -215,13 +128,13 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
           </div>
         )}
 
-        {/* Preview API Call Section */}
+        {/* Original cURL Template */}
         <div className="w-full max-w-xl">
           <div className="bg-gradient-to-b from-gray-50 to-white dark:to-black border border-gray-200 dark:border-white rounded-xl shadow-md p-6">
-            <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-4">Preview API Call</h3>
+            <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-4">Original cURL Template</h3>
             <div className="bg-gray dark:bg-dark-gray rounded-lg p-4 overflow-x-auto shadow-inner">
               <pre className="text-green-400 dark:text-green-400 text-sm font-mono whitespace-pre-wrap text-center">
-                <code>{generateCurlPreview()}</code>
+                <code>{curlTemplate.original_curl}</code>
               </pre>
             </div>
           </div>

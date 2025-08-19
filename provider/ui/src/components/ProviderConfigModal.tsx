@@ -1,10 +1,8 @@
 import { useState, useEffect } from "react";
 import Modal from './Modal';
 import ValidationPanel from "./ValidationPanel";
-import APIConfigForm from "./APIConfigForm";
 import HypergridEntryForm from "./HypergridEntryForm";
-import CurlVisualizer from "./curlVisualizer";
-import CurlImportModal from "./CurlImportModal";
+import EnhancedCurlImportModal from "./EnhancedCurlImportModal";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { RegisteredProvider, HttpMethod, TopLevelRequestType, AuthChoice } from "../types/hypergrid_provider";
@@ -12,13 +10,9 @@ import {
   validateProviderConfig,
   buildProviderPayload,
   ProviderFormData,
-  processRegistrationResponse,
   populateFormFromProvider,
-  buildUpdateProviderPayload,
-  processUpdateResponse,
-  createSmartUpdatePlan
 } from "../utils/providerFormUtils";
-import type { CurlToFormMapping } from "../utils/curlParser.ts";
+
 import { ImSpinner8 } from "react-icons/im";
 
 interface ProviderConfigModalProps {
@@ -45,8 +39,9 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   providerUpdate
 }) => {
   const [showValidation, setShowValidation] = useState(false);
-  const [providerToValidate, setProviderToValidate] = useState<RegisteredProvider | null>(null);
+  const [curlTemplateToValidate, setCurlTemplateToValidate] = useState<any>(null);
   const [showCurlImport, setShowCurlImport] = useState(false);
+  const [showModifyExisting, setShowModifyExisting] = useState(false);
 
   // Form state
   const [apiCallFormatSelected, setApiCallFormatSelected] = useState(false);
@@ -90,48 +85,16 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setExampleValues({});
 
     setShowValidation(false);
-    setProviderToValidate(null);
+    setCurlTemplateToValidate(null);
     setShowCurlImport(false);
+    setShowModifyExisting(false);
   };
 
-  const handleCurlImport = (importedData: Partial<CurlToFormMapping>) => {
-    // Populate form fields with imported data
-    if (importedData.endpointBaseUrl) {
-      setEndpointBaseUrl(importedData.endpointBaseUrl);
-    }
-    if (importedData.topLevelRequestType) {
-      setTopLevelRequestType(importedData.topLevelRequestType);
-    }
-    if (importedData.pathParamKeys) {
-      setPathParamKeys(importedData.pathParamKeys);
-    }
-    if (importedData.queryParamKeys) {
-      setQueryParamKeys(importedData.queryParamKeys);
-    }
-    if (importedData.headerKeys) {
-      setHeaderKeys(importedData.headerKeys);
-    }
-    if (importedData.bodyKeys) {
-      setBodyKeys(importedData.bodyKeys);
-    }
-    if (importedData.endpointApiParamKey) {
-      setEndpointApiKey(importedData.endpointApiParamKey);
-    }
-    if (importedData.authChoice) {
-      setAuthChoice(importedData.authChoice);
-    }
-    if (importedData.apiKeyQueryParamName) {
-      setApiKeyQueryParamName(importedData.apiKeyQueryParamName);
-    }
-    if (importedData.apiKeyHeaderName) {
-      setApiKeyHeaderName(importedData.apiKeyHeaderName);
-    }
-    if (importedData.exampleValues) {
-      setExampleValues(importedData.exampleValues);
-    }
-    
-    // Mark API call format as selected so the form shows
-    setApiCallFormatSelected(true);
+  const handleCurlImport = (curlTemplateData: any) => {
+    // Move to validation step with the cURL template
+    setCurlTemplateToValidate(curlTemplateData);
+    setShowCurlImport(false);
+    setShowValidation(true);
   };
 
   const populateFormWithProvider = (provider: RegisteredProvider) => {
@@ -193,18 +156,18 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     } else {
       const payload = buildProviderPayload(formData);
       const providerToValidate = payload.RegisterProvider;
-      setProviderToValidate(providerToValidate);
+      setCurlTemplateToValidate(providerToValidate);
       setShowValidation(true);
     }
   };
 
-  const handleValidationSuccess = async (providerToRegister: RegisteredProvider) => {
+  const handleValidationSuccess = async (curlTemplate: any) => {
     if (isWalletConnected) {
-      providerRegistration.startRegistration(providerToRegister);
+      providerRegistration.startRegistration(curlTemplate);
     } else {
       alert('Please connect your wallet to complete provider registration on the hypergrid.');
       setShowValidation(false);
-      setProviderToValidate(null);
+      setCurlTemplateToValidate(null);
     }
   };
 
@@ -214,7 +177,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
   const handleValidationCancel = () => {
     setShowValidation(false);
-    setProviderToValidate(null);
+    setCurlTemplateToValidate(null);
   };
 
   const handleClose = () => {
@@ -224,7 +187,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
   const handleRegistrationOverlayClose = () => {
     setShowValidation(false);
-    setProviderToValidate(null);
+    setCurlTemplateToValidate(null);
     resetFormFields();
     onClose();
   };
@@ -279,70 +242,50 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
         ) : (
           <>
             {/* Main content wrapped in fragment */}
-            {showValidation && providerToValidate ? (
+            {showValidation && curlTemplateToValidate ? (
               <ValidationPanel
-                provider={providerToValidate}
+                curlTemplate={curlTemplateToValidate}
                 onValidationSuccess={handleValidationSuccess}
                 onValidationError={handleValidationError}
                 onCancel={handleValidationCancel}
               />
             ) : (
-              <div className="flex flex-col items-stretch  gap-6">
-                <HypergridEntryForm
-                  nodeId={window.our?.node || "N/A"}
-                  providerName={providerName}
-                  setProviderName={setProviderName}
-                  providerDescription={providerDescription}
-                  setProviderDescription={setProviderDescription}
-                  instructions={instructions}
-                  setInstructions={setInstructions}
-                  registeredProviderWallet={registeredProviderWallet}
-                  setRegisteredProviderWallet={setRegisteredProviderWallet}
-                  price={price}
-                  setPrice={setPrice}
-                />
-                <CurlVisualizer
-                  providerName={providerName}
-                  endpointMethod={topLevelRequestType === "postWithJson" ? HttpMethod.POST : HttpMethod.GET}
-                  endpointBaseUrl={endpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  headerKeys={headerKeys}
-                  bodyKeys={topLevelRequestType === "postWithJson" ? bodyKeys : []}
-                  apiKey={endpointApiParamKey}
-                  apiKeyQueryParamName={authChoice === 'query' ? apiKeyQueryParamName : undefined}
-                  apiKeyHeaderName={authChoice === 'header' ? apiKeyHeaderName : undefined}
-                  exampleDynamicArgs={exampleValues}
-                />
-
-                <APIConfigForm
-                  topLevelRequestType={topLevelRequestType}
-                  setTopLevelRequestType={setTopLevelRequestType}
-                  authChoice={authChoice}
-                  setAuthChoice={setAuthChoice}
-                  apiKeyQueryParamName={apiKeyQueryParamName}
-                  setApiKeyQueryParamName={setApiKeyQueryParamName}
-                  apiKeyHeaderName={apiKeyHeaderName}
-                  setApiKeyHeaderName={setApiKeyHeaderName}
-                  endpointApiParamKey={endpointApiParamKey}
-                  setEndpointApiKey={setEndpointApiKey}
-                  endpointBaseUrl={endpointBaseUrl}
-                  setEndpointBaseUrl={setEndpointBaseUrl}
-                  pathParamKeys={pathParamKeys}
-                  setPathParamKeys={setPathParamKeys}
-                  queryParamKeys={queryParamKeys}
-                  setQueryParamKeys={setQueryParamKeys}
-                  headerKeys={headerKeys}
-                  setHeaderKeys={setHeaderKeys}
-                  bodyKeys={bodyKeys}
-                  setBodyKeys={setBodyKeys}
-                  apiCallFormatSelected={apiCallFormatSelected}
-                  setApiCallFormatSelected={setApiCallFormatSelected}
-                  onRegisterProvider={handleProviderRegistration}
-                  submitButtonText={isEditMode ? "Update Provider" : "Register Provider Configuration"}
-                  isWalletConnected={isWalletConnected}
-                  onImportFromCurl={!isEditMode ? () => setShowCurlImport(true) : undefined}
-                />
+              <div className="flex flex-col items-center gap-6 p-8">
+                <h3 className="text-xl font-semibold text-center">
+                  {isEditMode ? "Update API Provider" : "Configure New API Provider"}
+                </h3>
+                <p className="text-gray-600 dark:text-gray-400 text-center max-w-lg">
+                  {isEditMode 
+                    ? "Choose how to update your provider: import a new cURL command or modify existing settings"
+                    : "Paste a cURL command to automatically configure your API provider"
+                  }
+                </p>
+                
+                {isEditMode ? (
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <button
+                      onClick={() => setShowCurlImport(true)}
+                      className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                    >
+                      Import New cURL
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowModifyExisting(true);
+                      }}
+                      className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
+                    >
+                      Modify Existing
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setShowCurlImport(true)}
+                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                  >
+                    Import from cURL
+                  </button>
+                )}
               </div>
             )}
 
@@ -360,11 +303,74 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
               onClose={handleRegistrationOverlayClose}
             />
 
-            <CurlImportModal
+            <EnhancedCurlImportModal
               isOpen={showCurlImport}
               onClose={() => setShowCurlImport(false)}
               onImport={handleCurlImport}
             />
+
+            {/* Modify Existing Provider Modal */}
+            {showModifyExisting && editingProvider && (
+              <Modal
+                title="Modify Existing Provider"
+                onClose={() => setShowModifyExisting(false)}
+                titleChildren={<div className="text-sm text-gray-500">Edit your provider's cURL template and parameters</div>}
+              >
+                <div className="space-y-6">
+                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
+                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
+                      <strong>Note:</strong> Modifying the provider will update its configuration. 
+                      You can change parameter names, add/remove modifiable fields, or update constants.
+                    </p>
+                  </div>
+                  
+                  {/* Show existing provider info */}
+                  <div className="space-y-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Provider Name
+                      </label>
+                      <input
+                        type="text"
+                        value={editingProvider.provider_name}
+                        disabled
+                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-500"
+                      />
+                    </div>
+                    
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                        Current Endpoint
+                      </label>
+                      <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md font-mono text-sm">
+                        {editingProvider.endpoint.base_url_template || 'No template available'}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+                    <button
+                      onClick={() => setShowModifyExisting(false)}
+                      className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => {
+                        // TODO: Convert existing provider to cURL template format and show in validation
+                        // For now, just proceed to validation with existing data
+                        setCurlTemplateToValidate(editingProvider);
+                        setShowModifyExisting(false);
+                        setShowValidation(true);
+                      }}
+                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                    >
+                      Proceed to Validation
+                    </button>
+                  </div>
+                </div>
+              </Modal>
+            )}
 
             {providerUpdate.isUpdating && (
               <div className="fixed inset-0 bg-gray dark:bg-dark-gray flex flex-col justify-center items-center z-50 p-5">
