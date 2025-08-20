@@ -436,7 +436,7 @@ export function curlTemplateToBackendFormat(template: CurlTemplate): any {
       location: field.fieldType, // 'path' | 'query' | 'header' | 'body'
       
       // The example value from the original curl
-      example_value: field.value,
+      example_value: JSON.stringify(field.value),
       
       // Data type for validation
       value_type: typeof field.value === 'object' ? 
@@ -476,8 +476,8 @@ export function curlTemplateToBackendFormat(template: CurlTemplate): any {
     url_template: url_template,
     
     // All headers, body, etc. from original request (with example values)
-    original_headers: parsedRequest.headers,
-    original_body: parsedRequest.body,
+    original_headers: Object.entries(parsedRequest.headers),
+    original_body: parsedRequest.body ? JSON.stringify(parsedRequest.body) : undefined,
     
     // Explicit list of what can be modified
     parameters: parameters,

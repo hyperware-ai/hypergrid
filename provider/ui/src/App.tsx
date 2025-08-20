@@ -224,27 +224,7 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [loadAndSetProviders]);
 
-  const handleCopyProviderMetadata = useCallback(async (provider: RegisteredProvider) => {
-    const hnsName = (provider.provider_name.trim() || "[ProviderName]") + ".grid.hypr";
-    const metadata = {
-      "~description": provider.description,
-      "~instructions": provider.instructions,
-      "~price": provider.price.toString(),
-      "~wallet": provider.registered_provider_wallet,
-      "~provider-id": provider.provider_id,
-      "~site": provider.endpoint.base_url_template,
-    };
-    const structuredDataToCopy = {
-      [hnsName]: metadata,
-    };
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(structuredDataToCopy, null, 2));
-      alert(`Metadata for '${provider.provider_name}' copied!`);
-    } catch (err) {
-      console.error('Failed to copy metadata: ', err);
-      alert('Failed to copy metadata.');
-    }
-  }, []);
+  
 
   const handleEditProvider = useCallback((provider: RegisteredProvider) => {
     setEditingProvider(provider);

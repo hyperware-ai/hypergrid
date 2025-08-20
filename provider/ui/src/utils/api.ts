@@ -101,7 +101,7 @@ export const registerProviderApi = async (
 export const validateProviderApi = async (
   provider: RegisteredProvider, 
   validationArguments: [string, string][] = []
-): Promise<{ success: boolean; error?: string; response?: string }> => {
+): Promise<{ success: boolean; error?: string; validatedProvider?: RegisteredProvider; validationResult?: string }> => {
   try {
     const payload = {
       ValidateProvider: [provider, validationArguments],
@@ -123,9 +123,21 @@ export const validateProviderApi = async (
     }
 
     const responseText = await result.text();
-    console.log('Validation successful:', responseText);
+    console.log('Validation response text:', responseText);
     
-    return { success: true, response: responseText };
+    try {
+      // Parse the response which now includes both validation_result and provider
+      const responseData = JSON.parse(responseText);
+      return { 
+        success: true, 
+        validatedProvider: responseData.provider,
+        validationResult: responseData.validation_result 
+      };
+    } catch (parseError) {
+      // Fallback for backward compatibility
+      console.warn('Failed to parse validation response as JSON, treating as plain text:', parseError);
+      return { success: true, validationResult: responseText };
+    }
   } catch (error) {
     console.error("Failed to validate provider:", error);
     return { 

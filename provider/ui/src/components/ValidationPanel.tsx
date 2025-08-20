@@ -3,7 +3,14 @@ import { validateProviderApi } from '../utils/api';
 
 interface ValidationPanelProps {
   curlTemplate: any; // The backend format from EnhancedCurlImportModal
-  onValidationSuccess: (curlTemplate: any) => void;
+  providerMetadata: {
+    providerName: string;
+    providerDescription: string;
+    instructions: string;
+    registeredProviderWallet: string;
+    price: number;
+  };
+  onValidationSuccess: (validatedProvider: any) => void;
   onValidationError: (error: string) => void;
   onCancel: () => void;
 }
@@ -14,6 +21,7 @@ interface ValidationArgs {
 
 const ValidationPanel: React.FC<ValidationPanelProps> = ({
   curlTemplate,
+  providerMetadata,
   onValidationSuccess,
   onValidationError,
   onCancel,
@@ -27,6 +35,8 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     return initialArgs;
   });
   const [isValidating, setIsValidating] = useState(false);
+  const [validationSuccessful, setValidationSuccessful] = useState(false);
+  const [validationMessage, setValidationMessage] = useState<string>('');
 
   // Generate sample values for placeholders
   const getSampleValue = (key: string, paramType: 'path' | 'query' | 'header' | 'body'): string => {
@@ -64,17 +74,35 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         argumentValues.push([param.parameter_name, String(value)]);
       });
 
-      // Send both template and arguments for validation
-      const result = await validateProviderApi(curlTemplate, argumentValues);
+      // Create the provider object for validation
+      const provider = {
+        provider_name: providerMetadata.providerName,
+        provider_id: (window as any).our?.node || '', // Will be set by backend
+        description: providerMetadata.providerDescription,
+        instructions: providerMetadata.instructions,
+        registered_provider_wallet: providerMetadata.registeredProviderWallet,
+        price: providerMetadata.price,
+        endpoint: curlTemplate // The curlTemplate IS the new EndpointDefinition
+      };
 
-      if (result.success) {
-        // Pass the template back for registration
-        onValidationSuccess(curlTemplate);
+      // Send provider object and arguments for validation
+      const result = await validateProviderApi(provider, argumentValues);
+
+      if (result.success && result.validatedProvider) {
+        // Set success state and message
+        setValidationSuccessful(true);
+        setValidationMessage('Validation successful! You can now register your provider.');
+        // Store the validated provider for later use
+        (window as any).validatedProvider = result.validatedProvider;
       } else {
+        setValidationSuccessful(false);
+        setValidationMessage(result.error || 'Validation failed');
         onValidationError(result.error || 'Validation failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
+      setValidationSuccessful(false);
+      setValidationMessage(errorMessage);
       onValidationError(errorMessage);
     } finally {
       setIsValidating(false);
@@ -141,30 +169,78 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         </div>
       </div>
 
+      {/* Validation Message */}
+      {validationMessage && (
+        <div className={`text-center mt-4 p-3 rounded-lg ${
+          validationSuccessful 
+            ? 'bg-green-100 text-green-800 border border-green-200' 
+            : 'bg-red-100 text-red-800 border border-red-200'
+        }`}>
+          {validationMessage}
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="flex justify-center gap-3 mt-6 pt-4 border-t border-gray-100">
-        <button
-          type="button"
-          onClick={handleValidate}
-          disabled={isValidating}
-          className="px-6 py-2.5 bg-gray-900 text-white font-medium rounded-lg
-                   hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
-                   disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
-                   shadow-sm hover:shadow-md"
-        >
-          {isValidating ? 'Validating...' : 'Validate API'}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isValidating}
-          className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
-                   hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
-                   disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
-                   shadow-sm hover:shadow-md"
-        >
-          Back to Configuration
-        </button>
+        {!validationSuccessful ? (
+          <>
+            <button
+              type="button"
+              onClick={handleValidate}
+              disabled={isValidating}
+              className="px-6 py-2.5 bg-gray-900 text-white font-medium rounded-lg
+                       hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
+                       disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
+                       shadow-sm hover:shadow-md"
+            >
+              {isValidating ? 'Validating...' : 'Validate API'}
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              disabled={isValidating}
+              className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
+                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
+                       disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
+                       shadow-sm hover:shadow-md"
+            >
+              Back to Configuration
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              onClick={() => onValidationSuccess((window as any).validatedProvider)}
+              className="px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg
+                       hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2
+                       transition-all duration-200 shadow-sm hover:shadow-md"
+            >
+              Register Provider
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setValidationSuccessful(false);
+                setValidationMessage('');
+              }}
+              className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
+                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
+                       transition-all duration-200 shadow-sm hover:shadow-md"
+            >
+              Validate Again
+            </button>
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
+                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
+                       transition-all duration-200 shadow-sm hover:shadow-md"
+            >
+              Back to Configuration
+            </button>
+          </>
+        )}
       </div>
     </div>
   );

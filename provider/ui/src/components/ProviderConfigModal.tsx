@@ -118,13 +118,13 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     }
   };
 
-  const handleValidationSuccess = async (curlTemplate: any) => {
+  const handleValidationSuccess = async (validatedProvider: any) => {
     // After validation succeeds, prepare for registration
-    setValidatedCurlTemplate(curlTemplate);
+    setValidatedCurlTemplate(validatedProvider.endpoint);
     setShowValidation(false);
     
-    // Proceed to registration
-    handleFinalRegistration(curlTemplate);
+    // Proceed to registration with the validated provider object
+    handleFinalRegistration(validatedProvider);
   };
 
   const handleRegisterProvider = () => {
@@ -143,25 +143,15 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       setShowValidation(true);
   };
 
-  const handleFinalRegistration = (curlTemplate: any) => {
+  const handleFinalRegistration = (validatedProvider: RegisteredProvider) => {
     if (!isWalletConnected) {
       alert('Please connect your wallet to complete provider registration on the hypergrid.');
       return;
     }
 
-    // Combine cURL template with metadata for backend
-    const combinedData = {
-      curlTemplate,
-      metadata: {
-        providerName,
-        providerDescription,
-        instructions,
-        registeredProviderWallet,
-        price: parseFloat(price) || 0
-      }
-    };
-
-    providerRegistration.startRegistration(combinedData);
+    // Use the validated provider object directly for registration
+    // This ensures consistency between validation, on-chain minting, and backend registration
+    providerRegistration.startRegistration(validatedProvider);
   };
 
   const handleValidationError = (error: string) => {
@@ -274,6 +264,13 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
             {showValidation && curlTemplateToValidate ? (
               <ValidationPanel
                 curlTemplate={curlTemplateToValidate}
+                providerMetadata={{
+                  providerName,
+                  providerDescription,
+                  instructions,
+                  registeredProviderWallet,
+                  price: parseFloat(price) || 0
+                }}
                 onValidationSuccess={handleValidationSuccess}
                 onValidationError={handleValidationError}
                 onCancel={handleValidationCancel}
@@ -390,7 +387,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                         Current Endpoint
                       </label>
                       <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md font-mono text-sm">
-                        {editingProvider.endpoint.base_url_template || 'No template available'}
+                        {editingProvider.endpoint.url_template || 'No template available'}
                       </div>
                     </div>
                   </div>
