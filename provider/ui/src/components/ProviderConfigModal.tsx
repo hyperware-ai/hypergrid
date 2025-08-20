@@ -1,14 +1,16 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import Modal from './Modal';
 import ValidationPanel from "./ValidationPanel";
 import HypergridEntryForm from "./HypergridEntryForm";
 import EnhancedCurlImportModal from "./EnhancedCurlImportModal";
+import UnifiedTerminalInterface from "./UnifiedTerminalInterface";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { RegisteredProvider } from "../types/hypergrid_provider";
 import { ProviderRegistrationStep } from "../registration/hypermapUtils";
 import { ImSpinner8 } from "react-icons/im";
 import { Address } from "viem";
+import { useAccount } from 'wagmi';
 
 interface ProviderConfigModalProps {
   isOpen: boolean;
@@ -47,12 +49,14 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   providerRegistration,
   providerUpdate
 }) => {
+  const { address: connectedWalletAddress } = useAccount();
   const [showValidation, setShowValidation] = useState(false);
   const [curlTemplateToValidate, setCurlTemplateToValidate] = useState<any>(null);
   const [validatedCurlTemplate, setValidatedCurlTemplate] = useState<any>(null);
   const [showCurlImport, setShowCurlImport] = useState(false);
   const [showModifyExisting, setShowModifyExisting] = useState(false);
   const [configuredCurlTemplate, setConfiguredCurlTemplate] = useState<any>(null);
+  const [hasParsedCurl, setHasParsedCurl] = useState(false);
 
   // Hypergrid metadata state (only what we need)
   const [providerName, setProviderName] = useState("");
@@ -76,15 +80,43 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setShowCurlImport(false);
     setShowModifyExisting(false);
     setConfiguredCurlTemplate(null);
+    setHasParsedCurl(false);
     console.log('RESET FORM FIELDS - showCurlImport set to false');
   };
 
-  const handleCurlImport = (curlTemplateData: any) => {
-    // Store the configured cURL template
+  const handleCurlImport = useCallback((curlTemplateData: any) => {
+    // Store the configured cURL template - this now happens automatically
+    // Can be null when cURL is cleared
     setConfiguredCurlTemplate(curlTemplateData);
-    setShowCurlImport(false);
+    
+    // Auto-populate instructions when cURL template is configured
+    if (curlTemplateData && curlTemplateData.parameters) {
+      const parameterNames = curlTemplateData.parameters.map((param: any) => param.parameter_name);
+      const callArgsExample = parameterNames.map((name: string) => `["${name}", "{${name}_value}"]`).join(', ');
+      
+      const instructionTemplate = `This provider should be called using the following format: {"callArgs": [${callArgsExample}], "providerId": "${window.our?.node || '{node_id}'}.os", "providerName": "${providerName || '{provider_name}'}"}`;
+      
+      setInstructions(instructionTemplate);
+    } else if (!curlTemplateData) {
+      // Clear instructions when cURL is cleared
+      setInstructions("");
+    }
+  }, [providerName]);
+
+  // Update instructions when provider name changes (to keep the template current)
+  const handleProviderNameChange = (newName: string) => {
+    setProviderName(newName);
+    
+    // Update instructions template if we have a configured cURL template
+    if (configuredCurlTemplate && configuredCurlTemplate.parameters) {
+      const parameterNames = configuredCurlTemplate.parameters.map((param: any) => param.parameter_name);
+      const callArgsExample = parameterNames.map((name: string) => `["${name}", "{${name}_value}"]`).join(', ');
+      
+      const instructionTemplate = `This provider should be called using the following format: {"callArgs": [${callArgsExample}], "providerId": "${window.our?.node || '{node_id}'}.os", "providerName": "${newName || '{provider_name}'}"}`;
+      
+      setInstructions(instructionTemplate);
+    }
   };
- 
 
   const handleValidationSuccess = async (curlTemplate: any) => {
     // After validation succeeds, prepare for registration
@@ -108,7 +140,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
     // Move to validation step
     setCurlTemplateToValidate(configuredCurlTemplate);
-    setShowValidation(true);
+      setShowValidation(true);
   };
 
   const handleFinalRegistration = (curlTemplate: any) => {
@@ -189,6 +221,13 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     }
   }, [isEditMode, editingProvider]);
 
+  // Auto-populate wallet with connected wallet address when form becomes visible
+  useEffect(() => {
+    if (configuredCurlTemplate && connectedWalletAddress && !registeredProviderWallet) {
+      setRegisteredProviderWallet(connectedWalletAddress);
+    }
+  }, [configuredCurlTemplate, connectedWalletAddress]);
+
   // Handle escape key with confirmation
   useEffect(() => {
     const handleEscapeKey = (event: KeyboardEvent) => {
@@ -265,10 +304,18 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
               </div>
             ) : (
               <div className="flex flex-col items-stretch gap-3">
-                <HypergridEntryForm
+                {/* Unified Terminal Interface */}
+                <UnifiedTerminalInterface
+                  onCurlImport={handleCurlImport}
+                  onParseSuccess={() => setHasParsedCurl(true)}
+                  onParseClear={() => {
+                    setHasParsedCurl(false);
+                    setConfiguredCurlTemplate(null);
+                  }}
+                  configuredCurlTemplate={configuredCurlTemplate}
                   nodeId={window.our?.node || "auto-generated"}
                   providerName={providerName}
-                  setProviderName={setProviderName}
+                  setProviderName={handleProviderNameChange}
                   providerDescription={providerDescription}
                   setProviderDescription={setProviderDescription}
                   instructions={instructions}
@@ -279,37 +326,16 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   setPrice={setPrice}
                 />
 
-                {configuredCurlTemplate ? (
-                  <div className="bg-gradient-to-br from-gray-800 to-gray-900 self-stretch p-4 rounded-xl shadow-lg border border-gray-600/30 space-y-3">
-                    <div className="p-4 bg-emerald-500/10 border border-emerald-400/30 rounded-lg backdrop-blur-sm">
-                      <p className="text-emerald-400 text-sm font-medium">
-                        ✓ cURL template configured with {configuredCurlTemplate.parameters?.length || 0} modifiable parameters
-                      </p>
-                    </div>
-                    <div className="flex gap-4 justify-center">
-                      <button
-                        onClick={() => setConfiguredCurlTemplate(null)}
-                        className="px-6 py-3 bg-gray-700 text-gray-200 rounded-lg hover:bg-gray-600 transition-all border border-gray-600/50 font-medium"
-                      >
-                        Reconfigure cURL
-                      </button>
-                      {providerName && price && registeredProviderWallet && (
-                        <button
-                          onClick={handleRegisterProvider}
-                          className="px-8 py-3 bg-gradient-to-r from-cyan to-blue-400 text-gray-900 font-bold rounded-lg hover:from-cyan/90 hover:to-blue-400/90 transition-all shadow-lg shadow-cyan/25"
-                        >
-                          Register Provider
-                        </button>
-                      )}
-                    </div>
+                {/* Register Button - Only shows when all fields are filled */}
+                {configuredCurlTemplate && providerName && price && registeredProviderWallet && (
+                  <div className="flex justify-center">
+                    <button
+                      onClick={handleRegisterProvider}
+                      className="px-8 py-3 bg-gradient-to-r from-cyan to-blue-400 text-gray-900 font-bold rounded-lg hover:from-cyan/90 hover:to-blue-400/90 transition-all shadow-lg shadow-cyan/25"
+                    >
+                      Register Provider
+                    </button>
                   </div>
-                ) : (
-                  <EnhancedCurlImportModal
-                    isOpen={true}
-                    onClose={() => {}}
-                    onImport={handleCurlImport}
-                    isInline={true}
-                  />
                 )}
               </div>
             )}

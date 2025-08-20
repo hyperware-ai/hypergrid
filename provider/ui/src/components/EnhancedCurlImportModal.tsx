@@ -16,6 +16,8 @@ interface EnhancedCurlImportModalProps {
   isOpen: boolean;
   onClose: () => void;
   onImport: (curlTemplate: any) => void;
+  onParseSuccess?: () => void; // Callback when parsing succeeds
+  onParseClear?: () => void; // Callback when parsing is cleared
   isInline?: boolean; // New prop to control inline rendering
 }
 
@@ -23,6 +25,8 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   isOpen,
   onClose,
   onImport,
+  onParseSuccess,
+  onParseClear,
   isInline = false
 }) => {
   const [curlCommand, setCurlCommand] = useState('');
@@ -31,7 +35,7 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   const [modifiableFields, setModifiableFields] = useState<ModifiableField[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'viewer' | 'modifiable'>('viewer');
-  const parsedContentRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const handleParseCurl = (curlText: string) => {
     if (!curlText.trim()) {
@@ -40,6 +44,10 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
       setPotentialFields([]);
       setModifiableFields([]);
       setParseError(null);
+      // Notify parent that parsing was cleared
+      if (onParseClear) {
+        onParseClear();
+      }
       return;
     }
 
@@ -52,15 +60,10 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
       setModifiableFields([]);
       setParseError(null);
       
-      // Auto-scroll to parsed content after a brief delay for state update
-      setTimeout(() => {
-        if (parsedContentRef.current) {
-          parsedContentRef.current.scrollIntoView({ 
-            behavior: 'smooth', 
-            block: 'start' 
-          });
-        }
-      }, 100);
+      // Notify parent that parsing succeeded
+      if (onParseSuccess) {
+        onParseSuccess();
+      }
     } catch (error) {
       setParseError(error instanceof Error ? error.message : 'Failed to parse curl command');
       setParsedRequest(null);
@@ -76,6 +79,29 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
     }, 500); // Debounce for 500ms
 
     return () => clearTimeout(timeoutId);
+  }, [curlCommand]);
+
+  // Auto-import when modifiable fields change
+  useEffect(() => {
+    if (parsedRequest && modifiableFields.length >= 0) {
+      const template = createCurlTemplate(parsedRequest, modifiableFields);
+      const backendFormat = curlTemplateToBackendFormat(template);
+      onImport(backendFormat);
+    }
+  }, [parsedRequest, modifiableFields, onImport]);
+
+  // Clear import when parsing is cleared
+  useEffect(() => {
+    if (!parsedRequest) {
+      onImport(null);
+    }
+  }, [parsedRequest, onImport]);
+
+  // Keep textarea scrolled to top whenever content changes
+  useEffect(() => {
+    if (textareaRef.current && curlCommand) {
+      textareaRef.current.scrollTop = 0;
+    }
   }, [curlCommand]);
 
   const handleFieldToggleModifiable = (field: ModifiableField) => {
@@ -142,17 +168,18 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   const content = (
     <div className="flex flex-col gap-4">
         {/* cURL Input Section */}
-        <div className="space-y-2">
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">
-            Paste your cURL command
-            <span className="text-xs text-gray-500 ml-2">(auto-parses as you type)</span>
-          </label>
-          <textarea
-            value={curlCommand}
-            onChange={(e) => setCurlCommand(e.target.value)}
-            placeholder="curl -X GET 'https://api.example.com/users/123' -H 'Authorization: Bearer token'"
-            className="w-full h-32 px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 dark:bg-gray-800 dark:text-gray-100 font-mono text-sm"
-          />
+        <div className="space-y-3">
+          <div className="flex items-start gap-0">
+            <span className="text-cyan-600 dark:text-cyan font-medium">$</span>
+            <textarea
+              ref={textareaRef}
+              value={curlCommand}
+              onChange={(e) => setCurlCommand(e.target.value)}
+              placeholder="curl -X GET 'https://api.example.com/users/123' -H 'Authorization: Bearer token'"
+              className="flex-1 ml-2 bg-transparent border-none outline-none resize-none text-green-600 dark:text-green-400 placeholder-stone-500 dark:placeholder-gray-600 font-mono text-sm min-h-[2.5rem] max-h-24"
+              rows={curlCommand ? Math.min(Math.max(2, Math.ceil(curlCommand.length / 80)), 6) : 2}
+            />
+          </div>
         </div>
 
         {/* Error Display */}
@@ -164,7 +191,7 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
 
         {/* Parsed Request Display */}
         {parsedRequest && (
-          <div ref={parsedContentRef}>
+          <div>
             {/* Tab Navigation */}
             <div className="flex gap-2 border-b border-gray-200 dark:border-gray-700">
               <button
@@ -211,8 +238,8 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
 
 
 
-            {/* Action Buttons */}
-            <div className="flex justify-between pt-4 border-t border-gray-200 dark:border-gray-700">
+            {/* Debug Button Only */}
+            <div className="flex justify-start pt-4 border-t border-gray-200 dark:border-gray-700">
               <button
                 onClick={() => {
                   if (parsedRequest) {
@@ -227,21 +254,6 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
               >
                 Debug: Print to Console
               </button>
-              <div className="flex gap-3">
-                <button
-                  onClick={handleClose}
-                  className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleImport}
-                  disabled={!parsedRequest}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-gray-300 disabled:cursor-not-allowed"
-                >
-                  Import API Configuration
-                </button>
-              </div>
             </div>
           </div>
         )}
