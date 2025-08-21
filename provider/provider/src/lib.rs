@@ -1,6 +1,6 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::get_server;
-use hyperware_app_common::hyperware_process_lib::kiprintln;
+
 use hyperware_app_common::hyperware_process_lib::logging::RemoteLogSettings;
 use hyperware_app_common::hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
@@ -17,11 +17,13 @@ use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::str::FromStr; // Needed for EthAddress::from_str
+use std::collections::HashMap;
 
 pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
 
 mod util; // Declare the util module
 use util::*; // Use its public items
+pub use util::call_provider;
 
 mod db; // Declare the db module  
 use db::*; // Use its public items
@@ -77,21 +79,45 @@ pub enum TerminalCommand {
 }
 
 // --- Modified EndpointDefinition ---
+// OLD STRUCTURE - KEPT FOR REFERENCE
+// #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+// pub struct EndpointDefinition {
+//     pub name: String,                            // Operation name, e.g., "getUserById"
+//     pub method: HttpMethod,                      // GET, POST
+//     pub request_structure: RequestStructureType, // Explicitly define the structure
+//     pub base_url_template: String, // e.g., "https://api.example.com/users/{id}" or "https://api.example.com/v{apiVersion}/users"
+//     pub path_param_keys: Option<Vec<String>>, // Keys for placeholders in base_url_template, relevant for GetWithPath, PostWithJson
+//     pub query_param_keys: Option<Vec<String>>, // Keys for dynamic query params, relevant for GetWithQuery, PostWithJson
+//     pub header_keys: Option<Vec<String>>, // Keys for dynamic headers (always potentially relevant)
+//     pub body_param_keys: Option<Vec<String>>, // Keys for dynamic body params, relevant for PostWithJson
+//     pub api_key: Option<String>, // The actual secret key
+//     pub api_key_query_param_name: Option<String>, // e.g., "api_key"
+//     pub api_key_header_name: Option<String>,      // e.g., "X-API-Key"
+// }
+
+// NEW CURL-BASED STRUCTURE
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub struct EndpointDefinition {
-    pub name: String,                            // Operation name, e.g., "getUserById"
-    pub method: HttpMethod,                      // GET, POST
-    pub request_structure: RequestStructureType, // Explicitly define the structure
-    pub base_url_template: String, // e.g., "https://api.example.com/users/{id}" or "https://api.example.com/v{apiVersion}/users"
-    pub path_param_keys: Option<Vec<String>>, // Keys for placeholders in base_url_template, relevant for GetWithPath, PostWithJson
-    pub query_param_keys: Option<Vec<String>>, // Keys for dynamic query params, relevant for GetWithQuery, PostWithJson
-    pub header_keys: Option<Vec<String>>, // Keys for dynamic headers (always potentially relevant)
-    pub body_param_keys: Option<Vec<String>>, // Keys for dynamic body params, relevant for PostWithJson
+    // Core curl template data
+    pub original_curl: String,
+    pub method: String,  // "GET", "POST", etc
+    pub base_url: String,
+    pub url_template: String,
+    pub original_headers: Vec<(String, String)>,
+    pub original_body: Option<String>,
+    
+    // Parameter definitions for substitution
+    pub parameters: Vec<ParameterDefinition>,
+    pub parameter_names: Vec<String>,
+}
 
-    pub api_key: Option<String>, // The actual secret key
-
-    pub api_key_query_param_name: Option<String>, // e.g., "api_key"
-    pub api_key_header_name: Option<String>,      // e.g., "X-API-Key"
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+pub struct ParameterDefinition {
+    pub parameter_name: String,
+    pub json_pointer: String,  // e.g., "/body/user_id", "/headers/X-API-Key"
+    pub location: String,      // "body", "query", "path", "header"
+    pub example_value: String,
+    pub value_type: String,    // "string", "number", etc
 }
 
 // --- New Provider Struct ---
@@ -368,7 +394,7 @@ impl HypergridProviderState {
             return Err(error_msg);
         }
         
-        // Validate the endpoint by making a test call
+        // Use the new curl-based validation
         let validation_result = call_provider(
             provider.provider_name.clone(),
             provider.endpoint.clone(),
@@ -382,7 +408,15 @@ impl HypergridProviderState {
             .map_err(|e| format!("Validation failed: {}", e))?;
 
         info!("Provider validation successful: {}", provider.provider_name);
-        Ok(validation_result)
+        
+        // Return the validated provider object as JSON for frontend consistency
+        let response = serde_json::json!({
+            "validation_result": validation_result,
+            "provider": provider
+        });
+        
+        serde_json::to_string(&response)
+            .map_err(|e| format!("Failed to serialize validation response: {}", e))
     }
 
 
@@ -758,7 +792,7 @@ impl HypergridProviderState {
 
                 let source_node_id = "anotherdayanothertestingnodeweb.os".to_string();
 
-                validate_transaction_payment(&provider_request, self, source_node_id.clone()).await?;
+                //validate_transaction_payment(&provider_request, self, source_node_id.clone()).await?;
 
 
                 let registered_provider = match self
@@ -833,6 +867,22 @@ impl HypergridProviderState {
                 Ok(format!("Database: {:?}", json_providers))
             }
         }
+    }
+}
+
+// Helper functions for data conversion
+impl EndpointDefinition {
+    /// Parse the original_body string as JSON, returning None if parsing fails or field is None
+    pub fn get_original_body_json(&self) -> Option<serde_json::Value> {
+        self.original_body.as_ref()
+            .and_then(|body_str| serde_json::from_str(body_str).ok())
+    }
+
+    /// Convert original_headers Vec<(String, String)> to HashMap<String, String> for processing
+    pub fn get_original_headers_map(&self) -> HashMap<String, String> {
+        self.original_headers.iter()
+            .cloned()
+            .collect()
     }
 }
 

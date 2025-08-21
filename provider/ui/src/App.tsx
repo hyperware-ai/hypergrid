@@ -243,10 +243,15 @@ function AppContent() {
   }, [isWalletConnected, providerRegistration]);
 
   const handleProviderUpdate = useCallback(async (updatedProvider: RegisteredProvider) => {
-    // TODO: Implement new cURL-based provider update flow
-    console.log('Provider update triggered:', updatedProvider);
-    alert('Provider update will be implemented with new cURL template system');
-  }, []);
+    console.log('Provider update completed:', updatedProvider);
+    
+    // Refresh the providers list to show updated data
+    loadAndSetProviders();
+    
+    // Close the edit modal
+    setIsEditMode(false);
+    setShowForm(false);
+  }, [loadAndSetProviders]);
 
 
 

@@ -7,6 +7,9 @@ interface UnifiedTerminalInterfaceProps {
   onCurlImport: (curlTemplateData: any) => void;
   onParseSuccess?: () => void;
   onParseClear?: () => void;
+  originalCurlCommand?: string;
+  onCurlStateChange?: (state: any) => void;
+  preservedCurlState?: any;
   
   // Hypergrid form props
   configuredCurlTemplate: any;
@@ -27,6 +30,9 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
   onCurlImport,
   onParseSuccess,
   onParseClear,
+  originalCurlCommand,
+  onCurlStateChange,
+  preservedCurlState,
   configuredCurlTemplate,
   nodeId,
   providerName,
@@ -65,6 +71,9 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
             onParseSuccess={onParseSuccess}
             onParseClear={onParseClear}
             isInline={true}
+            initialCurlCommand={originalCurlCommand}
+            onStateChange={onCurlStateChange}
+            preservedState={preservedCurlState}
           />
         </div>
       </div>

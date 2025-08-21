@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { validateProviderApi } from '../utils/api';
 
 interface ValidationPanelProps {
@@ -30,7 +30,23 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     // Pre-populate with example values from the cURL template
     const initialArgs: ValidationArgs = {};
     curlTemplate.parameters?.forEach((param: any) => {
-      initialArgs[param.parameter_name] = String(param.example_value || '');
+      let exampleValue = param.example_value || '';
+      
+      // If the example value is a JSON string (has quotes around it), 
+      // extract the inner value for user-friendly display
+      if (typeof exampleValue === 'string' && 
+          exampleValue.startsWith('"') && 
+          exampleValue.endsWith('"') && 
+          exampleValue.length > 1) {
+        try {
+          // Parse to remove the JSON quotes
+          exampleValue = JSON.parse(exampleValue);
+        } catch (e) {
+          // If parsing fails, keep the original value
+        }
+      }
+      
+      initialArgs[param.parameter_name] = String(exampleValue);
     });
     return initialArgs;
   });
@@ -57,10 +73,15 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
 
 
   const handleValidationArgChange = (key: string, value: string) => {
-    setValidationArgs(prev => ({
-      ...prev,
-      [key]: value
-    }));
+    console.log('DEBUG: ValidationPanel - arg changed:', key, '=', value);
+    setValidationArgs(prev => {
+      const newArgs = {
+        ...prev,
+        [key]: value
+      };
+      console.log('DEBUG: New validationArgs:', newArgs);
+      return newArgs;
+    });
   };
 
   const handleValidate = async () => {
@@ -112,134 +133,185 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   // Get all parameters from the cURL template
   const allParams = curlTemplate.parameters || [];
 
+  // Helper function to format cURL commands for better display
+  const formatCurlCommand = (curl: string): string => {
+    return curl
+      .replace(/\s+/g, ' ') // Normalize whitespace
+      .replace(/\s*\\\s*/g, ' \\\n  ') // Format line continuations
+      .replace(/(-[A-Za-z])\s+/g, '$1 ') // Ensure single space after flags
+      .trim();
+  };
+
+  // Generate a substituted cURL template for preview
+  const substitutedCurl = useMemo(() => {
+    console.log('DEBUG: useMemo called at', Date.now(), 'with validationArgs:', validationArgs);
+    let result = curlTemplate.original_curl || '';
+    
+    // Simple approach: just replace parameter values directly in the string
+    allParams.forEach((param: any) => {
+      const currentValue = validationArgs[param.parameter_name] || param.example_value || '';
+      const originalValue = param.example_value || '';
+      
+              // Only substitute if we have different values and they exist
+        if (originalValue && currentValue && currentValue !== originalValue) {
+          if (param.location === 'body') {
+            // For JSON body parameters, ensure proper quoting
+            // Look for the pattern: "key": "originalValue" and replace with "key": "currentValue"
+            const quotedPattern = `"${param.parameter_name}": "${originalValue}"`;
+            const quotedReplacement = `"${param.parameter_name}": "${currentValue}"`;
+            
+            if (result.includes(quotedPattern)) {
+              result = result.split(quotedPattern).join(quotedReplacement);
+            } else {
+              // Alternative: look for unquoted pattern and fix it
+              const unquotedPattern = `"${param.parameter_name}": ${originalValue}`;
+              const fixedReplacement = `"${param.parameter_name}": "${currentValue}"`;
+              
+              if (result.includes(unquotedPattern)) {
+                result = result.split(unquotedPattern).join(fixedReplacement);
+              } else {
+                // Final fallback: replace just the value but ensure it gets quoted
+                const valuePattern = `"${originalValue}"`;
+                const valueReplacement = `"${currentValue}"`;
+                if (result.includes(valuePattern)) {
+                  result = result.split(valuePattern).join(valueReplacement);
+                }
+              }
+            }
+          } else {
+            // For headers, query params, etc., do direct replacement
+            result = result.split(originalValue).join(currentValue);
+          }
+        }
+    });
+    
+    console.log('DEBUG: Final result:', result);
+    
+    // Format the cURL for better readability
+    return formatCurlCommand(result);
+  }, [validationArgs, curlTemplate, allParams, JSON.stringify(validationArgs)]);
+
   return (
-    <div className="flex flex-col">
-      {/* Header Section */}
+    <div className="flex flex-col items-center max-w-2xl mx-auto">
+      {/* Header */}
       <div className="text-center mb-8">
-        <h1 className="text-xl font-bold text-dark-gray dark:text-gray mb-2">Validate Your Provider</h1>
-        <p className="text-dark-gray dark:text-gray max-w-lg mx-auto">
-          Let's test your API endpoint to make sure it is configured correctly:
+        <h1 className="text-2xl font-bold text-gray-900 dark:text-white mb-2">
+          Validate Provider
+        </h1>
+        <p className="text-gray-600 dark:text-gray-400">
+          Test your API endpoint to ensure it's configured correctly
         </p>
       </div>
 
-      {/* Main Content */}
-      <div className="flex flex-col items-center space-y-6">
-        {/* Test Parameters Section */}
-        {allParams.length > 0 && (
-          <div className="w-full max-w-xl">
-            <div className="bg-gradient-to-b from-gray-50 to-white dark:to-black border border-gray-200 rounded-xl shadow-md p-6">
-              <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-6">Test Parameters</h3>
-              <div className={allParams.length === 1 ? "flex justify-center" : "grid grid-cols-1 md:grid-cols-2 gap-4"}>
-                {allParams.map((param: any) => (
-                  <div key={param.parameter_name} className={allParams.length === 1 ? "w-full max-w-xs" : "group"}>
-                    <label
-                      htmlFor={`validation-${param.parameter_name}`}
-                      className="block text-sm font-semibold text-dark-gray dark:text-gray mb-1.5 text-center"
-                    >
-                      {param.parameter_name} <span className="text-dark-gray dark:text-gray font-normal">({param.location})</span>
-                    </label>
-                    <input
-                      id={`validation-${param.parameter_name}`}
-                      type="text"
-                      value={validationArgs[param.parameter_name] || ''}
-                      onChange={(e) => handleValidationArgChange(param.parameter_name, e.target.value)}
-                      placeholder={String(param.example_value || '')}
-                      className="w-full px-4 py-2.5 text-center border border-gray-200 rounded-lg
-                               bg-white text-dark-gray dark:bg-black dark:text-gray
-                                transition-all duration-200
-                               shadow-sm focus:shadow-md"
-                    />
-                  </div>
-                ))}
+      {/* Parameters Section */}
+      {allParams.length > 0 && (
+        <div className="w-full mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            Test Parameters
+          </h3>
+          <div className="space-y-4">
+            {allParams.map((param: any) => (
+              <div key={param.parameter_name}>
+                <label
+                  htmlFor={`validation-${param.parameter_name}`}
+                  className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2"
+                >
+                  {param.parameter_name}
+                  <span className="text-gray-500 ml-1">({param.location})</span>
+                </label>
+                <input
+                  id={`validation-${param.parameter_name}`}
+                  type="text"
+                  value={validationArgs[param.parameter_name] || ''}
+                  onChange={(e) => handleValidationArgChange(param.parameter_name, e.target.value)}
+                  placeholder={(() => {
+                    let placeholder = param.example_value || '';
+                    if (typeof placeholder === 'string' && 
+                        placeholder.startsWith('"') && 
+                        placeholder.endsWith('"') && 
+                        placeholder.length > 1) {
+                      try {
+                        placeholder = JSON.parse(placeholder);
+                      } catch (e) {
+                        // Keep original if parsing fails
+                      }
+                    }
+                    return String(placeholder);
+                  })()}
+                  className="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg
+                           bg-white dark:bg-gray-800 text-gray-900 dark:text-white
+                           focus:ring-2 focus:ring-blue-500 focus:border-blue-500
+                           transition-colors duration-200"
+                />
               </div>
-            </div>
+            ))}
           </div>
-        )}
+        </div>
+      )}
 
-        {/* Original cURL Template */}
-        <div className="w-full max-w-xl">
-          <div className="bg-gradient-to-b from-gray-50 to-white dark:to-black border border-gray-200 dark:border-white rounded-xl shadow-md p-6">
-            <h3 className="text-lg font-bold text-dark-gray dark:text-gray text-center mb-4">Original cURL Template</h3>
-            <div className="bg-gray dark:bg-dark-gray rounded-lg p-4 overflow-x-auto shadow-inner">
-              <pre className="text-green-400 dark:text-green-400 text-sm font-mono whitespace-pre-wrap text-center">
-                <code>{curlTemplate.original_curl}</code>
-              </pre>
-            </div>
-          </div>
+      {/* cURL Preview */}
+      <div className="w-full mb-6">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+          Generated Request
+        </h3>
+        <div className="bg-gray-900 dark:bg-gray-800 rounded-lg p-4 overflow-x-auto">
+          <pre className="text-green-400 text-sm font-mono whitespace-pre-wrap">
+            <code>{substitutedCurl}</code>
+          </pre>
         </div>
       </div>
 
-      {/* Validation Message */}
+      {/* Validation Result */}
       {validationMessage && (
-        <div className={`text-center mt-4 p-3 rounded-lg ${
+        <div className={`w-full mb-6 p-4 rounded-lg ${
           validationSuccessful 
-            ? 'bg-green-100 text-green-800 border border-green-200' 
-            : 'bg-red-100 text-red-800 border border-red-200'
+            ? 'bg-green-50 dark:bg-green-900/20 text-green-800 dark:text-green-200 border border-green-200 dark:border-green-800'
+            : 'bg-red-50 dark:bg-red-900/20 text-red-800 dark:text-red-200 border border-red-200 dark:border-red-800'
         }`}>
-          {validationMessage}
+          <div className="flex items-center">
+            <div className={`w-2 h-2 rounded-full mr-3 ${
+              validationSuccessful ? 'bg-green-500' : 'bg-red-500'
+            }`}></div>
+            {validationMessage}
+          </div>
         </div>
       )}
 
       {/* Action Buttons */}
-      <div className="flex justify-center gap-3 mt-6 pt-4 border-t border-gray-100">
+      <div className="flex gap-3 w-full">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={isValidating}
+          className="flex-1 px-4 py-3 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 
+                   border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700
+                   focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2
+                   disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+        >
+          Back to Configuration
+        </button>
+        
         {!validationSuccessful ? (
-          <>
-            <button
-              type="button"
-              onClick={handleValidate}
-              disabled={isValidating}
-              className="px-6 py-2.5 bg-gray-900 text-white font-medium rounded-lg
-                       hover:bg-gray-800 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
-                       disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
-                       shadow-sm hover:shadow-md"
-            >
-              {isValidating ? 'Validating...' : 'Validate API'}
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              disabled={isValidating}
-              className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
-                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
-                       disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200
-                       shadow-sm hover:shadow-md"
-            >
-              Back to Configuration
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={handleValidate}
+            disabled={isValidating}
+            className="flex-1 px-4 py-3 bg-blue-600 text-white font-medium rounded-lg
+                     hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
+                     disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
+          >
+            {isValidating ? 'Validating...' : 'Validate'}
+          </button>
         ) : (
-          <>
-            <button
-              type="button"
-              onClick={() => onValidationSuccess((window as any).validatedProvider)}
-              className="px-6 py-2.5 bg-green-600 text-white font-medium rounded-lg
-                       hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-600 focus:ring-offset-2
-                       transition-all duration-200 shadow-sm hover:shadow-md"
-            >
-              Register Provider
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setValidationSuccessful(false);
-                setValidationMessage('');
-              }}
-              className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
-                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
-                       transition-all duration-200 shadow-sm hover:shadow-md"
-            >
-              Validate Again
-            </button>
-            <button
-              type="button"
-              onClick={onCancel}
-              className="px-6 py-2.5 bg-white text-gray-700 font-medium rounded-lg border border-gray-300
-                       hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-900 focus:ring-offset-2
-                       transition-all duration-200 shadow-sm hover:shadow-md"
-            >
-              Back to Configuration
-            </button>
-          </>
+          <button
+            type="button"
+            onClick={() => onValidationSuccess((window as any).validatedProvider)}
+            className="flex-1 px-4 py-3 bg-green-600 text-white font-medium rounded-lg
+                     hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
+                     transition-colors duration-200"
+          >
+            Register Provider
+          </button>
         )}
       </div>
     </div>

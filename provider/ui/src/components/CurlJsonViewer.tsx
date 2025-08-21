@@ -208,11 +208,8 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
         <div className="flex items-center gap-1">
           <MdCode size={14} className="text-gray-500" /> 
           <span>= Add parameter</span>
-          <span className="mx-2">•</span>
-          <MdCheck size={14} className="text-blue-600" />
-          <span>= Active parameter</span>
         </div>
-        <div className="text-xs">Click any value (headers, path segments, query params, body fields) to make it a parameter. Selecting a field automatically deselects conflicting parent/child fields.</div>
+        <div className="text-xs">Select what argument should be a parameter by clicking on it.</div>
       </div>
       
       <div className="space-y-4">

@@ -126,17 +126,32 @@ export const validateProviderApi = async (
     console.log('Validation response text:', responseText);
     
     try {
-      // Parse the response which now includes both validation_result and provider
-      const responseData = JSON.parse(responseText);
-      return { 
-        success: true, 
-        validatedProvider: responseData.provider,
-        validationResult: responseData.validation_result 
-      };
+      // First parse the Rust Result format
+      const rustResult = JSON.parse(responseText);
+      
+      if (rustResult.Ok) {
+        // Parse the inner JSON from the Ok field
+        const responseData = JSON.parse(rustResult.Ok);
+        return { 
+          success: true, 
+          validatedProvider: responseData.provider,
+          validationResult: responseData.validation_result 
+        };
+      } else if (rustResult.Err) {
+        return {
+          success: false,
+          error: rustResult.Err
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Unknown response format'
+        };
+      }
     } catch (parseError) {
       // Fallback for backward compatibility
       console.warn('Failed to parse validation response as JSON, treating as plain text:', parseError);
-      return { success: true, validationResult: responseText };
+      return { success: false, error: 'Failed to parse response' };
     }
   } catch (error) {
     console.error("Failed to validate provider:", error);

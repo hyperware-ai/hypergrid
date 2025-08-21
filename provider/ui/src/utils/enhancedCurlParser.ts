@@ -137,9 +137,10 @@ export function parseCurlCommand(curlString: string): ParsedCurlRequest {
     // Headers are already in the right format from this parser
     const headers = parsedData.headers || {};
     
-    // Infer method if not explicitly specified
+    // Infer method - cURL defaults to POST if there's data, GET otherwise
     let method = parsedData.method;
-    if (!method) {
+    if (!method || (method === 'GET' && body)) {
+      // If no method specified, or if method is GET but there's data, infer from presence of body
       // cURL defaults to POST if there's data, GET otherwise
       method = body ? 'POST' : 'GET';
     }

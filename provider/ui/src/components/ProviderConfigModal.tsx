@@ -35,6 +35,7 @@ interface ProviderConfigModalProps {
   };
   providerUpdate: {
     isUpdating: boolean;
+    updateProviderNotes: (tbaAddress: `0x${string}`, notes: Array<{ key: string; value: string }>) => Promise<void>;
   };
 }
 
@@ -57,6 +58,19 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const [showModifyExisting, setShowModifyExisting] = useState(false);
   const [configuredCurlTemplate, setConfiguredCurlTemplate] = useState<any>(null);
   const [hasParsedCurl, setHasParsedCurl] = useState(false);
+  
+  // Preserve complete state for navigation back from validation
+  const [preservedCurlState, setPreservedCurlState] = useState<{
+    curlCommand: string;
+    parsedRequest: any;
+    potentialFields: any[];
+    modifiableFields: any[];
+    parseError: string | null;
+    activeTab: 'viewer' | 'modifiable';
+  } | null>(null);
+  
+  // Track current state of the cURL component
+  const [currentCurlState, setCurrentCurlState] = useState<any>(null);
 
   // Hypergrid metadata state (only what we need)
   const [providerName, setProviderName] = useState("");
@@ -81,7 +95,8 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setShowModifyExisting(false);
     setConfiguredCurlTemplate(null);
     setHasParsedCurl(false);
-    console.log('RESET FORM FIELDS - showCurlImport set to false');
+    setPreservedCurlState(null);
+    setCurrentCurlState(null);
   };
 
   const handleCurlImport = useCallback((curlTemplateData: any) => {
@@ -122,6 +137,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     // After validation succeeds, prepare for registration
     setValidatedCurlTemplate(validatedProvider.endpoint);
     setShowValidation(false);
+    setPreservedCurlState(null); // Clear preserved state since we're moving forward
     
     // Proceed to registration with the validated provider object
     handleFinalRegistration(validatedProvider);
@@ -138,20 +154,152 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       return;
     }
 
+    // Preserve the complete cURL component state before going to validation
+    if (currentCurlState) {
+      setPreservedCurlState(currentCurlState);
+    }
+
     // Move to validation step
     setCurlTemplateToValidate(configuredCurlTemplate);
-      setShowValidation(true);
+    setShowValidation(true);
+  };
+
+  const handleUpdateProvider = () => {
+    if (!isEditMode || !editingProvider) {
+      console.error('Update called but not in edit mode or no provider to edit');
+      return;
+    }
+
+    if (!configuredCurlTemplate) {
+      alert('Please configure your cURL template first');
+      return;
+    }
+
+    if (!providerName || !price || !registeredProviderWallet) {
+      alert('Please fill in all required metadata fields');
+      return;
+    }
+
+    // Preserve the complete cURL component state before going to validation
+    if (currentCurlState) {
+      setPreservedCurlState(currentCurlState);
+    }
+
+    // Move to validation step for updates (same validation flow as registration)
+    setCurlTemplateToValidate(configuredCurlTemplate);
+    setShowValidation(true);
   };
 
   const handleFinalRegistration = (validatedProvider: RegisteredProvider) => {
     if (!isWalletConnected) {
-      alert('Please connect your wallet to complete provider registration on the hypergrid.');
+      const action = isEditMode ? 'update' : 'registration';
+      alert(`Please connect your wallet to complete provider ${action} on the hypergrid.`);
       return;
     }
 
-    // Use the validated provider object directly for registration
-    // This ensures consistency between validation, on-chain minting, and backend registration
-    providerRegistration.startRegistration(validatedProvider);
+    if (isEditMode && editingProvider) {
+      // Handle provider update with smart update logic
+      handleProviderUpdateFlow(validatedProvider);
+    } else {
+      // Handle new provider registration - use the callback to trigger parent's registration flow
+      onProviderRegistration(validatedProvider);
+    }
+  };
+
+  const handleProviderUpdateFlow = async (validatedProvider: RegisteredProvider) => {
+    if (!editingProvider) return;
+
+    // Import the smart update logic
+    const { createSmartUpdatePlan, shouldUseFastUpdatePath } = await import('../utils/providerFormUtils');
+    
+    // Create smart update plan to determine what needs updating
+    const updatePlan = createSmartUpdatePlan(editingProvider, validatedProvider);
+    
+    console.log('Smart update plan:', updatePlan);
+
+    if (!updatePlan.needsOnChainUpdate && !updatePlan.needsOffChainUpdate) {
+      alert('No changes detected to update.');
+      return;
+    }
+
+    // Warn about instructions changes
+    if (updatePlan.shouldWarnAboutInstructions) {
+      const proceed = confirm(
+        'You are updating the instructions field, which is stored on-chain. ' +
+        'This will require a blockchain transaction. Do you want to proceed?'
+      );
+      if (!proceed) return;
+    }
+
+    // State to track which updates are complete
+    let onchainUpdateComplete = !updatePlan.needsOnChainUpdate;
+    let offchainUpdateComplete = !updatePlan.needsOffChainUpdate;
+
+    const checkAndCompleteUpdate = () => {
+      if (onchainUpdateComplete && offchainUpdateComplete) {
+        console.log('Both onchain and offchain updates completed successfully');
+        alert('Provider updated successfully!');
+        onProviderUpdate(validatedProvider);
+        handleClose();
+      }
+    };
+
+    // Handle offchain update first (faster, no blockchain interaction)
+    if (updatePlan.needsOffChainUpdate) {
+      try {
+        const { updateProviderApi } = await import('../utils/api');
+        const response = await updateProviderApi(editingProvider.provider_name, validatedProvider);
+        
+        if (response.Ok) {
+          console.log('Provider updated successfully in backend:', response.Ok);
+          offchainUpdateComplete = true;
+          checkAndCompleteUpdate();
+        } else {
+          console.error('Failed to update provider in backend:', response.Err);
+          alert(`Failed to update provider configuration: ${response.Err}`);
+          return;
+        }
+      } catch (error) {
+        console.error('Error updating provider in backend:', error);
+        alert('Failed to update provider configuration. Please try again.');
+        return;
+      }
+    }
+
+    // Handle onchain update (requires user interaction and waiting for tx)
+    if (updatePlan.needsOnChainUpdate) {
+      try {
+        const { lookupProviderTbaAddressFromBackend } = await import('../registration/hypermap');
+        
+        // Resolve the TBA address for this provider
+        const tbaAddress = await lookupProviderTbaAddressFromBackend(
+          editingProvider.provider_name,
+          null // publicClient - the function handles this internally
+        );
+        
+        if (!tbaAddress) {
+          alert('Could not find blockchain address for this provider. Please ensure it was properly registered.');
+          return;
+        }
+        
+        console.log('Triggering onchain update with TBA address:', tbaAddress, 'and notes:', updatePlan.onChainNotes);
+        
+        // Set up a one-time listener for completion
+        const originalCallback = providerUpdate.updateProviderNotes;
+        
+        // Use the provider update hook to handle the onchain portion
+        // The completion will be handled by the useProviderUpdate hook's onUpdateComplete callback
+        await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
+        
+        // Note: The onchain update completion is handled by the useProviderUpdate hook
+        // in App.tsx which will call loadAndSetProviders() and show success message
+        
+      } catch (error) {
+        console.error('Failed to setup onchain update:', error);
+        alert('Failed to setup onchain update. Please try again.');
+        return;
+      }
+    }
   };
 
   const handleValidationError = (error: string) => {
@@ -161,6 +309,8 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const handleValidationCancel = () => {
     setShowValidation(false);
     setCurlTemplateToValidate(null);
+    // Form fields and configuredCurlTemplate are automatically preserved
+    // The preservedCurlState will be passed to the component to restore the textarea
   };
 
   const handleMetadataCancel = () => {
@@ -197,7 +347,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     onClose();
   };
 
-  // Populate form when editing
+  // Populate form when editing - seamless update flow
   useEffect(() => {
     if (isEditMode && editingProvider) {
       // Populate metadata from existing provider
@@ -206,6 +356,15 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       setInstructions(editingProvider.instructions || "");
       setRegisteredProviderWallet(editingProvider.registered_provider_wallet || "");
       setPrice(editingProvider.price?.toString() || "");
+      
+      // Load original cURL template + modifiable parameters for seamless editing
+      if (editingProvider.endpoint) {
+        console.log('Loading original cURL template for seamless editing:', editingProvider.endpoint);
+        setConfiguredCurlTemplate(editingProvider.endpoint);
+        
+        // Auto-set to validation ready state since we already have a configured endpoint
+        // The user can modify the cURL if needed or proceed directly to update
+      }
     } else if (!isEditMode) {
       resetFormFields();
     }
@@ -309,6 +468,9 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                     setHasParsedCurl(false);
                     setConfiguredCurlTemplate(null);
                   }}
+                  originalCurlCommand=""
+                  onCurlStateChange={setCurrentCurlState}
+                  preservedCurlState={preservedCurlState}
                   configuredCurlTemplate={configuredCurlTemplate}
                   nodeId={window.our?.node || "auto-generated"}
                   providerName={providerName}
@@ -327,10 +489,11 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                 {configuredCurlTemplate && providerName && price && registeredProviderWallet && (
                   <div className="flex justify-center">
                     <button
-                      onClick={handleRegisterProvider}
-                      className="px-8 py-3 bg-gradient-to-r from-cyan to-blue-400 text-gray-900 font-bold rounded-lg hover:from-cyan/90 hover:to-blue-400/90 transition-all shadow-lg shadow-cyan/25"
+                      onClick={isEditMode ? handleUpdateProvider : handleRegisterProvider}
+                      className="px-8 py-3 bg-blue-600 text-white font-medium rounded-lg hover:bg-blue-700 
+                               transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     >
-                      Register Provider
+                      {isEditMode ? 'Validate Update' : 'Validate Provider'}
                     </button>
                   </div>
                 )}

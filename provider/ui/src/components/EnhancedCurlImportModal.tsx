@@ -19,6 +19,9 @@ interface EnhancedCurlImportModalProps {
   onParseSuccess?: () => void; // Callback when parsing succeeds
   onParseClear?: () => void; // Callback when parsing is cleared
   isInline?: boolean; // New prop to control inline rendering
+  initialCurlCommand?: string; // Initial cURL command to populate the textarea
+  onStateChange?: (state: any) => void; // Callback to notify parent of state changes
+  preservedState?: any; // Preserved state to restore
 }
 
 const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
@@ -27,19 +30,55 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   onImport,
   onParseSuccess,
   onParseClear,
-  isInline = false
+  isInline = false,
+  initialCurlCommand = "",
+  onStateChange,
+  preservedState
 }) => {
-  const [curlCommand, setCurlCommand] = useState('');
+  const [curlCommand, setCurlCommand] = useState(initialCurlCommand);
   const [parsedRequest, setParsedRequest] = useState<ParsedCurlRequest | null>(null);
   const [potentialFields, setPotentialFields] = useState<ModifiableField[]>([]);
   const [modifiableFields, setModifiableFields] = useState<ModifiableField[]>([]);
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'viewer' | 'modifiable'>('viewer');
+
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // Restore from preserved state
+  useEffect(() => {
+    if (preservedState) {
+      setCurlCommand(preservedState.curlCommand || "");
+      setParsedRequest(preservedState.parsedRequest || null);
+      setPotentialFields(preservedState.potentialFields || []);
+      console.log('DEBUG: Restoring modifiableFields:', preservedState.modifiableFields);
+      setModifiableFields(preservedState.modifiableFields || []);
+      setParseError(preservedState.parseError || null);
+      setActiveTab(preservedState.activeTab || 'viewer');
+    } else if (initialCurlCommand) {
+      setCurlCommand(initialCurlCommand);
+    }
+  }, [preservedState, initialCurlCommand]);
+
+  // Notify parent of state changes
+  useEffect(() => {
+    if (onStateChange) {
+      onStateChange({
+        curlCommand,
+        parsedRequest,
+        potentialFields,
+        modifiableFields,
+        parseError,
+        activeTab
+      });
+    }
+  }, [curlCommand, parsedRequest, potentialFields, modifiableFields, parseError, activeTab, onStateChange]);
+
   const handleParseCurl = (curlText: string) => {
+    console.log('DEBUG: handleParseCurl called with:', curlText.substring(0, 50) + '...');
+    
     if (!curlText.trim()) {
       // Clear everything when input is empty
+      console.log('DEBUG: Clearing all fields because curlText is empty');
       setParsedRequest(null);
       setPotentialFields([]);
       setModifiableFields([]);
@@ -55,9 +94,18 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
       const parsed = parseCurlCommand(curlText);
       const potential = identifyPotentialFields(parsed);
       
+      // Only clear modifiableFields if this is a new/different cURL command
+      // If we're re-parsing the same content (like during restoration), preserve existing selections
+      const isSameCurl = parsedRequest && parsedRequest.fullCurl === parsed.fullCurl;
+      
+      console.log('DEBUG: Parsing successful, isSameCurl:', isSameCurl, 'preserving existing modifiableFields:', isSameCurl);
       setParsedRequest(parsed);
       setPotentialFields(potential);
-      setModifiableFields([]);
+      
+      if (!isSameCurl) {
+        setModifiableFields([]); // Only clear if it's a different cURL
+      }
+      
       setParseError(null);
       
       // Notify parent that parsing succeeded
@@ -236,25 +284,6 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
               )}
             </div>
 
-
-
-            {/* Debug Button Only */}
-            <div className="flex justify-start pt-4 border-t border-gray-200 dark:border-gray-700">
-              <button
-                onClick={() => {
-                  if (parsedRequest) {
-                    const template = { originalCurl: curlCommand, parsedRequest, modifiableFields };
-                    const backendData = curlTemplateToBackendFormat(template);
-                    console.log('Backend data structure:', backendData);
-                    console.log('JSON string:', JSON.stringify(backendData, null, 2));
-                  }
-                }}
-                disabled={!parsedRequest}
-                className="px-4 py-2 text-sm bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 rounded hover:bg-gray-200 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Debug: Print to Console
-              </button>
-            </div>
           </div>
         )}
     </div>
