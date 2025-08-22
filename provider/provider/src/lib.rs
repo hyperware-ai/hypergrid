@@ -96,7 +96,7 @@ pub enum TerminalCommand {
 // }
 
 // NEW CURL-BASED STRUCTURE
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Debug, Serialize)]
 pub struct EndpointDefinition {
     // Core curl template data
     pub original_curl: String,
@@ -109,6 +109,76 @@ pub struct EndpointDefinition {
     // Parameter definitions for substitution
     pub parameters: Vec<ParameterDefinition>,
     pub parameter_names: Vec<String>,
+}
+
+// Custom Deserialize implementation for EndpointDefinition to handle migration
+impl<'de> Deserialize<'de> for EndpointDefinition {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Use an untagged enum to try different deserialization strategies
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum EndpointDefinitionVariant {
+            New(NewEndpointDefinition),
+            Old(OldEndpointDefinition),
+        }
+        
+        match EndpointDefinitionVariant::deserialize(deserializer) {
+            Ok(EndpointDefinitionVariant::New(new_endpoint)) => {
+                Ok(EndpointDefinition {
+                    original_curl: new_endpoint.original_curl,
+                    method: new_endpoint.method,
+                    base_url: new_endpoint.base_url,
+                    url_template: new_endpoint.url_template,
+                    original_headers: new_endpoint.original_headers,
+                    original_body: new_endpoint.original_body,
+                    parameters: new_endpoint.parameters,
+                    parameter_names: new_endpoint.parameter_names,
+                })
+            },
+            Ok(EndpointDefinitionVariant::Old(_old_endpoint)) => {
+                info!("Migrating old EndpointDefinition to new structure - creating empty endpoint definition");
+                // Create an empty endpoint definition for migration
+                Ok(EndpointDefinition::empty())
+            },
+            Err(_) => {
+                // If both fail, create an empty endpoint definition
+                info!("Failed to deserialize EndpointDefinition as old or new format - creating empty definition");
+                Ok(EndpointDefinition::empty())
+            }
+        }
+    }
+}
+
+// Helper structs for deserialization
+#[derive(Deserialize)]
+struct NewEndpointDefinition {
+    original_curl: String,
+    method: String,
+    base_url: String,
+    url_template: String,
+    original_headers: Vec<(String, String)>,
+    original_body: Option<String>,
+    parameters: Vec<ParameterDefinition>,
+    parameter_names: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)] // Fields are used for deserialization pattern matching but not directly accessed
+struct OldEndpointDefinition {
+    name: String,
+    method: HttpMethod,
+    request_structure: RequestStructureType,
+    base_url_template: String,
+    path_param_keys: Option<Vec<String>>,
+    query_param_keys: Option<Vec<String>>,
+    header_keys: Option<Vec<String>>,
+    body_param_keys: Option<Vec<String>>,
+    api_key: Option<String>,
+    api_key_query_param_name: Option<String>,
+    api_key_header_name: Option<String>,
 }
 
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
@@ -662,6 +732,20 @@ impl HypergridProviderState {
     }
 
     #[http]
+    async fn get_providers_needing_configuration(&self) -> Result<Vec<RegisteredProvider>, String> {
+        debug!("Fetching providers that need endpoint configuration");
+        let providers_needing_config: Vec<RegisteredProvider> = self
+            .registered_providers
+            .iter()
+            .filter(|provider| provider.endpoint.is_empty())
+            .cloned()
+            .collect();
+        
+        info!("Found {} providers needing endpoint configuration", providers_needing_config.len());
+        Ok(providers_needing_config)
+    }
+
+    #[http]
     async fn export_providers(&self) -> Result<String, String> {
         info!("Exporting providers as JSON");
         self.export_providers_json()
@@ -936,6 +1020,27 @@ impl HypergridProviderState {
 
 // Helper functions for data conversion
 impl EndpointDefinition {
+    /// Create an empty EndpointDefinition for migration purposes
+    pub fn empty() -> Self {
+        Self {
+            original_curl: String::new(),
+            method: "GET".to_string(),
+            base_url: String::new(),
+            url_template: String::new(),
+            original_headers: Vec::new(),
+            original_body: None,
+            parameters: Vec::new(),
+            parameter_names: Vec::new(),
+        }
+    }
+
+    /// Check if this endpoint definition is empty (needs configuration)
+    pub fn is_empty(&self) -> bool {
+        self.original_curl.is_empty() && 
+        self.base_url.is_empty() && 
+        self.url_template.is_empty()
+    }
+
     /// Parse the original_body string as JSON, returning None if parsing fails or field is None
     pub fn get_original_body_json(&self) -> Option<serde_json::Value> {
         self.original_body.as_ref()

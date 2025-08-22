@@ -39,6 +39,31 @@ export const fetchRegisteredProvidersApi = async (): Promise<RegisteredProvider[
   }
 };
 
+export const fetchProvidersNeedingConfigurationApi = async (): Promise<RegisteredProvider[]> => {
+  const requestData = { GetProvidersNeedingConfiguration: null };
+  try {
+    const result = await fetch(`${BASE_URL}/api`, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestData),
+    });
+    if (!result.ok) {
+      const errorText = await result.text();
+      console.error(`HTTP request failed: ${result.status} ${result.statusText}. Response:`, errorText);
+      throw new Error(`Failed to fetch providers needing configuration: ${result.statusText} - ${errorText}`);
+    }
+    const responseData = await result.json() as GetRegisteredProvidersResponse;
+    if (responseData.Ok) {
+      return responseData.Ok;
+    } else {
+      throw new Error(responseData.Err || "Unknown error fetching providers needing configuration");
+    }
+  } catch (error) {
+    console.error("Failed to fetch providers needing configuration:", error);
+    throw error; // Re-throw to be caught by the caller
+  }
+};
+
 export const getProviderNamehashApi = async (providerName: string): Promise<string> => {
   const requestData = { GetProviderNamehash: providerName } as any;
   try {

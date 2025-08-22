@@ -20,6 +20,7 @@ import {
 } from "./types/hypergrid_provider";
 import {
   fetchRegisteredProvidersApi,
+  fetchProvidersNeedingConfigurationApi,
   registerProviderApi,
 } from "./utils/api";
 import ProviderConfigModal from "./components/ProviderConfigModal";
@@ -160,6 +161,10 @@ function AppContent() {
   const [providersLoading, setProvidersLoading] = useState(false);
   const [providersError, setProvidersError] = useState<string | null>(null);
 
+  // Providers needing configuration state
+  const [providersNeedingConfig, setProvidersNeedingConfig] = useState<RegisteredProvider[]>([]);
+  const [hasCheckedConfigNeeded, setHasCheckedConfigNeeded] = useState(false);
+
   // Close menus on escape key and click outside
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -229,6 +234,25 @@ function AppContent() {
     }
   }, [setRegisteredProviders]);
 
+  const checkProvidersNeedingConfiguration = useCallback(async () => {
+    if (hasCheckedConfigNeeded) {
+      return; // Only check once per app session
+    }
+    
+    try {
+      const providersNeeding = await fetchProvidersNeedingConfigurationApi();
+      setProvidersNeedingConfig(providersNeeding);
+      setHasCheckedConfigNeeded(true);
+      
+      if (providersNeeding.length > 0) {
+        console.log(`Found ${providersNeeding.length} providers needing endpoint configuration:`, providersNeeding);
+      }
+    } catch (error) {
+      console.error("Failed to check providers needing configuration:", error);
+      setHasCheckedConfigNeeded(true); // Mark as checked even on error to prevent retry loops
+    }
+  }, [hasCheckedConfigNeeded]);
+
   const handleProviderUpdated = useCallback((updatedProvider: RegisteredProvider) => {
     // Update the provider in the local state
     const updatedProviders = registeredProviders.map(provider =>
@@ -246,12 +270,15 @@ function AppContent() {
   useEffect(() => {
     // Initial load
     loadAndSetProviders();
+    
+    // Check for providers needing configuration (only once)
+    checkProvidersNeedingConfiguration();
 
-    // Set up periodic refresh (every 60 seconds)
+    // Set up periodic refresh (every 60 seconds) - only for regular providers
     const interval = setInterval(loadAndSetProviders, 60000);
 
     return () => clearInterval(interval);
-  }, [loadAndSetProviders]);
+  }, [loadAndSetProviders, checkProvidersNeedingConfiguration]);
 
   
 
@@ -400,6 +427,34 @@ function AppContent() {
           </div>
           <ConnectButton />
         </div>
+        
+        {/* Configuration needed banner */}
+        {providersNeedingConfig.length > 0 && (
+          <div className="max-w-md p-4 bg-yellow-100 border border-yellow-400 rounded-lg mb-4">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="w-5 h-5 text-yellow-600" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="flex-1">
+                <h3 className="text-sm font-medium text-yellow-800">
+                  Configuration Required
+                </h3>
+                <p className="text-sm text-yellow-700 mt-1">
+                  {providersNeedingConfig.length} provider{providersNeedingConfig.length !== 1 ? 's' : ''} need{providersNeedingConfig.length === 1 ? 's' : ''} endpoint configuration after migration. 
+                  Click on the provider{providersNeedingConfig.length !== 1 ? 's' : ''} below to configure.
+                </p>
+                <div className="mt-2">
+                  <div className="text-xs text-yellow-600">
+                    Providers: {providersNeedingConfig.map(p => p.provider_name).join(', ')}
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <div className="max-w-md min-h-[30vh] p-8 bg-white rounded-lg flex flex-col gap-2">
           <h2 className="text-2xl font-bold">Hypergrid Provider Registry</h2>
 
