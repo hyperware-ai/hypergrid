@@ -1,5 +1,13 @@
 import React, { useMemo, useState } from 'react';
 
+const getApiBasePath = () => {
+  const pathParts = window.location.pathname.split('/').filter((p) => p);
+  const processIdPart = pathParts.find((part) => part.includes(':'));
+  return processIdPart ? `/${processIdPart}/api` : '/api';
+};
+
+const CLIENT_NAME_MAX_LEN = 60;
+
 export type HwClient = {
   id: string;
   name: string;
@@ -39,9 +47,11 @@ type Props = {
   onAddClient: () => void;
   onOpenGraphView?: () => void;
   nodeName?: string;
+  onRenameClient?: (clientId: string, newName: string) => Promise<void> | void;
+  isLoading?: boolean;
 };
 
-const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clients, events, onSetLimits, onToggleClientStatus, onOpenClientSettings, onAddClient, onOpenGraphView, nodeName: nodeNameProp }) => {
+const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clients, events, onSetLimits, onToggleClientStatus, onOpenClientSettings, onAddClient, onOpenGraphView, nodeName: nodeNameProp, onRenameClient, isLoading = false }) => {
   const [selectedClients, setSelectedClients] = useState<Set<string>>(new Set(['openai', 'anthropic', 'google']));
   const [expandedClient, setExpandedClient] = useState<string | null>(null);
   const [sortBy, setSortBy] = useState<'totalSpent' | 'usage' | 'name'>('totalSpent');
@@ -53,11 +63,11 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
   const [optimistic, setOptimistic] = useState<Record<string, Partial<HwClient>>>({});
 
   const updateLimit = async (clientId: string, limitType: string, value: string) => {
+    const num = Math.max(0, Number(value || '0'));
     if (limitType === 'total') {
-      const parsed = Number(value || '0');
-      setOptimistic((prev) => ({ ...prev, [clientId]: { ...(prev[clientId] || {}), monthlyLimit: isNaN(parsed) ? 0 : parsed } }));
+      setOptimistic((prev) => ({ ...prev, [clientId]: { ...(prev[clientId] || {}), monthlyLimit: num } }));
     }
-    await onSetLimits(clientId, { [limitType === 'total' ? 'maxTotal' : 'maxPerCall']: value });
+    await onSetLimits(clientId, { [limitType === 'total' ? 'maxTotal' : 'maxPerCall']: String(num) });
   };
   const toggleClientStatus = async (clientId: string) => {
     const base = clients.find((c) => c.id === clientId);
@@ -91,11 +101,11 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
   }, [sortBy]);
 
   const filteredEvents = useMemo(() => {
-    const arr = [...hwEvents];
+    const arr = [...hwEvents].filter((e) => e && typeof e === 'object');
     const dir = eventSortDir;
     if (dir === 'none') {
       // Default to time desc for readability
-      return arr.sort((a, b) => Number(new Date(b.timestamp)) - Number(new Date(a.timestamp)));
+      return arr.sort((a, b) => Number(new Date((b as any)?.timestamp || 0)) - Number(new Date((a as any)?.timestamp || 0)));
     }
     const mul = dir === 'asc' ? 1 : -1;
     const getClientName = (id?: string) => {
@@ -103,16 +113,20 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
       return nm.toLowerCase();
     };
     const getStatusRank = (e: HwEvent) => {
-      const s = getStatusInfo(e).status;
+      const s = getStatusInfo(e as any).status;
       return s === 'success' ? 3 : s === 'skipped' ? 2 : s === 'failed' ? 1 : 0;
     };
-    const getTxRank = (e: HwEvent) => (e.txHash ? 1 : 0);
-    const getProviderName = (e: HwEvent) => (e as any).providerName || e.provider || '';
+    const getTxRank = (e: HwEvent) => ((e as any)?.txHash ? 1 : 0);
+    const getProviderName = (e: HwEvent) => ((e as any)?.providerName || (e as any)?.provider || '').toString();
+    const num = (x: any) => {
+      const n = Number(x);
+      return Number.isFinite(n) ? n : 0;
+    };
     arr.sort((a, b) => {
       switch (eventSortKey) {
         case 'time': {
-          const va = Number(new Date(a.timestamp));
-          const vb = Number(new Date(b.timestamp));
+          const va = Number(new Date((a as any)?.timestamp || 0));
+          const vb = Number(new Date((b as any)?.timestamp || 0));
           if (va === vb) return 0;
           return va < vb ? -1 * mul : 1 * mul;
         }
@@ -135,8 +149,8 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
           return va < vb ? -1 * mul : 1 * mul;
         }
         case 'cost': {
-          const va = a.cost || 0;
-          const vb = b.cost || 0;
+          const va = num((a as any)?.cost ?? 0);
+          const vb = num((b as any)?.cost ?? 0);
           if (va === vb) return 0;
           return va < vb ? -1 * mul : 1 * mul;
         }
@@ -182,9 +196,18 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
   const formatAddress = (address?: string) => (address ? `${address.slice(0, 6)}...${address.slice(-4)}` : '—');
   const formatTimestamp = (timestamp: string) => new Date(timestamp).toLocaleString();
   const colorPalette = ['#10b981', '#3b82f6', '#ef4444', '#f59e0b', '#8b5cf6', '#06b6d4'];
+  const hashString = (value: string) => {
+    let h = 2166136261; // FNV-like prime seed
+    for (let i = 0; i < value.length; i++) {
+      h ^= value.charCodeAt(i);
+      h = (h * 16777619) >>> 0;
+    }
+    return h >>> 0;
+  };
   const getClientColor = (clientId: string) => {
-    const idx = hwClients.findIndex((c) => c.id === clientId);
-    return colorPalette[(idx + colorPalette.length) % colorPalette.length] || '#666';
+    const id = clientId || '';
+    const idx = id ? hashString(id) % colorPalette.length : 0;
+    return colorPalette[idx] || '#666';
   };
 
   const getStatusInfo = (e: HwEvent) => {
@@ -218,47 +241,108 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
   })();
   const isLowBalance = balanceNum < 1;
   const [copied, setCopied] = useState<boolean>(false);
+  const [renamingClientId, setRenamingClientId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState<string>('');
+
+  const startRename = (clientId: string, currentName: string) => {
+    setRenamingClientId(clientId);
+    setRenameDraft((currentName || '').slice(0, CLIENT_NAME_MAX_LEN));
+  };
+
+  const cancelRename = () => {
+    setRenamingClientId(null);
+    setRenameDraft('');
+  };
+
+  const commitRename = async (clientId: string, oldName: string) => {
+    const next = (renameDraft || '').slice(0, CLIENT_NAME_MAX_LEN).trim();
+    if (!next || next === oldName) { cancelRename(); return; }
+    // optimistic
+    setOptimistic((prev) => ({ ...prev, [clientId]: { ...(prev[clientId] || {}), name: next } }));
+    try {
+      if (onRenameClient) {
+        await onRenameClient(clientId, next);
+      } else {
+        const response = await fetch(`${getApiBasePath()}/actions`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            RenameAuthorizedClient: {
+              client_id: clientId,
+              new_name: next
+            }
+          })
+        });
+        if (!response.ok) {
+          throw new Error(await response.text());
+        }
+      }
+    } catch {
+      // revert on error
+      setOptimistic((prev) => ({ ...prev, [clientId]: { ...(prev[clientId] || {}), name: oldName } }));
+    } finally {
+      cancelRename();
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-sm">
       <div className="max-w-7xl mx-auto p-6 space-y-8">
         <section className="bg-white rounded-2xl shadow-sm p-4 relative w-full max-w-[400px] aspect-[1.586] overflow-visible">
-          {/* Top-left: Hypergrid logo */}
-          <div className="absolute left-4 top-3 flex items-center gap-2">
-            <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="HYPERGRID" className="h-6 w-auto" />
-          </div>
-          {/* Top-right: node.os name */}
-          <div className="absolute right-4 top-3 text-sm text-gray-900 font-medium">
-            {nodeName || '—'}
-          </div>
-          {/* Center: balance */}
-          <div className="absolute inset-0 flex items-center justify-center text-gray-900">
-            <span className="font-semibold text-4xl align-middle">{balanceNum.toLocaleString()}</span>
-            <span className="ml-2 text-sm align-middle">USDC</span>
-            {isLowBalance && (
-              <div className="relative group ml-2">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-400 text-white text-sm font-bold align-middle">!</span>
-                <div className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-yellow-300 text-black text-xs px-3 py-1.5 shadow-lg z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-0">
-                  Add funds by sending USDC on Base to your address {formatAddress(operatorTba)}
-                </div>
+          {isLoading ? (
+            <>
+              {/* Render exact structure with placeholders */}
+              <div className="absolute left-4 top-3 flex items-center gap-2 opacity-60">
+                <div className="h-5 w-28 bg-gray-200 rounded" />
               </div>
-            )}
-          </div>
-          {/* Bottom-left: full address, click-to-copy */}
-          <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 text-gray-600">
-            <button
-              title={copied ? 'Copied' : 'Click to copy'}
-              onClick={async () => { await copyToClipboard(operatorTba); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
-              className="font-mono text-sm tracking-wide hover:underline cursor-pointer text-center whitespace-nowrap relative"
-            >
-              {operatorTba || '—'}
-              {copied && (
-                <span className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow-lg z-50">
-                  Copied
-                </span>
-              )}
-            </button>
-          </div>
+              <div className="absolute right-4 top-3 text-sm text-gray-400 font-medium">—</div>
+              <div className="absolute inset-0 flex items-center justify-center text-gray-400">
+                <span className="font-semibold text-4xl align-middle">0.000</span>
+                <span className="ml-2 text-sm align-middle">USDC</span>
+              </div>
+              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 text-gray-400 font-mono text-sm">0x0000…0000</div>
+            </>
+          ) : (
+            <>
+              {/* Top-left: Hypergrid logo */}
+              <div className="absolute left-4 top-3 flex items-center gap-2">
+                <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="HYPERGRID" className="h-6 w-auto" />
+              </div>
+              {/* Top-right: node.os name */}
+              <div className="absolute right-4 top-3 text-sm text-gray-900 font-medium">
+                {nodeName || '—'}
+              </div>
+              {/* Center: balance */}
+              <div className="absolute inset-0 flex items-center justify-center text-gray-900">
+                <span className="font-semibold text-4xl align-middle">{balanceNum.toLocaleString()}</span>
+                <span className="ml-2 text-sm align-middle">USDC</span>
+                {isLowBalance && (
+                  <div className="relative group ml-2">
+                    <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-400 text-white text-sm font-bold align-middle">!</span>
+                    <div className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-yellow-300 text-black text-xs px-3 py-1.5 shadow-lg z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-0">
+                      Add funds by sending USDC on Base to your address {formatAddress(operatorTba)}
+                    </div>
+                  </div>
+                )}
+              </div>
+              {/* Bottom-left: full address, click-to-copy */}
+              <div className="absolute bottom-8 left-1/2 transform -translate-x-1/2 text-gray-600">
+                <button
+                  title={copied ? 'Copied' : 'Click to copy'}
+                  onClick={async () => { await copyToClipboard(operatorTba); setCopied(true); setTimeout(() => setCopied(false), 1200); }}
+                  className="font-mono text-sm tracking-wide hover:underline cursor-pointer text-center whitespace-nowrap relative"
+                >
+                  {operatorTba || '—'}
+                  {copied && (
+                    <span className="absolute -top-8 left-1/2 transform -translate-x-1/2 bg-gray-800 text-white text-xs px-2 py-1 rounded shadow-lg z-50">
+                      Copied
+                    </span>
+                  )}
+                </button>
+              </div>
+            </>
+          )}
         </section>
 
 
@@ -273,7 +357,23 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
           </div>
 
           <div className="space-y-1 divide-y divide-gray-200">
-            {sortedClients.map((client: any) => {
+            {isLoading ? (
+              Array.from({ length: 3 }).map((_, i) => (
+                <div key={i} className="flex items-center justify-between p-3 rounded-md border border-gray-200">
+                  <div className="flex items-center gap-3">
+                    <div className="w-4 h-4 rounded-sm bg-gray-200" />
+                    <div className="h-4 w-28 bg-gray-200 rounded" />
+                    <div className="h-4 w-12 bg-gray-100 rounded" />
+                  </div>
+                  <div className="flex items-center gap-6 text-xs text-gray-600">
+                    <div className="h-3 w-20 bg-gray-100 rounded" />
+                    <div className="h-3 w-20 bg-gray-100 rounded" />
+                    <div className="h-3 w-6 bg-gray-100 rounded" />
+                  </div>
+                </div>
+              ))
+            ) : (
+            sortedClients.map((client: any) => {
               const overlay = optimistic[client.id] || {};
               const merged = { ...client, ...overlay } as HwClient & { lastActivity?: string };
               const monthlyUsage = ((merged.monthlySpent || 0) / (merged.monthlyLimit || 1)) * 100;
@@ -283,7 +383,29 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                   <div className={`flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 rounded-md border border-gray-200`} onClick={() => setExpandedClient(isExpanded ? null : merged.id)}>
                     <div className="flex items-center gap-3">
                       <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: getClientColor(merged.id) }} />
-                      <span className="font-medium">{merged.name}</span>
+                      {renamingClientId === merged.id ? (
+                        <input
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                          className="px-2 py-0.5 text-xs border border-gray-300 rounded"
+                          value={renameDraft}
+                          maxLength={CLIENT_NAME_MAX_LEN}
+                          onChange={(e) => setRenameDraft(e.target.value.slice(0, CLIENT_NAME_MAX_LEN))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') commitRename(merged.id, client.name);
+                            if (e.key === 'Escape') cancelRename();
+                          }}
+                          onBlur={() => commitRename(merged.id, client.name)}
+                        />
+                      ) : (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); startRename(merged.id, merged.name); }}
+                          className="font-medium px-1 rounded hover:bg-gray-200/60 transition-colors cursor-pointer"
+                          title="Rename"
+                        >
+                          {merged.name}
+                        </button>
+                      )}
                       <div className={`px-2 py-1 text-xs rounded-full ${merged.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{merged.status}</div>
                     </div>
                     <div className="flex items-center gap-6 text-xs text-gray-600">
@@ -323,7 +445,8 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                   )}
                 </div>
               );
-            })}
+            })
+            )}
             <div className="flex items-center justify-between p-3 border border-gray-200 cursor-pointer hover:bg-gray-50 rounded-lg text-gray-600 hover:text-gray-800" onClick={onAddClient}>
               <div className="flex items-center gap-3">
                 <div className="w-4 h-4 rounded-sm bg-gray-300" />
@@ -339,6 +462,13 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
             <h2 className="font-medium text-gray-900">All Events</h2>
           </div>
           <div className="overflow-x-auto">
+            {isLoading ? (
+              <div className="space-y-2">
+                {Array.from({ length: 6 }).map((_, i) => (
+                  <div key={i} className="h-6 bg-gray-100 rounded animate-pulse" />
+                ))}
+              </div>
+            ) : (
             <table className="w-full text-xs table-fixed">
               <colgroup>
                 <col style={{ width: '180px' }} />
@@ -427,6 +557,7 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                 })}
               </tbody>
             </table>
+            )}
           </div>
         </section>
       </div>

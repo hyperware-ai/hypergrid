@@ -113,6 +113,7 @@ const OperatorConsole: React.FC = () => {
   const [isShimModalOpen, setIsShimModalOpen] = useState(false);
   const [operatorUsdcBalance, setOperatorUsdcBalance] = useState<string>('0');
   const [hotWalletForNewClient, setHotWalletForNewClient] = useState<string | null>(null);
+  const [isRefreshingUi, setIsRefreshingUi] = useState<boolean>(false);
   // Mock mode state (scoped to this console)
   const [mockMode, setMockMode] = useState<boolean>(false);
   const [mockOperatorTba, setMockOperatorTba] = useState<string>('0xDeaDbeEf00000000000000000000000000000000');
@@ -161,6 +162,16 @@ const OperatorConsole: React.FC = () => {
   useEffect(() => {
     fetchState();
     fetchActive();
+  }, [fetchState, fetchActive]);
+
+  const refreshAll = useCallback(async () => {
+    setIsRefreshingUi(true);
+    try {
+      await fetchState();
+      await fetchActive();
+    } finally {
+      setIsRefreshingUi(false);
+    }
   }, [fetchState, fetchActive]);
 
   // Global event hook to open graph from header cog
@@ -640,7 +651,6 @@ const OperatorConsole: React.FC = () => {
 
   return (
     <div style={{ ...monoBox, display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
-      {!isAfterWithClients && header}
       {isBefore && (
         <OneClickOperatorBoot
           parentTbaAddress={ownerNodeTba as any}
@@ -686,14 +696,15 @@ const OperatorConsole: React.FC = () => {
           <HyperwalletInterface
             operatorTba={buildHwProps().operatorTba}
             usdcBalance={buildHwProps().usdcBalance}
-            clients={buildHwProps().clients}
-            events={buildHwProps().events}
+            clients={(buildHwProps().clients || []).map((c) => ({ ...c }))}
+            events={(buildHwProps().events || []).map((e) => ({ ...e }))}
             onSetLimits={onSetLimits}
             onToggleClientStatus={onToggleClientStatus}
             onOpenClientSettings={onOpenClientSettings}
             onAddClient={onAddClient}
             onOpenGraphView={() => setShowGraphView(true)}
             nodeName={ownerNodeName || nodeId || undefined}
+            isLoading={isRefreshingUi || !state}
           />
           {isClientModalOpen && clientModalData && (
             <AuthorizedClientConfigModal
@@ -708,33 +719,57 @@ const OperatorConsole: React.FC = () => {
           {isShimModalOpen && (
             <ShimApiConfigModal
               isOpen={isShimModalOpen}
-              onClose={(refresh) => { setIsShimModalOpen(false); setHotWalletForNewClient(null); if (refresh) fetchState(); }}
+              onClose={(_refresh) => {
+                setIsShimModalOpen(false);
+                setHotWalletForNewClient(null);
+                window.location.reload();
+              }}
               hotWalletAddress={(hotWalletForNewClient || (singleHotWallet as any) || '') as any}
               onClientCreated={(clientId) => {
-                // Optimistically add to in-memory state without waiting for a backend refetch
-                try {
-                  const ac = (state?.authorized_clients as any) || {};
-                  if (!ac[clientId]) {
-                    (state as any).authorized_clients = {
-                      ...ac,
-                      [clientId]: { id: clientId, name: clientId, associated_hot_wallet_address: singleHotWallet },
-                    };
-                    // force a light refresh of UI data builders
-                    setCoarseState((prev) => prev); 
+                // Optimistically add to React state immutably; then refetch to sync
+                setState((prev) => {
+                  if (!prev) {
+                    return {
+                      authorized_clients: {
+                        [clientId]: { id: clientId, name: clientId, associated_hot_wallet_address: (singleHotWallet as any) || '' },
+                      },
+                      wallet_limits_cache: {},
+                      call_history: [],
+                    } as any;
                   }
-                  // Also fetch latest server state to sync derived fields
-                  fetchState();
-                } catch {}
+                  const prevAC: any = prev.authorized_clients || {};
+                  if (prevAC[clientId]) return prev;
+                  return {
+                    ...prev,
+                    authorized_clients: {
+                      ...prevAC,
+                      [clientId]: {
+                        id: clientId,
+                        name: clientId,
+                        associated_hot_wallet_address: (singleHotWallet as any) || '',
+                      },
+                    },
+                  } as any;
+                });
+                refreshAll();
               }}
             />
           )}
         </>
       ) : (
-        <>
-          {renderBalanceGraph()}
-          {clientsModule}
-          {rawEventsTable}
-        </>
+        <HyperwalletInterface
+          operatorTba={(state?.operator_tba_address as any) || ''}
+          usdcBalance={'0'}
+          clients={[]}
+          events={[]}
+          onSetLimits={onSetLimits}
+          onToggleClientStatus={onToggleClientStatus}
+          onOpenClientSettings={() => {}}
+          onAddClient={onAddClient}
+          onOpenGraphView={() => setShowGraphView(true)}
+          nodeName={ownerNodeName || nodeId || undefined}
+          isLoading={true}
+        />
       )}
       {showGraphView && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', padding: 24 }}>
