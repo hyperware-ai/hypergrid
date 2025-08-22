@@ -19,7 +19,7 @@ export default function Modal({
             onClick={preventAccidentalClose ? undefined : onClose}
         >
             <div
-                className="ml-100 max-w-screen-xl grow self-stretch my-6 mr-6 bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 p-4 rounded-xl overflow-y-auto relative shadow-2xl dark:shadow-black/50 flex flex-col gap-1 border border-gray-200 dark:border-gray-700"
+                className="ml-100 max-w-screen-xl grow max-h-[90vh] my-6 mr-6 bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 p-4 rounded-xl overflow-y-auto relative shadow-2xl dark:shadow-black/50 flex flex-col gap-1 border border-gray-200 dark:border-gray-700"
                 onClick={(e) => e.stopPropagation()}
             >
                 <div

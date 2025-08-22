@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { validateProviderApi } from '../utils/api';
+import { validateProviderApi, validateProviderUpdateApi } from '../utils/api';
 
 interface ValidationPanelProps {
   curlTemplate: any; // The backend format from EnhancedCurlImportModal
@@ -13,6 +13,8 @@ interface ValidationPanelProps {
   onValidationSuccess: (validatedProvider: any) => void;
   onValidationError: (error: string) => void;
   onCancel: () => void;
+  isEditMode?: boolean;
+  originalProviderName?: string;
 }
 
 interface ValidationArgs {
@@ -25,6 +27,8 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   onValidationSuccess,
   onValidationError,
   onCancel,
+  isEditMode = false,
+  originalProviderName,
 }) => {
   const [validationArgs, setValidationArgs] = useState<ValidationArgs>(() => {
     // Pre-populate with example values from the cURL template
@@ -53,6 +57,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   const [isValidating, setIsValidating] = useState(false);
   const [validationSuccessful, setValidationSuccessful] = useState(false);
   const [validationMessage, setValidationMessage] = useState<string>('');
+  const [validationResponse, setValidationResponse] = useState<string | null>(null);
 
   // Generate sample values for placeholders
   const getSampleValue = (key: string, paramType: 'path' | 'query' | 'header' | 'body'): string => {
@@ -107,23 +112,41 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       };
 
       // Send provider object and arguments for validation
-      const result = await validateProviderApi(provider, argumentValues);
+      const result = isEditMode && originalProviderName
+        ? await validateProviderUpdateApi(originalProviderName, provider, argumentValues)
+        : await validateProviderApi(provider, argumentValues);
 
       if (result.success && result.validatedProvider) {
         // Set success state and message
         setValidationSuccessful(true);
         setValidationMessage('Validation successful! You can now register your provider.');
+        
+        // Extract just the validation_result from the response
+        let validationResultOnly = null;
+        if (result.validationResult) {
+          try {
+            const parsed = JSON.parse(result.validationResult);
+            validationResultOnly = parsed.validation_result || result.validationResult;
+          } catch (e) {
+            // If parsing fails, use the raw result
+            validationResultOnly = result.validationResult;
+          }
+        }
+        setValidationResponse(validationResultOnly);
+        
         // Store the validated provider for later use
         (window as any).validatedProvider = result.validatedProvider;
       } else {
         setValidationSuccessful(false);
         setValidationMessage(result.error || 'Validation failed');
+        setValidationResponse(null);
         onValidationError(result.error || 'Validation failed');
       }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown validation error';
       setValidationSuccessful(false);
       setValidationMessage(errorMessage);
+      setValidationResponse(null);
       onValidationError(errorMessage);
     } finally {
       setIsValidating(false);
@@ -140,6 +163,26 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       .replace(/\s*\\\s*/g, ' \\\n  ') // Format line continuations
       .replace(/(-[A-Za-z])\s+/g, '$1 ') // Ensure single space after flags
       .trim();
+  };
+
+  // Helper function to format JSON with syntax highlighting
+  const formatJsonResponse = (jsonString: string): JSX.Element => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      const formatted = JSON.stringify(parsed, null, 2);
+      
+      // Simple syntax highlighting for JSON
+      const highlighted = formatted
+        .replace(/(".*?")\s*:/g, '<span style="color: #0ea5e9;">$1</span>:') // Property names in blue
+        .replace(/:\s*(".*?")/g, ': <span style="color: #10b981;">$1</span>') // String values in green
+        .replace(/:\s*(true|false|null)/g, ': <span style="color: #f59e0b;">$1</span>') // Booleans/null in amber
+        .replace(/:\s*(-?\d+\.?\d*)/g, ': <span style="color: #ef4444;">$1</span>'); // Numbers (including negative) in red
+      
+      return <span dangerouslySetInnerHTML={{ __html: highlighted }} />;
+    } catch (e) {
+      // If it's not valid JSON, just display as plain text
+      return <span>{jsonString}</span>;
+    }
   };
 
   // Generate a substituted cURL template for preview
@@ -277,6 +320,41 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         </div>
       )}
 
+      {/* API Response Display */}
+      {validationResponse && validationSuccessful && (
+        <div className="w-full mb-6">
+          <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">
+            API Response
+          </h3>
+          <div className="bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg">
+            {/* Response Header */}
+            <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 dark:border-gray-700">
+              <div className="flex items-center space-x-2">
+                <div className="w-3 h-3 bg-green-500 rounded-full"></div>
+                <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  Response
+                </span>
+              </div>
+              <button
+                onClick={() => navigator.clipboard.writeText(validationResponse)}
+                className="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 
+                         px-2 py-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800
+                         transition-colors duration-200"
+              >
+                Copy
+              </button>
+            </div>
+            
+            {/* Response Body */}
+            <div className="p-4 overflow-x-auto">
+              <pre className="text-sm font-mono text-gray-800 dark:text-gray-200 whitespace-pre-wrap">
+                <code>{formatJsonResponse(validationResponse)}</code>
+              </pre>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Action Buttons */}
       <div className="flex gap-3 w-full">
         <button
@@ -300,7 +378,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
                      hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2
                      disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200"
           >
-            {isValidating ? 'Validating...' : 'Validate'}
+            {isValidating ? 'Validating...' : (isEditMode ? 'Validate Update' : 'Validate')}
           </button>
         ) : (
           <button
@@ -310,7 +388,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
                      hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2
                      transition-colors duration-200"
           >
-            Register Provider
+{isEditMode ? 'Update Provider' : 'Register Provider'}
           </button>
         )}
       </div>

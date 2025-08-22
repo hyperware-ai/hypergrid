@@ -24,6 +24,7 @@ interface UnifiedTerminalInterfaceProps {
   setRegisteredProviderWallet: (value: string) => void;
   price: string;
   setPrice: (value: string) => void;
+  isEditMode?: boolean;
 }
 
 const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
@@ -45,6 +46,7 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
   setRegisteredProviderWallet,
   price,
   setPrice,
+  isEditMode = false,
 }) => {
   return (
     <div className="bg-stone-100 dark:bg-gray-800 border border-stone-300 dark:border-gray-600 rounded-lg font-mono text-sm overflow-hidden">
@@ -89,14 +91,20 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
           {/* Provider Name Header */}
           <div className="mb-4 pb-3 border-b border-stone-300 dark:border-gray-700">
             <div className="flex items-center gap-2">
-              <input
-                id="pform-providerName"
-                type="text"
-                value={providerName}
-                onChange={(e) => setProviderName(e.target.value)}
-                placeholder="provider-name"
-                className="bg-transparent border-none outline-none text-yellow-600 dark:text-yellow-400 placeholder-stone-500 dark:placeholder-gray-600 font-mono text-lg font-medium"
-              />
+              {isEditMode ? (
+                <span className="text-yellow-600 dark:text-yellow-400 font-mono text-lg font-medium">
+                  {providerName}
+                </span>
+              ) : (
+                <input
+                  id="pform-providerName"
+                  type="text"
+                  value={providerName}
+                  onChange={(e) => setProviderName(e.target.value)}
+                  placeholder="provider-name"
+                  className="bg-transparent border-none outline-none text-yellow-600 dark:text-yellow-400 placeholder-stone-500 dark:placeholder-gray-600 font-mono text-lg font-medium"
+                />
+              )}
               <span className="text-stone-500 dark:text-gray-500">.obfusc-grid123.hypr</span>
               <span className="text-stone-500 dark:text-gray-600 text-xs ml-auto">provider namespace</span>
             </div>

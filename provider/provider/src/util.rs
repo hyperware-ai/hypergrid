@@ -432,7 +432,29 @@ pub async fn call_provider(
     
     // Construct URL from template
     let mut final_url = endpoint_def.url_template.clone();
-    let mut query_params: Vec<(String, String)> = Vec::new();
+    
+    // Parse original curl to extract original query parameters
+    let mut original_query_params: HashMap<String, String> = HashMap::new();
+    // Extract URL from curl command (handle quoted and unquoted URLs)
+    if let Some(url_part) = endpoint_def.original_curl
+        .split_whitespace()
+        .find(|s| s.contains("http")) {
+        // Remove quotes and clean up the URL part
+        let clean_url = url_part.trim_matches('"').trim_matches('\'');
+        if let Ok(url) = url::Url::parse(clean_url) {
+            for (key, value) in url.query_pairs() {
+                original_query_params.insert(key.to_string(), value.to_string());
+            }
+        }
+    }
+    
+    debug!(
+        "Original query params extracted from curl: {:?}",
+        original_query_params
+    );
+    
+    // Start with original query parameters, then override with dynamic ones
+    let mut query_params: Vec<(String, String)> = original_query_params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut body_json = endpoint_def.get_original_body_json();
 
     // Process each parameter substitution based on JSON pointers
@@ -446,7 +468,10 @@ pub async fn call_provider(
                 final_url = final_url.replace(&format!("{{{}}}", param_def.parameter_name), value);
             }
             "query" => {
-                // Add to query parameters
+                // Override existing query parameter or add new one
+                // Remove any existing parameter with the same name first
+                query_params.retain(|(k, _)| k != &param_def.parameter_name);
+                // Add the new/updated parameter
                 query_params.push((param_def.parameter_name.clone(), value.clone()));
             }
             "header" => {

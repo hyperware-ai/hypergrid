@@ -422,6 +422,70 @@ impl HypergridProviderState {
 
 
     #[http]
+    async fn validate_provider_update(
+        &mut self,
+        provider_name: String,
+        updated_provider: RegisteredProvider,
+        arguments: Vec<(String, String)>,
+    ) -> Result<String, String> {
+        info!("Validating provider update: {}", provider_name);
+        
+        // Check if the original provider exists
+        if !self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == provider_name)
+        {
+            let error_msg = format!(
+                "Provider with name '{}' not found for update.",
+                provider_name
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // If the name is changing, check if new name already exists
+        if provider_name != updated_provider.provider_name {
+            if self
+                .registered_providers
+                .iter()
+                .any(|p| p.provider_name == updated_provider.provider_name)
+            {
+                let error_msg = format!(
+                    "A provider with name '{}' already exists. Please choose a different name.",
+                    updated_provider.provider_name
+                );
+                warn!("{}", error_msg);
+                return Err(error_msg);
+            }
+        }
+        
+        // Use the new curl-based validation
+        let validation_result = call_provider(
+            updated_provider.provider_name.clone(),
+            updated_provider.endpoint.clone(),
+            &arguments,
+            our().node.to_string(),
+        )
+        .await?;
+        
+        info!("Validation result: {}", validation_result);
+        validate_response_status(&validation_result)
+            .map_err(|e| format!("Validation failed: {}", e))?;
+
+        info!("Provider update validation successful: {}", updated_provider.provider_name);
+        
+        // Return the validated provider object as JSON for frontend consistency
+        let response = serde_json::json!({
+            "validation_result": validation_result,
+            "provider": updated_provider
+        });
+        
+        serde_json::to_string(&response)
+            .map_err(|e| format!("Failed to serialize validation response: {}", e))
+    }
+
+    #[http]
     async fn update_provider(
         &mut self,
         provider_name: String,

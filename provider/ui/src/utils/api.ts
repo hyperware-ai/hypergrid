@@ -3,7 +3,6 @@ import {
   GetRegisteredProvidersResponse,
   RegisterProviderRequest,
   RegisterProviderResponse,
-  UpdateProvider,
   UpdateProviderResponse,
   IndexedProvider,
   GetIndexedProvidersResponse,
@@ -164,6 +163,72 @@ export const validateProviderApi = async (
 
 
 
+
+// Validate provider endpoint for updates (skips "already registered" check)
+export const validateProviderUpdateApi = async (
+  providerName: string,
+  updatedProvider: RegisteredProvider, 
+  validationArguments: [string, string][] = []
+): Promise<{ success: boolean; error?: string; validatedProvider?: RegisteredProvider; validationResult?: string }> => {
+  try {
+    const payload = {
+      ValidateProviderUpdate: [providerName, updatedProvider, validationArguments],
+    };
+
+    const result = await fetch(`${BASE_URL}/api`, {
+      method: "POST",
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    if (!result.ok) {
+      const errorText = await result.text();
+      console.error(`Update validation request failed: ${result.status} ${result.statusText}. Response:`, errorText);
+      return { 
+        success: false, 
+        error: `Update validation failed: ${result.statusText} - ${errorText}` 
+      };
+    }
+
+    const responseText = await result.text();
+    console.log('Update validation response text:', responseText);
+    
+    try {
+      // First parse the Rust Result format
+      const rustResult = JSON.parse(responseText);
+      
+      if (rustResult.Ok) {
+        // Parse the inner JSON from the Ok field
+        const responseData = JSON.parse(rustResult.Ok);
+        return { 
+          success: true, 
+          validatedProvider: responseData.provider,
+          validationResult: responseData.validation_result 
+        };
+      } else if (rustResult.Err) {
+        return {
+          success: false,
+          error: rustResult.Err
+        };
+      } else {
+        return {
+          success: false,
+          error: 'Unknown response format'
+        };
+      }
+    } catch (parseError) {
+      // Fallback for backward compatibility
+      console.warn('Failed to parse update validation response as JSON, treating as plain text:', parseError);
+      return { success: false, error: 'Failed to parse response' };
+    }
+  } catch (error) {
+    console.error("Failed to validate provider update:", error);
+    return { 
+      success: false, 
+      error: error instanceof Error ? error.message : 'Unknown error' 
+    };
+  }
+};
 
 export const updateProviderApi = async (providerName: string, updatedProvider: RegisteredProvider): Promise<UpdateProviderResponse> => {
   console.log("Updating provider:", providerName, updatedProvider);

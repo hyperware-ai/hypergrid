@@ -1,8 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Modal from './Modal';
 import ValidationPanel from "./ValidationPanel";
-import HypergridEntryForm from "./HypergridEntryForm";
-import EnhancedCurlImportModal from "./EnhancedCurlImportModal";
 import UnifiedTerminalInterface from "./UnifiedTerminalInterface";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -53,11 +51,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const { address: connectedWalletAddress } = useAccount();
   const [showValidation, setShowValidation] = useState(false);
   const [curlTemplateToValidate, setCurlTemplateToValidate] = useState<any>(null);
-  const [validatedCurlTemplate, setValidatedCurlTemplate] = useState<any>(null);
-  const [showCurlImport, setShowCurlImport] = useState(false);
-  const [showModifyExisting, setShowModifyExisting] = useState(false);
   const [configuredCurlTemplate, setConfiguredCurlTemplate] = useState<any>(null);
-  const [hasParsedCurl, setHasParsedCurl] = useState(false);
   
   // Preserve complete state for navigation back from validation
   const [preservedCurlState, setPreservedCurlState] = useState<{
@@ -79,6 +73,91 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const [registeredProviderWallet, setRegisteredProviderWallet] = useState("");
   const [price, setPrice] = useState<string>("");
 
+  // Helper function to format price and avoid scientific notation while preserving full precision
+  const formatPriceForInput = useCallback((price: number): string => {
+    if (typeof price !== 'number' || isNaN(price)) return '0';
+    
+    // Convert to string and check if it's in scientific notation
+    const priceStr = price.toString();
+    if (priceStr.includes('e') || priceStr.includes('E')) {
+      // For scientific notation, use a high precision toFixed to preserve the full value
+      // Use up to 20 decimal places to ensure we don't lose precision
+      return price.toFixed(20).replace(/\.?0+$/, '');
+    }
+    
+    // If it's not in scientific notation, return as-is
+    return priceStr;
+  }, []);
+
+  const handleModifyExistingProvider = useCallback(() => {
+    if (!editingProvider) return;
+
+    // Pre-populate all the metadata fields from the existing provider
+    setProviderName(editingProvider.provider_name);
+    setProviderDescription(editingProvider.description);
+    setInstructions(editingProvider.instructions);
+    setRegisteredProviderWallet(editingProvider.registered_provider_wallet);
+    setPrice(formatPriceForInput(editingProvider.price));
+
+    // Convert the existing provider's endpoint back to a cURL template format
+    const reconstructedCurlTemplate = {
+      original_curl: editingProvider.endpoint.original_curl,
+      method: editingProvider.endpoint.method,
+      base_url: editingProvider.endpoint.base_url,
+      url_template: editingProvider.endpoint.url_template,
+      original_headers: editingProvider.endpoint.original_headers,
+      original_body: editingProvider.endpoint.original_body,
+      parameters: editingProvider.endpoint.parameters,
+      parameter_names: editingProvider.endpoint.parameter_names
+    };
+
+    // Set this as the configured template so the register button appears
+    setConfiguredCurlTemplate(reconstructedCurlTemplate);
+
+    // Create preserved state for the cURL component to restore the original cURL
+    // We need to create a minimal parsedRequest to prevent the auto-parser from clearing modifiable fields
+    const preservedState = {
+      curlCommand: editingProvider.endpoint.original_curl,
+      parsedRequest: {
+        fullCurl: editingProvider.endpoint.original_curl,
+        method: editingProvider.endpoint.method,
+        url: editingProvider.endpoint.original_curl.match(/https?:\/\/[^\s"']+/)?.[0] || '',
+        headers: Object.fromEntries(editingProvider.endpoint.original_headers),
+        body: editingProvider.endpoint.original_body ? JSON.parse(editingProvider.endpoint.original_body) : null,
+        queryParams: {},
+        pathSegments: [],
+        baseUrl: editingProvider.endpoint.base_url,
+        pathname: new URL(editingProvider.endpoint.base_url).pathname
+      },
+      potentialFields: editingProvider.endpoint.parameters.map(param => ({
+        jsonPointer: param.json_pointer,
+        fieldType: param.location,
+        name: param.parameter_name,
+        value: JSON.parse(param.example_value),
+        description: `${param.location} parameter: ${param.parameter_name}`
+      })),
+      modifiableFields: editingProvider.endpoint.parameters.map(param => ({
+        jsonPointer: param.json_pointer,
+        fieldType: param.location,
+        name: param.parameter_name,
+        value: JSON.parse(param.example_value),
+        description: `${param.location} parameter: ${param.parameter_name}`
+      })),
+      parseError: null,
+      activeTab: 'modifiable' as const
+    };
+
+    setPreservedCurlState(preservedState);
+  }, [editingProvider, formatPriceForInput]);
+
+  // Auto-load existing provider data when in edit mode
+  useEffect(() => {
+    if (isEditMode && editingProvider && isOpen) {
+      // Load the existing provider data immediately
+      handleModifyExistingProvider();
+    }
+  }, [isEditMode, editingProvider, isOpen, handleModifyExistingProvider]);
+
   const resetFormFields = () => {
     // Reset metadata form
     setProviderName("");
@@ -90,11 +169,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     // Reset flow state
     setShowValidation(false);
     setCurlTemplateToValidate(null);
-    setValidatedCurlTemplate(null);
-    setShowCurlImport(false);
-    setShowModifyExisting(false);
     setConfiguredCurlTemplate(null);
-    setHasParsedCurl(false);
     setPreservedCurlState(null);
     setCurrentCurlState(null);
   };
@@ -109,7 +184,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       const parameterNames = curlTemplateData.parameters.map((param: any) => param.parameter_name);
       const callArgsExample = parameterNames.map((name: string) => `["${name}", "{${name}_value}"]`).join(', ');
       
-      const instructionTemplate = `This provider should be called using the following format: {"callArgs": [${callArgsExample}], "providerId": "${window.our?.node || '{node_id}'}.os", "providerName": "${providerName || '{provider_name}'}"}`;
+      const instructionTemplate = `This provider should be called using the following format: {"callArgs": [${callArgsExample}], "providerId": "${window.our?.node || '{node_id}'}", "providerName": "${providerName || '{provider_name}'}"}`;
       
       setInstructions(instructionTemplate);
     } else if (!curlTemplateData) {
@@ -135,7 +210,6 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
   const handleValidationSuccess = async (validatedProvider: any) => {
     // After validation succeeds, prepare for registration
-    setValidatedCurlTemplate(validatedProvider.endpoint);
     setShowValidation(false);
     setPreservedCurlState(null); // Clear preserved state since we're moving forward
     
@@ -315,8 +389,9 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
   const handleMetadataCancel = () => {
     setConfiguredCurlTemplate(null);
-    setValidatedCurlTemplate(null);
   };
+
+
 
   const handleClose = () => {
     // Only reset if user explicitly confirms or if successful registration
@@ -347,28 +422,12 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     onClose();
   };
 
-  // Populate form when editing - seamless update flow
+  // Reset form when not in edit mode
   useEffect(() => {
-    if (isEditMode && editingProvider) {
-      // Populate metadata from existing provider
-      setProviderName(editingProvider.provider_name || "");
-      setProviderDescription(editingProvider.description || "");
-      setInstructions(editingProvider.instructions || "");
-      setRegisteredProviderWallet(editingProvider.registered_provider_wallet || "");
-      setPrice(editingProvider.price?.toString() || "");
-      
-      // Load original cURL template + modifiable parameters for seamless editing
-      if (editingProvider.endpoint) {
-        console.log('Loading original cURL template for seamless editing:', editingProvider.endpoint);
-        setConfiguredCurlTemplate(editingProvider.endpoint);
-        
-        // Auto-set to validation ready state since we already have a configured endpoint
-        // The user can modify the cURL if needed or proceed directly to update
-      }
-    } else if (!isEditMode) {
+    if (!isEditMode) {
       resetFormFields();
     }
-  }, [isEditMode, editingProvider]);
+  }, [isEditMode]);
 
   // Auto-populate wallet with connected wallet address when form becomes visible
   useEffect(() => {
@@ -424,7 +483,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
               <ValidationPanel
                 curlTemplate={curlTemplateToValidate}
                 providerMetadata={{
-                  providerName,
+                  providerName: isEditMode && editingProvider ? editingProvider.provider_name : providerName,
                   providerDescription,
                   instructions,
                   registeredProviderWallet,
@@ -433,39 +492,16 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                 onValidationSuccess={handleValidationSuccess}
                 onValidationError={handleValidationError}
                 onCancel={handleValidationCancel}
+                isEditMode={isEditMode}
+                originalProviderName={editingProvider?.provider_name}
               />
-            ) : isEditMode ? (
-              <div className="flex flex-col items-center gap-6 p-8">
-                <h3 className="text-xl font-semibold text-center">Update API Provider</h3>
-                <p className="text-gray-600 dark:text-gray-400 text-center max-w-lg">
-                  Choose how to update your provider: import a new cURL command or modify existing settings
-                </p>
-                
-                <div className="flex flex-col sm:flex-row gap-4">
-                  <button
-                    onClick={() => setShowCurlImport(true)}
-                    className="px-6 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                  >
-                    Import New cURL
-                  </button>
-                  <button
-                    onClick={() => {
-                      setShowModifyExisting(true);
-                    }}
-                    className="px-6 py-3 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                  >
-                    Modify Existing
-                  </button>
-                </div>
-              </div>
             ) : (
               <div className="flex flex-col items-stretch gap-3">
                 {/* Unified Terminal Interface */}
                 <UnifiedTerminalInterface
                   onCurlImport={handleCurlImport}
-                  onParseSuccess={() => setHasParsedCurl(true)}
+                  onParseSuccess={() => {}}
                   onParseClear={() => {
-                    setHasParsedCurl(false);
                     setConfiguredCurlTemplate(null);
                   }}
                   originalCurlCommand=""
@@ -483,6 +519,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   setRegisteredProviderWallet={setRegisteredProviderWallet}
                   price={price}
                   setPrice={setPrice}
+                  isEditMode={isEditMode}
                 />
 
                 {/* Register Button - Only shows when all fields are filled */}
@@ -516,68 +553,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
 
 
-            {/* Modify Existing Provider Modal */}
-            {showModifyExisting && editingProvider && (
-              <Modal
-                title="Modify Existing Provider"
-                onClose={() => setShowModifyExisting(false)}
-                titleChildren={<div className="text-sm text-gray-500">Edit your provider's cURL template and parameters</div>}
-              >
-                <div className="space-y-6">
-                  <div className="p-4 bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 rounded-lg">
-                    <p className="text-sm text-yellow-800 dark:text-yellow-200">
-                      <strong>Note:</strong> Modifying the provider will update its configuration. 
-                      You can change parameter names, add/remove modifiable fields, or update constants.
-                    </p>
-                  </div>
-                  
-                  {/* Show existing provider info */}
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Provider Name
-                      </label>
-                      <input
-                        type="text"
-                        value={editingProvider.provider_name}
-                        disabled
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md bg-gray-50 dark:bg-gray-800 text-gray-500"
-                      />
-                    </div>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                        Current Endpoint
-                      </label>
-                      <div className="p-3 bg-gray-50 dark:bg-gray-800 rounded-md font-mono text-sm">
-                        {editingProvider.endpoint.url_template || 'No template available'}
-                      </div>
-                    </div>
-                  </div>
-                  
-                  <div className="flex justify-end gap-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-                    <button
-                      onClick={() => setShowModifyExisting(false)}
-                      className="px-4 py-2 text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-700"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={() => {
-                        // TODO: Convert existing provider to cURL template format and show in validation
-                        // For now, just proceed to validation with existing data
-                        setCurlTemplateToValidate(editingProvider);
-                        setShowModifyExisting(false);
-                        setShowValidation(true);
-                      }}
-                      className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                    >
-                      Proceed to Validation
-                    </button>
-                  </div>
-                </div>
-              </Modal>
-            )}
+
 
             {providerUpdate.isUpdating && (
               <div className="fixed inset-0 bg-gray dark:bg-dark-gray flex flex-col justify-center items-center z-50 p-5">
