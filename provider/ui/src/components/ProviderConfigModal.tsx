@@ -17,7 +17,7 @@ interface ProviderConfigModalProps {
   editingProvider?: RegisteredProvider;
   isWalletConnected: boolean;
   onProviderRegistration: (provider: RegisteredProvider) => void;
-  onProviderUpdate: (updatedProvider: RegisteredProvider) => void;
+  onProviderUpdate: (provider: RegisteredProvider, formData: any) => void;
   providerRegistration: {
     isRegistering: boolean;
     step: ProviderRegistrationStep;
@@ -35,6 +35,11 @@ interface ProviderConfigModalProps {
     isUpdating: boolean;
     updateProviderNotes: (tbaAddress: `0x${string}`, notes: Array<{ key: string; value: string }>) => Promise<void>;
   };
+  publicClient?: any;
+  handleProviderUpdated: (provider: RegisteredProvider) => void;
+  processUpdateResponse: (response: any) => { success: boolean; message: string };
+  resetEditState: () => void;
+  handleCloseAddNewModal: () => void;
 }
 
 const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
@@ -46,7 +51,12 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   onProviderRegistration,
   onProviderUpdate,
   providerRegistration,
-  providerUpdate
+  providerUpdate,
+  publicClient,
+  handleProviderUpdated,
+  processUpdateResponse,
+  resetEditState,
+  handleCloseAddNewModal
 }) => {
   const { address: connectedWalletAddress } = useAccount();
   const [showValidation, setShowValidation] = useState(false);
@@ -174,6 +184,24 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setCurrentCurlState(null);
   };
 
+  // Reset form when modal closes or when switching between edit/new modes
+  useEffect(() => {
+    if (!isOpen) {
+      // Modal is closing - reset everything immediately
+      setTimeout(() => {
+        resetFormFields();
+      }, 0);
+    }
+  }, [isOpen]);
+
+  // Reset form when switching from edit mode to new mode
+  useEffect(() => {
+    if (!isEditMode && isOpen) {
+      // Switched to new provider mode - reset form
+      resetFormFields();
+    }
+  }, [isEditMode, isOpen]);
+
   const handleCurlImport = useCallback((curlTemplateData: any) => {
     // Store the configured cURL template - this now happens automatically
     // Can be null when cURL is cleared
@@ -209,11 +237,11 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   };
 
   const handleValidationSuccess = async (validatedProvider: any) => {
-    // After validation succeeds, prepare for registration
+    // After validation succeeds, prepare for registration/update
     setShowValidation(false);
     setPreservedCurlState(null); // Clear preserved state since we're moving forward
     
-    // Proceed to registration with the validated provider object
+    // Proceed to registration or update with the validated provider object
     handleFinalRegistration(validatedProvider);
   };
 
@@ -283,97 +311,9 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   const handleProviderUpdateFlow = async (validatedProvider: RegisteredProvider) => {
     if (!editingProvider) return;
 
-    // Import the smart update logic
-    const { createSmartUpdatePlan, shouldUseFastUpdatePath } = await import('../utils/providerFormUtils');
-    
-    // Create smart update plan to determine what needs updating
-    const updatePlan = createSmartUpdatePlan(editingProvider, validatedProvider);
-    
-    console.log('Smart update plan:', updatePlan);
-
-    if (!updatePlan.needsOnChainUpdate && !updatePlan.needsOffChainUpdate) {
-      alert('No changes detected to update.');
-      return;
-    }
-
-    // Warn about instructions changes
-    if (updatePlan.shouldWarnAboutInstructions) {
-      const proceed = confirm(
-        'You are updating the instructions field, which is stored on-chain. ' +
-        'This will require a blockchain transaction. Do you want to proceed?'
-      );
-      if (!proceed) return;
-    }
-
-    // State to track which updates are complete
-    let onchainUpdateComplete = !updatePlan.needsOnChainUpdate;
-    let offchainUpdateComplete = !updatePlan.needsOffChainUpdate;
-
-    const checkAndCompleteUpdate = () => {
-      if (onchainUpdateComplete && offchainUpdateComplete) {
-        console.log('Both onchain and offchain updates completed successfully');
-        alert('Provider updated successfully!');
-        onProviderUpdate(validatedProvider);
-        handleClose();
-      }
-    };
-
-    // Handle offchain update first (faster, no blockchain interaction)
-    if (updatePlan.needsOffChainUpdate) {
-      try {
-        const { updateProviderApi } = await import('../utils/api');
-        const response = await updateProviderApi(editingProvider.provider_name, validatedProvider);
-        
-        if (response.Ok) {
-          console.log('Provider updated successfully in backend:', response.Ok);
-          offchainUpdateComplete = true;
-          checkAndCompleteUpdate();
-        } else {
-          console.error('Failed to update provider in backend:', response.Err);
-          alert(`Failed to update provider configuration: ${response.Err}`);
-          return;
-        }
-      } catch (error) {
-        console.error('Error updating provider in backend:', error);
-        alert('Failed to update provider configuration. Please try again.');
-        return;
-      }
-    }
-
-    // Handle onchain update (requires user interaction and waiting for tx)
-    if (updatePlan.needsOnChainUpdate) {
-      try {
-        const { lookupProviderTbaAddressFromBackend } = await import('../registration/hypermap');
-        
-        // Resolve the TBA address for this provider
-        const tbaAddress = await lookupProviderTbaAddressFromBackend(
-          editingProvider.provider_name,
-          null // publicClient - the function handles this internally
-        );
-        
-        if (!tbaAddress) {
-          alert('Could not find blockchain address for this provider. Please ensure it was properly registered.');
-          return;
-        }
-        
-        console.log('Triggering onchain update with TBA address:', tbaAddress, 'and notes:', updatePlan.onChainNotes);
-        
-        // Set up a one-time listener for completion
-        const originalCallback = providerUpdate.updateProviderNotes;
-        
-        // Use the provider update hook to handle the onchain portion
-        // The completion will be handled by the useProviderUpdate hook's onUpdateComplete callback
-        await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
-        
-        // Note: The onchain update completion is handled by the useProviderUpdate hook
-        // in App.tsx which will call loadAndSetProviders() and show success message
-        
-      } catch (error) {
-        console.error('Failed to setup onchain update:', error);
-        alert('Failed to setup onchain update. Please try again.');
-        return;
-      }
-    }
+    // Use the comprehensive update flow from App.tsx
+    // This integrates with the TBA system properly
+    await onProviderUpdate(editingProvider, validatedProvider);
   };
 
   const handleValidationError = (error: string) => {
@@ -422,12 +362,7 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     onClose();
   };
 
-  // Reset form when not in edit mode
-  useEffect(() => {
-    if (!isEditMode) {
-      resetFormFields();
-    }
-  }, [isEditMode]);
+
 
   // Auto-populate wallet with connected wallet address when form becomes visible
   useEffect(() => {
@@ -556,15 +491,19 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
 
 
             {providerUpdate.isUpdating && (
-              <div className="fixed inset-0 bg-gray dark:bg-dark-gray flex flex-col justify-center items-center z-50 p-5">
-                <div className="bg-white dark:bg-black p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-8">
-                  <h3 className="text-2xl font-medium">
-                    Updating Provider
-                  </h3>
-                  <div className="text-sm">
-                    Updating provider metadata on blockchain...
+              <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
+                <div className="bg-white dark:bg-gray-800 p-6 rounded-lg shadow-xl max-w-sm mx-4 text-center">
+                  <div className="flex flex-col items-center gap-4">
+                    <ImSpinner8 className="animate-spin text-blue-600 text-2xl" />
+                    <div>
+                      <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100">
+                        Updating Provider
+                      </h3>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                        Updating metadata on blockchain...
+                      </p>
+                    </div>
                   </div>
-                  <ImSpinner8 className="animate-spin" />
                 </div>
               </div>
             )}

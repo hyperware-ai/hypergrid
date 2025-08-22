@@ -468,11 +468,17 @@ pub async fn call_provider(
                 final_url = final_url.replace(&format!("{{{}}}", param_def.parameter_name), value);
             }
             "query" => {
+                // Extract the original query parameter name from JSON pointer
+                // JSON pointer format: "/queryParams/original_param_name"
+                let original_param_name = param_def.json_pointer
+                    .strip_prefix("/queryParams/")
+                    .ok_or_else(|| format!("Invalid query JSON pointer: {}", param_def.json_pointer))?;
+                
                 // Override existing query parameter or add new one
-                // Remove any existing parameter with the same name first
-                query_params.retain(|(k, _)| k != &param_def.parameter_name);
-                // Add the new/updated parameter
-                query_params.push((param_def.parameter_name.clone(), value.clone()));
+                // Remove any existing parameter with the original name first
+                query_params.retain(|(k, _)| k != original_param_name);
+                // Add the new/updated parameter using the original parameter name
+                query_params.push((original_param_name.to_string(), value.clone()));
             }
             "header" => {
                 // Update header value

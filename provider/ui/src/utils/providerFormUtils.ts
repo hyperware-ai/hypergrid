@@ -4,7 +4,6 @@ import { RegisteredProvider} from '../types/hypergrid_provider';
 export interface SmartUpdatePlan {
   needsOnChainUpdate: boolean;
   needsOffChainUpdate: boolean;
-  shouldWarnAboutInstructions: boolean;
   onChainNotes: Array<{ key: string; value: string }>;
   updatedProvider: RegisteredProvider;
 }
@@ -30,7 +29,6 @@ export function createSmartUpdatePlan(
   const onChainNotes: Array<{ key: string; value: string }> = [];
   let needsOnChainUpdate = false;
   let needsOffChainUpdate = false;
-  let shouldWarnAboutInstructions = false;
 
   // Check onchain fields that can be updated
   const onChainFields = [
@@ -64,11 +62,6 @@ export function createSmartUpdatePlan(
         key: field.key,
         value: field.updatedValue || '',
       });
-
-      // Special warning for instructions changes
-      if (field.key === ON_CHAIN_NOTE_KEYS.INSTRUCTIONS) {
-        shouldWarnAboutInstructions = true;
-      }
     }
   }
 
@@ -96,7 +89,6 @@ export function createSmartUpdatePlan(
   return {
     needsOnChainUpdate,
     needsOffChainUpdate,
-    shouldWarnAboutInstructions,
     onChainNotes,
     updatedProvider,
   };

@@ -99,17 +99,46 @@ function AppContent() {
 
   // Blockchain provider updates
   const providerUpdate = useProviderUpdate({
-    onUpdateComplete: (success) => {
+    onUpdateComplete: async (success) => {
       if (success) {
         console.log('Provider notes updated successfully on blockchain');
-        // Reload providers to reflect changes
-        loadAndSetProviders();
+        
+        // Handle backend update AFTER blockchain confirmation
+        const pendingUpdatePlan = (window as any).pendingUpdatePlan;
+        if (pendingUpdatePlan?.needsOffChainUpdate) {
+          console.log('Now updating backend after blockchain confirmation...');
+          try {
+            const response = await updateProviderApi(pendingUpdatePlan.updatedProvider.provider_name, pendingUpdatePlan.updatedProvider);
+            const feedback = processUpdateResponse(response);
+
+            if (response.Ok) {
+              console.log('Backend updated successfully after blockchain confirmation');
+              handleProviderUpdated(response.Ok);
+            } else {
+              console.error('Backend update failed after blockchain confirmation:', response.Err);
+              alert(`Blockchain update succeeded but backend update failed: ${feedback.message}`);
+              return;
+            }
+          } catch (error) {
+            console.error('Error updating backend after blockchain confirmation:', error);
+            alert('Blockchain update succeeded but backend update failed. Please try again.');
+            return;
+          }
+        }
+        
+        // Clean up and close modal FIRST
+        (window as any).pendingUpdatePlan = null;
         resetEditState();
         handleCloseAddNewModal();
+        
+        // Then reload and show success message
+        loadAndSetProviders();
         alert('Provider updated successfully!');
       }
     },
     onUpdateError: (error) => {
+      // Clean up on error
+      (window as any).pendingUpdatePlan = null;
       alert(`Blockchain update failed: ${error}`);
     }
   });
@@ -242,16 +271,83 @@ function AppContent() {
     }
   }, [isWalletConnected, providerRegistration]);
 
-  const handleProviderUpdate = useCallback(async (updatedProvider: RegisteredProvider) => {
-    console.log('Provider update completed:', updatedProvider);
-    
-    // Refresh the providers list to show updated data
-    loadAndSetProviders();
-    
-    // Close the edit modal
-    setIsEditMode(false);
-    setShowForm(false);
-  }, [loadAndSetProviders]);
+  // Helper function for processing update responses
+  const processUpdateResponse = useCallback((response: any) => {
+    if (response.Ok) {
+      return { success: true, message: 'Provider updated successfully!' };
+    } else {
+      return { success: false, message: response.Err || 'Unknown error during update' };
+    }
+  }, []);
+
+  const handleProviderUpdate = useCallback(async (provider: RegisteredProvider, formData: any) => {
+    // This will handle the smart update system with TBA integration
+    try {
+      const { createSmartUpdatePlan } = await import('./utils/providerFormUtils');
+      const updatePlan = createSmartUpdatePlan(provider, formData);
+
+
+
+      // Check if wallet is needed for on-chain updates
+      if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
+        alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
+        return;
+      }
+
+      console.log('Update plan:', updatePlan);
+
+      // Check if we need on-chain updates first
+      if (updatePlan.needsOnChainUpdate) {
+        console.log('Updating on-chain notes...', updatePlan.onChainNotes);
+
+        try {
+          // Look up the actual TBA address for this provider from backend
+          const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
+
+          if (!tbaAddress) {
+            alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
+            return;
+          }
+
+          console.log(`Found TBA address: ${tbaAddress} for provider: ${provider.provider_name}`);
+
+          // Store the update plan for the onUpdateComplete callback to handle backend update
+          (window as any).pendingUpdatePlan = updatePlan;
+
+          // Execute the blockchain update
+          // Backend update will happen in the onUpdateComplete callback AFTER confirmation
+          await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
+
+          // Success will be handled by the providerUpdate.onUpdateComplete callback
+        } catch (error) {
+          console.error('Error during blockchain update:', error);
+          alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
+        }
+      } else if (updatePlan.needsOffChainUpdate) {
+        // Only off-chain updates needed (no blockchain transaction required)
+        console.log('Updating off-chain data only (no blockchain changes)...');
+        const response = await updateProviderApi(provider.provider_name, updatePlan.updatedProvider);
+        const feedback = processUpdateResponse(response);
+
+        if (!response.Ok) {
+          alert(feedback.message);
+          return;
+        }
+
+        // Close modal first, then update local state and show success
+        resetEditState();
+        handleCloseAddNewModal();
+        handleProviderUpdated(response.Ok);
+        alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
+      } else {
+        // No changes detected
+        alert('No changes detected to update.');
+      }
+    } catch (err) {
+      console.error('Failed to update provider: ', err);
+      alert('Failed to update provider.');
+    }
+  }, [isWalletConnected, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal, processUpdateResponse]);
 
 
 
@@ -417,17 +513,22 @@ function AppContent() {
           </div>
         )}
 
-        <ProviderConfigModal
-          isOpen={showForm}
-          onClose={handleCloseAddNewModal}
-          isEditMode={isEditMode}
-          editingProvider={editingProvider}
-          isWalletConnected={isWalletConnected}
-          onProviderRegistration={handleProviderRegistration}
-          onProviderUpdate={handleProviderUpdate}
-          providerRegistration={providerRegistration}
-          providerUpdate={providerUpdate}
-        />
+                  <ProviderConfigModal
+            isOpen={showForm}
+            onClose={handleCloseAddNewModal}
+            isEditMode={isEditMode}
+            editingProvider={editingProvider}
+            isWalletConnected={isWalletConnected}
+            onProviderRegistration={handleProviderRegistration}
+            onProviderUpdate={handleProviderUpdate}
+            providerRegistration={providerRegistration}
+            providerUpdate={providerUpdate}
+            publicClient={publicClient}
+            handleProviderUpdated={handleProviderUpdated}
+            processUpdateResponse={processUpdateResponse}
+            resetEditState={resetEditState}
+            handleCloseAddNewModal={handleCloseAddNewModal}
+          />
       </main>
     </div>
   );
