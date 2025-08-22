@@ -28,12 +28,14 @@ interface ShimApiConfigModalProps {
     isOpen: boolean;
     onClose: (shouldRefresh?: boolean) => void;
     hotWalletAddress: string; // Changed from optional to required
+    onClientCreated?: (clientId: string, token: string) => void;
 }
 
 const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     isOpen,
     onClose,
-    hotWalletAddress // Now mandatory
+    hotWalletAddress, // Now mandatory
+    onClientCreated
 }) => {
     const [apiConfig, setApiConfig] = useState<any | null>(null);
     const [isGeneratingConfig, setIsGeneratingConfig] = useState<boolean>(false);
@@ -93,6 +95,10 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                 setApiConfig(configData);
                 setGenerationError(null);
                 setHasGeneratedCredentials(true);
+                // Notify parent immediately so UI can reflect the new client without a full refetch
+                try {
+                    onClientCreated && onClientCreated(responseData.client_id, responseData.raw_token);
+                } catch (e) { /* no-op */ }
             })
             .catch(err => {
                 console.error("Error generating API config:", err);

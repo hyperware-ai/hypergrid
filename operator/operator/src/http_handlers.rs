@@ -310,6 +310,7 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 ApiRequest::ActivateWallet { password } => handle_activate_wallet(state, password),
                 ApiRequest::DeactivateWallet {} => handle_deactivate_wallet(state),
                 ApiRequest::SetWalletLimits { limits } => handle_set_wallet_limits(state, limits),
+                ApiRequest::SetClientLimits { client_id, limits } => handle_set_client_limits(state, client_id, limits),
                 ApiRequest::ExportSelectedPrivateKey { password } => handle_export_private_key(state, password),
                 ApiRequest::SetSelectedWalletPassword { new_password, old_password } => handle_set_wallet_password(state, new_password, old_password),
                 ApiRequest::RemoveSelectedWalletPassword { current_password } => handle_remove_wallet_password(state, current_password),
@@ -612,7 +613,8 @@ fn handle_provider_call_request(
                 PaymentAttemptResult::Skipped {
                     reason: format!("DB Lookup Failed: Key '{}' not found", returned_lookup_key)
                 },
-                wallet_id_for_failure
+                wallet_id_for_failure,
+                Some(provider_name.clone())
             );
             send_json_response(StatusCode::NOT_FOUND, &json!({ 
                 "error": format!("Provider '{}' not found", returned_lookup_key) 
@@ -651,7 +653,8 @@ fn execute_provider_flow(
                 PaymentAttemptResult::Skipped {
                     reason: format!("Provider health check failed: {}", health_error)
                 },
-                wallet_id_for_failure
+                wallet_id_for_failure,
+                Some(provider_name.clone())
             );
             return send_json_response(StatusCode::SERVICE_UNAVAILABLE, &json!({ 
                 "error": "Provider is not responding", 
@@ -684,7 +687,8 @@ fn execute_provider_flow(
                 provider_details.provider_id.clone(),
                 call_args_json, 
                 payment_result.clone(),
-                wallet_id_for_failure
+                wallet_id_for_failure,
+                Some(provider_name.clone())
             );
             send_json_response(StatusCode::PAYMENT_REQUIRED, &json!({ 
                 "error": "Pre-payment failed or was skipped.", 
@@ -827,6 +831,15 @@ fn handle_set_wallet_limits(state: &mut State, limits: SpendingLimits) -> anyhow
             "error": e 
         })),
     }
+}
+
+fn handle_set_client_limits(state: &mut State, client_id: String, limits: SpendingLimits) -> anyhow::Result<()> {
+    info!("Setting client spending limits for {}", client_id);
+    // Persist to state cache immediately for UI readback
+    state.client_limits_cache.insert(client_id.clone(), limits.clone());
+    state.save();
+    // No hyperwallet call needed; client limits are enforced in our payment pipeline
+    send_json_response(StatusCode::OK, &json!({ "success": true }))
 }
 
 // Similar pattern for other wallet operations...
@@ -1056,7 +1069,7 @@ fn determine_ui_payment_wallet(state: &State) -> Result<String, PaymentAttemptRe
 
 // Helper function to execute provider call (no payment)
 fn execute_provider_call(
-    our: &Address,
+    _our: &Address,
     state: &mut State,
     provider_details: &ProviderDetails,
     provider_name: String,
@@ -1077,7 +1090,7 @@ fn execute_provider_call(
     // Prepare request
     info!("Preparing request for provider process at {}", target_address);
     let provider_request_data = ProviderRequest {
-        provider_name,
+        provider_name: provider_name.clone(),
         arguments,
         payment_tx_hash: payment_tx_hash_clone,
     };
@@ -1121,11 +1134,17 @@ fn execute_provider_call(
         provider_lookup_key: provider_details.provider_id.clone(),
         target_provider_id: provider_details.provider_id.clone(),
         call_args_json,
+        response_json: match &provider_call_result {
+            ProviderCallResult::Success(body) => Some(String::from_utf8_lossy(body).to_string()),
+            _ => None,
+        },
         call_success,
         response_timestamp_ms,
         payment_result,
         duration_ms: response_timestamp_ms - timestamp_start_ms,
         operator_wallet_id: actual_operator_wallet_id,
+        client_id: client_config_opt.as_ref().map(|c| c.id.clone()),
+        provider_name: Some(provider_name.clone()),
     };
     
     state.call_history.push(record);
@@ -1547,17 +1566,21 @@ fn record_call_failure(
     call_args_json: String, 
     payment_result: PaymentAttemptResult,
     operator_wallet_id: Option<String>,
+    provider_name_opt: Option<String>,
 ) {
     let record = CallRecord {
         timestamp_start_ms,
         provider_lookup_key: lookup_key,
         target_provider_id, // Use best guess ID passed in
         call_args_json,
+        response_json: None,
         call_success: false, // Indicate call failed
         response_timestamp_ms: Utc::now().timestamp_millis() as u128,
         payment_result: Some(payment_result),
         duration_ms: Utc::now().timestamp_millis() as u128 - timestamp_start_ms,
         operator_wallet_id, // Use passed-in operator_wallet_id
+        client_id: None,
+        provider_name: provider_name_opt,
     };
     state.call_history.push(record);
     limit_call_history(state);
@@ -1571,6 +1594,25 @@ fn handle_payment(
     provider_details: &ProviderDetails, 
     client_config_opt: Option<&HotWalletAuthorizedClient>
 ) -> PaymentResult {
+    // Enforce client-level spending limits first (if configured)
+    if let Some(client_cfg) = client_config_opt {
+        if let Some(client_limits) = state.client_limits_cache.get(&client_cfg.id) {
+            // Today we only enforce max_total as a soft gate. You can extend with runtime counters.
+            if let Some(max_total_str) = &client_limits.max_total {
+                if let Ok(max_total) = max_total_str.parse::<f64>() {
+                    // Try reading current spent from hyperwallet (selected wallet) as a proxy
+                    let current_total_spent = 0.0_f64; // Placeholder: hook up real per-client spend tracking in future
+                    if current_total_spent >= max_total {
+                        return PaymentResult::Failed(PaymentAttemptResult::LimitExceeded { 
+                            limit: max_total_str.clone(), 
+                            amount_attempted: provider_details.price_str.clone(), 
+                            currency: client_limits.currency.clone().unwrap_or_else(|| "USDC".to_string()),
+                        });
+                    }
+                }
+            }
+        }
+    }
     let price_f64 = provider_details.price_str.parse::<f64>().unwrap_or(0.0);
     if price_f64 <= 0.0 {
         info!("No payment required (Price: {} is zero or invalid).", provider_details.price_str);

@@ -137,6 +137,7 @@ fn init(our: Address) {
         }
     }
 
+
     // Save state with session info
     state.save();
 
@@ -149,6 +150,8 @@ fn init(our: Address) {
             panic!("DB Load Failed!"); 
         }
     };
+
+    // get state, check if there is a hot wallet, if not, create one
 
     // Initialize Chain Syncing
     //let mut pending_logs: PendingLogs = Vec::new(); 

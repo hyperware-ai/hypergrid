@@ -24,6 +24,9 @@ use crate::hyperwallet_client::{service, payments::{handle_operator_tba_withdraw
 use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
+// Fill this with your Basescan API key (or move to a secure config)
+const BASESCAN_API_KEY: &str = "NZQNQ6HN31HBDWUMJE48SEHUHMGCPPGVQU"; // TODO: set your Basescan API key here
+
 pub fn make_json_timestamp() -> serde_json::Number {
     let systemtime = SystemTime::now();
 
@@ -818,6 +821,7 @@ pub fn handle_terminal_debug(
             info!("get-receipt <hash>: Get UserOperation receipt from bundler manually.");
             info!("decode-aa-error <hex>: Decode AA error codes and paymaster errors.");
             info!("decode-paymaster-error <code>: Decode common paymaster error codes.");
+            info!("usdc-history <address> [days=30] [limit=100]: List USDC transfers via Basescan without scanning blocks.");
             info!("-----------------------------------");
         }
         "state" => {
@@ -1404,6 +1408,363 @@ pub fn handle_terminal_debug(
             
             info!("--- End grid.hypr check ---");
         }
+        "addr-created" => {
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() {
+                    error!("Usage: addr-created <address> [from_block] [to_block]");
+                    return Ok(());
+                }
+                let addr = match EthAddress::from_str(parts[0]) {
+                    Ok(a) => a,
+                    Err(e) => { error!("Invalid address: {}", e); return Ok(()); }
+                };
+                let from_block = parts.get(1).and_then(|v| v.parse::<u64>().ok());
+                let to_block = parts.get(2).and_then(|v| v.parse::<u64>().ok());
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+
+                // Try AA UserOperationEvent (EntryPoint 0.8.0 on Base)
+                let entry_point = EthAddress::from_str("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108").unwrap_or(EthAddress::ZERO);
+                let userop_sig = "UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)";
+                let topic0: B256 = alloy_primitives::keccak256(userop_sig.as_bytes()).into();
+                let mut aa_filter = eth::Filter::new().address(entry_point).topic0(vec![topic0]);
+                let mut padded = [0u8; 32];
+                padded[12..].copy_from_slice(addr.as_slice());
+                aa_filter = aa_filter.topic2(vec![B256::from(padded)]);
+                if let Some(fb) = from_block { aa_filter = aa_filter.from_block(fb); }
+                if let Some(tb) = to_block { aa_filter = aa_filter.to_block(tb); }
+
+                // Respect provider range limits by chunking (<=500 blocks per query)
+                let (start, end) = match (from_block, to_block) {
+                    (Some(s), Some(e)) if s <= e => (s, e),
+                    _ => (from_block.unwrap_or(0), to_block.unwrap_or(from_block.unwrap_or(0))),
+                };
+                let mut aa_found = false;
+                if start > 0 && end >= start {
+                    let step: u64 = 450;
+                    let mut cur = start;
+                    while cur <= end {
+                        let hi = end.min(cur + step);
+                        let window = aa_filter.clone().from_block(cur).to_block(hi);
+                        match provider.get_logs(&window) {
+                            Ok(logs) if !logs.is_empty() => {
+                                info!("AA evidence found ({} logs) in [{}, {}]", logs.len(), cur, hi);
+                                aa_found = true;
+                                break;
+                            }
+                            Ok(_) => {}
+                            Err(e) => { warn!("AA log query failed in [{}, {}]: {:?}", cur, hi, e); }
+                        }
+                        if hi == end { break; }
+                        cur = hi + 1;
+                    }
+                } else {
+                    // Single-shot if no valid range
+                    match provider.get_logs(&aa_filter) {
+                        Ok(logs) if !logs.is_empty() => { info!("AA evidence found ({} logs) for address.", logs.len()); aa_found = true; }
+                        Ok(_) => {}
+                        Err(e) => { warn!("AA log query failed: {:?}", e); }
+                    }
+                }
+                if !aa_found { info!("No AA logs found in given range; trying USDC fallback..."); }
+
+                // Fallback: USDC Transfer (from/to address)
+                let usdc = EthAddress::from_str(USDC_BASE_ADDRESS).unwrap_or(EthAddress::ZERO);
+                let transfer_sig = "Transfer(address,address,uint256)";
+                let t0: B256 = alloy_primitives::keccak256(transfer_sig.as_bytes()).into();
+                let mut from_f = eth::Filter::new().address(usdc).topic0(vec![t0]);
+                let mut to_f = eth::Filter::new().address(usdc).topic0(vec![t0]);
+                let mut pad = [0u8; 32]; pad[12..].copy_from_slice(addr.as_slice()); let topic_addr = B256::from(pad);
+                from_f = from_f.topic1(vec![topic_addr]);
+                to_f = to_f.topic2(vec![topic_addr]);
+                if let Some(fb) = from_block { from_f = from_f.from_block(fb); to_f = to_f.from_block(fb); }
+                if let Some(tb) = to_block { from_f = from_f.to_block(tb); to_f = to_f.to_block(tb); }
+                let (start_u, end_u) = match (from_block, to_block) { (Some(s), Some(e)) if s <= e => (s, e), _ => (from_block.unwrap_or(0), to_block.unwrap_or(from_block.unwrap_or(0))) };
+                let step: u64 = 450;
+                let mut total = 0usize;
+                if start_u > 0 && end_u >= start_u {
+                    let mut cur = start_u;
+                    while cur <= end_u {
+                        let hi = end_u.min(cur + step);
+                        let wf = from_f.clone().from_block(cur).to_block(hi);
+                        let wt = to_f.clone().from_block(cur).to_block(hi);
+                        if let Ok(l) = provider.get_logs(&wf) { total += l.len(); }
+                        if let Ok(l) = provider.get_logs(&wt) { total += l.len(); }
+                        if hi == end_u { break; }
+                        cur = hi + 1;
+                    }
+                } else {
+                    if let Ok(l) = provider.get_logs(&from_f) { total += l.len(); }
+                    if let Ok(l) = provider.get_logs(&to_f) { total += l.len(); }
+                }
+                if total == 0 {
+                    warn!("No USDC Transfer evidence in range.");
+                } else {
+                    info!("USDC evidence found: {} log(s) in range.", total);
+                }
+                
+            } else {
+                error!("Usage: addr-created <address> [from_block] [to_block]");
+                
+            }
+        }
+        "usdc-logs" => {
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() { error!("Usage: usdc-logs <address> [from_block] [to_block] [limit]"); return Ok(()); }
+                let addr = match EthAddress::from_str(parts[0]) { Ok(a) => a, Err(e) => { error!("Invalid address: {}", e); return Ok(()); } };
+                let from_block = parts.get(1).and_then(|v| v.parse::<u64>().ok());
+                let to_block = parts.get(2).and_then(|v| v.parse::<u64>().ok());
+                let limit = parts.get(3).and_then(|v| v.parse::<usize>().ok()).unwrap_or(50);
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let usdc = EthAddress::from_str(USDC_BASE_ADDRESS).unwrap_or(EthAddress::ZERO);
+                let transfer_sig = "Transfer(address,address,uint256)";
+                let t0: B256 = alloy_primitives::keccak256(transfer_sig.as_bytes()).into();
+
+                let mut pad = [0u8; 32]; pad[12..].copy_from_slice(addr.as_slice()); let topic_addr = B256::from(pad);
+                let mut from_f = eth::Filter::new().address(usdc).topic0(vec![t0]).topic1(vec![topic_addr]);
+                let mut to_f = eth::Filter::new().address(usdc).topic0(vec![t0]).topic2(vec![topic_addr]);
+                if let Some(fb) = from_block { from_f = from_f.from_block(fb); to_f = to_f.from_block(fb); }
+                if let Some(tb) = to_block { from_f = from_f.to_block(tb); to_f = to_f.to_block(tb); }
+
+                let mut rows = 0usize;
+                let (start_u, end_u) = match (from_block, to_block) { (Some(s), Some(e)) if s <= e => (s, e), _ => (from_block.unwrap_or(0), to_block.unwrap_or(from_block.unwrap_or(0))) };
+                let step: u64 = 450;
+                if start_u > 0 && end_u >= start_u {
+                    let mut cur = start_u;
+                    'outer: while cur <= end_u {
+                        let hi = end_u.min(cur + step);
+                        let wf = from_f.clone().from_block(cur).to_block(hi);
+                        let wt = to_f.clone().from_block(cur).to_block(hi);
+                        if let Ok(logs) = provider.get_logs(&wf) {
+                            for log in logs {
+                                if rows >= limit { break 'outer; }
+                                rows += 1;
+                                let topics = log.topics();
+                                let amount = "?".to_string();
+                                let mut from_addr = [0u8;20]; from_addr.copy_from_slice(&topics[1].as_slice()[12..]);
+                                let mut to_addr = [0u8;20]; to_addr.copy_from_slice(&topics[2].as_slice()[12..]);
+                                info!("from=0x{} to=0x{} amount(units)={} (dir=OUT)", hex::encode(from_addr), hex::encode(to_addr), amount);
+                            }
+                        }
+                        if rows < limit {
+                            if let Ok(logs) = provider.get_logs(&wt) {
+                                for log in logs {
+                                    if rows >= limit { break 'outer; }
+                                    rows += 1;
+                                    let topics = log.topics();
+                                    let amount = "?".to_string();
+                                    let mut from_addr = [0u8;20]; from_addr.copy_from_slice(&topics[1].as_slice()[12..]);
+                                    let mut to_addr = [0u8;20]; to_addr.copy_from_slice(&topics[2].as_slice()[12..]);
+                                    info!("from=0x{} to=0x{} amount(units)={} (dir=IN)", hex::encode(from_addr), hex::encode(to_addr), amount);
+                                }
+                            }
+                        }
+                        if hi == end_u { break; }
+                        cur = hi + 1;
+                    }
+                } else {
+                    if let Ok(logs) = provider.get_logs(&from_f) {
+                        for log in logs.into_iter().take(limit) {
+                            rows += 1;
+                            let topics = log.topics();
+                            let amount = "?".to_string();
+                            let mut from_addr = [0u8;20]; from_addr.copy_from_slice(&topics[1].as_slice()[12..]);
+                            let mut to_addr = [0u8;20]; to_addr.copy_from_slice(&topics[2].as_slice()[12..]);
+                            info!("from=0x{} to=0x{} amount(units)={} (dir=OUT)", hex::encode(from_addr), hex::encode(to_addr), amount);
+                        }
+                    }
+                    if rows < limit {
+                        if let Ok(logs) = provider.get_logs(&to_f) {
+                            for log in logs.into_iter().take(limit - rows) {
+                                let topics = log.topics();
+                                let amount = "?".to_string();
+                                let mut from_addr = [0u8;20]; from_addr.copy_from_slice(&topics[1].as_slice()[12..]);
+                                let mut to_addr = [0u8;20]; to_addr.copy_from_slice(&topics[2].as_slice()[12..]);
+                                info!("from=0x{} to=0x{} amount(units)={} (dir=IN)", hex::encode(from_addr), hex::encode(to_addr), amount);
+                            }
+                        }
+                    }
+                }
+                if rows == 0 { info!("No USDC transfers found in range"); }
+                
+            } else {
+                error!("Usage: usdc-logs <address> [from_block] [to_block] [limit]");
+                
+            }
+        }
+        "basescan-usdc" => {
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() {
+                    error!("Usage: basescan-usdc <address> [startblock] [endblock] [page] [offset] [sort]");
+                    return Ok(());
+                }
+                let addr_str = parts[0].to_string();
+                let startblock = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
+                let endblock = parts.get(2).and_then(|v| v.parse::<u64>().ok()).unwrap_or(99999999);
+                let page = parts.get(3).and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
+                let offset = parts.get(4).and_then(|v| v.parse::<u32>().ok()).unwrap_or(25);
+                let sort = parts.get(5).map(|s| s.to_lowercase()).unwrap_or_else(|| "desc".to_string());
+
+                if BASESCAN_API_KEY.is_empty() {
+                    warn!("BASESCAN_API_KEY is not set. Please set it in helpers.rs before using this command.");
+                }
+
+                // Etherscan-compatible API on Basescan
+                let usdc_addr = USDC_BASE_ADDRESS;
+                let url_str = format!(
+                    "https://api.basescan.org/api?module=account&action=tokentx&contractaddress={}&address={}&startblock={}&endblock={}&page={}&offset={}&sort={}&apikey={}",
+                    usdc_addr,
+                    addr_str,
+                    startblock,
+                    endblock,
+                    page,
+                    offset,
+                    sort,
+                    BASESCAN_API_KEY,
+                );
+
+                use hyperware_process_lib::http::client::send_request_await_response;
+                use hyperware_process_lib::http::Method;
+
+                match url::Url::parse(&url_str) {
+                    Ok(url) => {
+                        match send_request_await_response(Method::GET, url, None, 30000, Vec::new()) {
+                            Ok(resp) => {
+                                let body_str = String::from_utf8_lossy(&resp.body());
+                                match serde_json::from_str::<serde_json::Value>(&body_str) {
+                                    Ok(json) => {
+                                        let status = json.get("status").and_then(|v| v.as_str()).unwrap_or("0");
+                                        if status == "1" {
+                                            if let Some(results) = json.get("result").and_then(|v| v.as_array()) {
+                                                info!("Basescan returned {} USDC transfer(s)", results.len());
+                                                for item in results.iter() {
+                                                    let ts = item.get("timeStamp").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let hash = item.get("hash").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let from = item.get("from").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let to = item.get("to").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let value = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                                    info!("ts={} hash={} from={} to={} value(units)={} ", ts, hash, from, to, value);
+                                                }
+                                            } else {
+                                                info!("No results array in response");
+                                            }
+                                        } else {
+                                            let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                            info!("No results (status {}): {}", status, message);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Failed to parse Basescan JSON: {}", e);
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                error!("HTTP error calling Basescan: {}", e);
+                            }
+                        }
+                    }
+                    Err(e) => error!("Invalid URL: {}", e),
+                }
+
+                
+            } else {
+                error!("Usage: basescan-usdc <address> [startblock] [endblock] [page] [offset] [sort]");
+            }
+        }
+        "usdc-history" => {
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() {
+                    error!("Usage: usdc-history <address> [days=30] [limit=100]");
+                    return Ok(());
+                }
+                let addr_str = parts[0].to_string();
+                let days = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(3);
+                let limit = parts.get(2).and_then(|v| v.parse::<u32>().ok()).unwrap_or(100);
+
+                if BASESCAN_API_KEY.is_empty() {
+                    warn!("BASESCAN_API_KEY is not set. Please set it in helpers.rs before using this command.");
+                }
+
+                // Compute start timestamp = now - days
+                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
+                let start_ts = now.saturating_sub(days.saturating_mul(86_400));
+
+                use hyperware_process_lib::http::client::send_request_await_response;
+                use hyperware_process_lib::http::Method;
+
+                // Step 1: get startblock via timestamp
+                let url_block = format!(
+                    "https://api.basescan.org/api?module=block&action=getblocknobytime&timestamp={}&closest=after&apikey={}",
+                    start_ts,
+                    BASESCAN_API_KEY,
+                );
+                let start_block = match url::Url::parse(&url_block)
+                    .ok()
+                    .and_then(|u| send_request_await_response(Method::GET, u, None, 30000, Vec::new()).ok())
+                    .and_then(|resp| serde_json::from_slice::<serde_json::Value>(&resp.body()).ok())
+                    .and_then(|j| j.get("result").cloned())
+                {
+                    Some(serde_json::Value::String(s)) => s,
+                    Some(v) => v.to_string(),
+                    None => {
+                        warn!("Failed to resolve start block by time; defaulting to 0");
+                        "0".to_string()
+                    }
+                };
+
+                // Step 2: query USDC token transfers for the address
+                let usdc_addr = USDC_BASE_ADDRESS;
+                let url_tokentx = format!(
+                    "https://api.basescan.org/api?module=account&action=tokentx&contractaddress={}&address={}&startblock={}&endblock=99999999&page=1&offset={}&sort=desc&apikey={}",
+                    usdc_addr,
+                    addr_str,
+                    start_block,
+                    limit,
+                    BASESCAN_API_KEY,
+                );
+
+                match url::Url::parse(&url_tokentx) {
+                    Ok(url) => {
+                        match send_request_await_response(Method::GET, url, None, 30000, Vec::new()) {
+                            Ok(resp) => {
+                                let body_str = String::from_utf8_lossy(&resp.body());
+                                match serde_json::from_str::<serde_json::Value>(&body_str) {
+                                    Ok(json) => {
+                                        let status = json.get("status").and_then(|v| v.as_str()).unwrap_or("0");
+                                        if status == "1" {
+                                            if let Some(results) = json.get("result").and_then(|v| v.as_array()) {
+                                                info!("USDC transfers ({} max): {}", limit, results.len());
+                                                for item in results.iter() {
+                                                    let ts = item.get("timeStamp").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let hash = item.get("hash").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let from = item.get("from").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let to = item.get("to").and_then(|v| v.as_str()).unwrap_or("");
+                                                    let value = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                                                    info!("ts={} hash={} from={} to={} value(units)={}", ts, hash, from, to, value);
+                                                }
+                                            } else {
+                                                info!("No result array in response");
+                                            }
+                                        } else {
+                                            let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
+                                            info!("No results (status {}): {}", status, message);
+                                        }
+                                    }
+                                    Err(e) => error!("Failed to parse Basescan JSON: {}", e),
+                                }
+                            }
+                            Err(e) => error!("HTTP error calling Basescan: {}", e),
+                        }
+                    }
+                    Err(e) => error!("Invalid URL: {}", e),
+                }
+            } else {
+                error!("Usage: usdc-history <address> [days=30] [limit=100]");
+            }
+        }
         //"test-submit-userop" => {
         //    // this one works with, but the gas estimation is not working. so if we get lucky with the gas estimation it goes through
         //    if let Some(command_args) = command_arg {
@@ -1739,6 +2100,7 @@ pub fn handle_terminal_debug(
         //        info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
         //    }
         //}
+
         "get-receipt" => {
             if let Some(user_op_hash) = command_arg {
                 info!("--- Manual UserOperation Receipt Lookup ---");

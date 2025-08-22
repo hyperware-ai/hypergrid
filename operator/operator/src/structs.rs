@@ -107,13 +107,21 @@ pub struct CallRecord {
    pub provider_lookup_key: String, // What was used to find the provider (name or id)
    pub target_provider_id: String, // The actual process ID called
    pub call_args_json: String, // Arguments sent (as JSON string)
+   #[serde(default)]
+   pub response_json: Option<String>, // Provider response body (JSON or preview)
    pub call_success: bool, // Did the provider respond without communication error?
    pub response_timestamp_ms: u128,
    pub payment_result: Option<PaymentAttemptResult>, // Payment outcome
    pub duration_ms: u128, // Calculated duration
    pub operator_wallet_id: Option<String>, // Added field
+   #[serde(default)]
+   pub client_id: Option<String>,
+   #[serde(default)]
+   pub provider_name: Option<String>, // Human tool name (e.g., haiku-message-answering-machine)
 }
 // --- End Call History Structs ---
+
+// Removed USDC scaffolding per user request
 
 // Copied types from indexer
 type Namehash = String;
@@ -159,11 +167,15 @@ pub struct State {
     pub operator_tba_address: Option<String>,
     #[serde(default)]
     pub wallet_limits_cache: HashMap<String, SpendingLimits>,
+    #[serde(default)]
+    pub client_limits_cache: HashMap<String, SpendingLimits>,
     #[serde(skip)]
     pub active_signer_cache: Option<LocalSigner>,
     #[serde(skip)]
     pub cached_active_details: Option<ActiveAccountDetails>,
     pub call_history: Vec<CallRecord>,
+
+    // (USDC scaffolding removed)
 
     // hypergrid-shim auth
     pub hashed_shim_api_key: Option<String>,
@@ -214,6 +226,7 @@ impl State {
             operator_entry_name: None,
             operator_tba_address: None,
             wallet_limits_cache: HashMap::new(),
+            client_limits_cache: HashMap::new(),
             active_signer_cache: None,
             cached_active_details: None,
             call_history: Vec::new(),
@@ -263,7 +276,10 @@ impl State {
         self.db_conn = None;
         // Note: hyperwallet_session is already marked with #[serde(skip)] so it won't be serialized
         match rmp_serde::to_vec(self) {
-            Ok(state_bytes) => set_state(&state_bytes),
+            Ok(state_bytes) => {
+                set_state(&state_bytes);
+                info!("state set");
+            },
             Err(e) => {
                 // Re-attach DB connection if save failed?
                 // For now, just log.
@@ -314,6 +330,7 @@ pub enum ApiRequest {
     ActivateWallet { password: Option<String> },
     DeactivateWallet {}, 
     SetWalletLimits { limits: SpendingLimits }, // Use SpendingLimits struct defined above
+    SetClientLimits { client_id: String, limits: SpendingLimits },
     ExportSelectedPrivateKey { password: Option<String> }, 
     SetSelectedWalletPassword { new_password: String, old_password: Option<String> }, 
     RemoveSelectedWalletPassword { current_password: String }, 
@@ -678,11 +695,21 @@ pub struct GraphEdge {
     pub animated: Option<bool>,
 }
 
+// Coarse onboarding state for simplified UI flows
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum CoarseState {
+    BeforeWallet,
+    AfterWalletNoClients,
+    AfterWalletWithClients,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HypergridGraphResponse {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+    pub coarse_state: CoarseState,
 }
 
 // --- End Backend-Driven Graph Visualizer DTOs ---

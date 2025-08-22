@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 // SearchPage is no longer directly rendered here by default, but keep import if used elsewhere or if needed later.
-import BackendDrivenHypergridVisualizerWrapper from "./components/BackendDrivenHypergridVisualizer.tsx";
+import OperatorConsole from "./components/console/OperatorConsole";
 import HeaderSearch from "./components/HeaderSearch.tsx";
 import AppSwitcher from "./components/AppSwitcher.tsx";
 
@@ -87,14 +87,21 @@ function App() {
         <AppSwitcher currentApp="operator" />
       </header>
 
-      <div className="flex flex-col flex-grow overflow-hidden relative">
+      <div className="flex flex-col flex-grow overflow-hidden relative bg-gray-50">
         <div className="flex items-center gap-3 absolute top-4 right-4 z-10">
           <NotificationBell />
           <ConnectButton />
         </div>
+        <button
+          aria-label="Open Graph"
+          title="Open Graph"
+          onClick={() => document.dispatchEvent(new CustomEvent('open-graph-view'))}
+          className="fixed bottom-4 right-4 z-20 w-9 h-9 flex items-center justify-center rounded-full border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 shadow"
+        >
+          ⚙︎
+        </button>
         <main className="flex-grow flex flex-col overflow-y-auto">
-          <BackendDrivenHypergridVisualizerWrapper
-          />
+          <OperatorConsole />
         </main>
       </div>
       <ToastContainer
