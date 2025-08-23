@@ -8,6 +8,7 @@ mod helpers;
 mod identity;
 mod authorized_services;
 pub mod constants;
+pub mod ledger;
 // Keep local module for functions not yet available in the library
 pub mod hyperwallet_client;
 

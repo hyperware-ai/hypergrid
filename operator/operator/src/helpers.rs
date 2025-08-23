@@ -14,7 +14,8 @@ use hyperware_process_lib::eth;
 use hyperware_process_lib::http::{StatusCode, server::send_response};
 use hyperware_process_lib::signer::Signer;
 use crate::constants::{HYPR_HASH, USDC_BASE_ADDRESS};
-use alloy_primitives::{U256, B256};
+use crate::ledger;
+use alloy_primitives::{U256, B256, keccak256};
 use alloy_sol_types::{SolValue, SolCall};
 use hex;
 
@@ -25,7 +26,6 @@ use crate::chain;
 use crate::authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities};
 
 // Fill this with your Basescan API key (or move to a secure config)
-const BASESCAN_API_KEY: &str = "NZQNQ6HN31HBDWUMJE48SEHUHMGCPPGVQU"; // TODO: set your Basescan API key here
 
 pub fn make_json_timestamp() -> serde_json::Number {
     let systemtime = SystemTime::now();
@@ -37,6 +37,109 @@ pub fn make_json_timestamp() -> serde_json::Number {
     let now: serde_json::Number = secs.into();
     return now;
 }
+
+// --- USDC event snapshot helpers ---
+fn ensure_usdc_events_table(db: &Sqlite) -> anyhow::Result<()> { ledger::ensure_usdc_events_table(db) }
+
+// --- USDC per-call ledger schema ---
+fn ensure_usdc_call_ledger_table(db: &Sqlite) -> anyhow::Result<()> { crate::ledger::ensure_usdc_call_ledger_table(db) }
+
+use crate::ledger::usdc_display_to_units;
+
+use crate::ledger::build_usdc_ledger_for_tba;
+
+// ensure_usdc_call_ledger_table re-exported above
+
+// Historical ERC20 balanceOf at a specific block
+fn erc20_balance_of_at(
+    provider: &Provider,
+    token: EthAddress,
+    owner: EthAddress,
+    block: u64,
+) -> anyhow::Result<U256> {
+    use alloy_sol_types::sol;
+    sol! {
+        function balanceOf(address owner) external view returns (uint256 balance);
+    }
+    let call = balanceOfCall { owner };
+    let data = call.abi_encode();
+    let tx = TransactionRequest::default()
+        .input(TransactionInput::new(data.into()))
+        .to(token);
+    let res = provider.call(tx, Some(hyperware_process_lib::eth::BlockId::Number(BlockNumberOrTag::Number(block))))?;
+    // decode returns or fallback to U256 from bytes
+    if res.len() == 32 {
+        Ok(U256::from_be_slice(res.as_ref()))
+    } else {
+        let decoded = balanceOfCall::abi_decode_returns(&res, false)
+            .map_err(|e| anyhow!("decode error: {}", e))?;
+        Ok(decoded.balance)
+    }
+}
+
+fn bisect_change_ranges<F>(
+    provider: &Provider,
+    token: EthAddress,
+    owner: EthAddress,
+    start: u64,
+    end: u64,
+    window_cap: u64,
+    get_balance: &mut F,
+    ranges_out: &mut Vec<(u64,u64)>,
+) -> anyhow::Result<()>
+where F: FnMut(u64) -> anyhow::Result<U256> {
+    if start >= end { return Ok(()); }
+
+    let bal_start = get_balance(start)?;
+    let bal_end = get_balance(end)?;
+    if bal_start == bal_end {
+        return Ok(()); // no net change in whole range
+    }
+    if end - start <= window_cap {
+        ranges_out.push((start, end));
+        return Ok(());
+    }
+    let mid = start + (end - start) / 2;
+    let bal_mid = get_balance(mid)?;
+    if bal_mid != bal_start {
+        bisect_change_ranges(provider, token, owner, start, mid, window_cap, get_balance, ranges_out)?;
+    }
+    if bal_mid != bal_end {
+        bisect_change_ranges(provider, token, owner, mid + 1, end, window_cap, get_balance, ranges_out)?;
+    }
+    Ok(())
+}
+
+fn insert_usdc_event(
+    db: &Sqlite,
+    address: &str,
+    block: u64,
+    time: Option<u64>,
+    tx_hash: &str,
+    log_index: Option<u64>,
+    from_addr: &str,
+    to_addr: &str,
+    value_units: &str,
+) -> anyhow::Result<()> {
+    let stmt = r#"
+        INSERT OR IGNORE INTO usdc_events
+        (address, block, time, tx_hash, log_index, from_addr, to_addr, value_units)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8);
+    "#.to_string();
+    let params = vec![
+        serde_json::Value::String(address.to_string()),
+        serde_json::Value::Number(serde_json::Number::from(block)),
+        time.map(|t| serde_json::Value::Number(serde_json::Number::from(t))).unwrap_or(serde_json::Value::Null),
+        serde_json::Value::String(tx_hash.to_string()),
+        log_index.map(|i| serde_json::Value::Number(serde_json::Number::from(i))).unwrap_or(serde_json::Value::Null),
+        serde_json::Value::String(from_addr.to_string()),
+        serde_json::Value::String(to_addr.to_string()),
+        serde_json::Value::String(value_units.to_string()),
+    ];
+    db.write(stmt, params, None)?;
+    Ok(())
+}
+
 
 // Calculate provider ID based on SHA256 hash of provider name
 pub fn get_provider_id(provider_name: &str) -> String {
@@ -1593,514 +1696,539 @@ pub fn handle_terminal_debug(
                 
             }
         }
-        "basescan-usdc" => {
+        "usdc-snapshot-hypermap" => {
+            // Deprecated: Basescan removed. Use hypermap-entry-info/hypermap-created instead.
+            error!("usdc-snapshot-hypermap is deprecated. Use 'hypermap-entry-info <tba|name|namehash>' or 'hypermap-created <tba|name|namehash>'");
+        }
+        "hypermap-entry-info" => {
             if let Some(args) = command_arg {
-                let parts: Vec<&str> = args.split_whitespace().collect();
-                if parts.is_empty() {
-                    error!("Usage: basescan-usdc <address> [startblock] [endblock] [page] [offset] [sort]");
-                    return Ok(());
+                let input = args.trim();
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let hyper = hypermap::Hypermap::new(provider.clone(), EthAddress::from_str(hypermap::HYPERMAP_ADDRESS).unwrap());
+
+                // Resolve to namehash
+                let namehash_hex = if input.starts_with("0x") && input.len() == 66 {
+                    input.to_string()
+                } else if input.starts_with("0x") && input.len() == 42 {
+                    let tba = match EthAddress::from_str(input) { Ok(a) => a, Err(e) => { error!("Invalid address: {}", e); return Ok(()); } };
+                    match hyper.get_namehash_from_tba(tba) { Ok(nh) => nh, Err(e) => { error!("Failed to get namehash from TBA: {:?}", e); return Ok(()); } }
+                } else {
+                    hypermap::namehash(input)
+                };
+                info!("Resolved entry namehash: {}", namehash_hex);
+
+                // Build filters: Mint by childhash; Notes by parenthash
+                let mut nh_bytes = [0u8; 32];
+                match hex::decode(namehash_hex.trim_start_matches("0x")) {
+                    Ok(b) if b.len() == 32 => nh_bytes.copy_from_slice(&b),
+                    _ => { error!("Bad namehash hex"); return Ok(()); }
                 }
-                let addr_str = parts[0].to_string();
-                let startblock = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(0);
-                let endblock = parts.get(2).and_then(|v| v.parse::<u64>().ok()).unwrap_or(99999999);
-                let page = parts.get(3).and_then(|v| v.parse::<u32>().ok()).unwrap_or(1);
-                let offset = parts.get(4).and_then(|v| v.parse::<u32>().ok()).unwrap_or(25);
-                let sort = parts.get(5).map(|s| s.to_lowercase()).unwrap_or_else(|| "desc".to_string());
+                let nh_b256 = B256::from(nh_bytes);
+                let mint_f = hyper.mint_filter().topic2(vec![nh_b256]);
+                let note_f = hyper.note_filter().topic1(vec![nh_b256]);
 
-                if BASESCAN_API_KEY.is_empty() {
-                    warn!("BASESCAN_API_KEY is not set. Please set it in helpers.rs before using this command.");
-                }
+                // Bootstrap via local cacher
+                let from_block = Some(hypermap::HYPERMAP_FIRST_BLOCK);
+                let retry = Some((5, Some(5)));
+                let (last_block, results) = match hyper.bootstrap(from_block, vec![mint_f, note_f], retry, None) {
+                    Ok(v) => v,
+                    Err(e) => { error!("Hypermap bootstrap failed: {:?}", e); return Ok(()); }
+                };
+                let mint_logs = results.get(0).cloned().unwrap_or_default();
+                let note_logs = results.get(1).cloned().unwrap_or_default();
 
-                // Etherscan-compatible API on Basescan
-                let usdc_addr = USDC_BASE_ADDRESS;
-                let url_str = format!(
-                    "https://api.basescan.org/api?module=account&action=tokentx&contractaddress={}&address={}&startblock={}&endblock={}&page={}&offset={}&sort={}&apikey={}",
-                    usdc_addr,
-                    addr_str,
-                    startblock,
-                    endblock,
-                    page,
-                    offset,
-                    sort,
-                    BASESCAN_API_KEY,
-                );
-
-                use hyperware_process_lib::http::client::send_request_await_response;
-                use hyperware_process_lib::http::Method;
-
-                match url::Url::parse(&url_str) {
-                    Ok(url) => {
-                        match send_request_await_response(Method::GET, url, None, 30000, Vec::new()) {
-                            Ok(resp) => {
-                                let body_str = String::from_utf8_lossy(&resp.body());
-                                match serde_json::from_str::<serde_json::Value>(&body_str) {
-                                    Ok(json) => {
-                                        let status = json.get("status").and_then(|v| v.as_str()).unwrap_or("0");
-                                        if status == "1" {
-                                            if let Some(results) = json.get("result").and_then(|v| v.as_array()) {
-                                                info!("Basescan returned {} USDC transfer(s)", results.len());
-                                                for item in results.iter() {
-                                                    let ts = item.get("timeStamp").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let hash = item.get("hash").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let from = item.get("from").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let to = item.get("to").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let value = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                                    info!("ts={} hash={} from={} to={} value(units)={} ", ts, hash, from, to, value);
-                                                }
-                                            } else {
-                                                info!("No results array in response");
-                                            }
-                                        } else {
-                                            let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                            info!("No results (status {}): {}", status, message);
-                                        }
-                                    }
-                                    Err(e) => {
-                                        error!("Failed to parse Basescan JSON: {}", e);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                error!("HTTP error calling Basescan: {}", e);
-                            }
-                        }
+                // Created block = earliest Mint
+                let created_block = mint_logs.iter().filter_map(|l| l.block_number).min();
+                match created_block {
+                    Some(cb) => {
+                        let ts = provider.get_block_by_number(hyperware_process_lib::eth::BlockNumberOrTag::Number(cb), false)
+                            .ok().flatten().map(|b| b.header.inner.timestamp).unwrap_or(0);
+                        info!("Entry created at block {} (timestamp {}), last cached block {}", cb, ts, last_block);
                     }
-                    Err(e) => error!("Invalid URL: {}", e),
+                    None => warn!("No Mint logs found for this entry."),
                 }
 
-                
+                // List notes
+                if note_logs.is_empty() {
+                    info!("No notes found for this entry.");
+                } else {
+                    info!("Found {} notes for this entry:", note_logs.len());
+                    for lg in note_logs.iter().take(50) {
+                        let topics = lg.topics();
+                        let label = if topics.len() > 2 { format!("0x{}", hex::encode(topics[2].as_slice())) } else { "(no label)".to_string() };
+                        let bn = lg.block_number.unwrap_or(0);
+                        info!("  - block {} labelhash {} data_len {}", bn, label, lg.data().data.len());
+                    }
+                }
             } else {
-                error!("Usage: basescan-usdc <address> [startblock] [endblock] [page] [offset] [sort]");
+                error!("Usage: hypermap-entry-info <tba|name|namehash>");
             }
         }
-        "usdc-history" => {
+        "hypermap-created" => {
+            if let Some(args) = command_arg {
+                let input = args.trim();
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let hyper = hypermap::Hypermap::new(provider.clone(), EthAddress::from_str(hypermap::HYPERMAP_ADDRESS).unwrap());
+                let namehash_hex = if input.starts_with("0x") && input.len() == 66 {
+                    input.to_string()
+                } else if input.starts_with("0x") && input.len() == 42 {
+                    let tba = match EthAddress::from_str(input) { Ok(a) => a, Err(e) => { error!("Invalid address: {}", e); return Ok(()); } };
+                    match hyper.get_namehash_from_tba(tba) { Ok(nh) => nh, Err(e) => { error!("Failed to get namehash from TBA: {:?}", e); return Ok(()); } }
+                } else { hypermap::namehash(input) };
+
+                let mut nh_bytes = [0u8; 32];
+                match hex::decode(namehash_hex.trim_start_matches("0x")) {
+                    Ok(b) if b.len() == 32 => nh_bytes.copy_from_slice(&b),
+                    _ => { error!("Bad namehash hex"); return Ok(()); }
+                }
+                let nh_b256 = B256::from(nh_bytes);
+                let mint_f = hyper.mint_filter().topic2(vec![nh_b256]);
+                let (last_block, results) = match hyper.bootstrap(Some(hypermap::HYPERMAP_FIRST_BLOCK), vec![mint_f], Some((5, Some(5))), None) {
+                    Ok(v) => v,
+                    Err(e) => { error!("Hypermap bootstrap failed: {:?}", e); return Ok(()); }
+                };
+                let mint_logs = results.get(0).cloned().unwrap_or_default();
+                let created_block = mint_logs.iter().filter_map(|l| l.block_number).min();
+                match created_block {
+                    Some(cb) => {
+                        let ts = provider.get_block_by_number(hyperware_process_lib::eth::BlockNumberOrTag::Number(cb), false)
+                            .ok().flatten().map(|b| b.header.inner.timestamp).unwrap_or(0);
+                        info!("Entry created at block {} (timestamp {}), last cached block {}", cb, ts, last_block);
+                    }
+                    None => warn!("No Mint logs found for this entry."),
+                }
+            } else {
+                error!("Usage: hypermap-created <tba|name|namehash>");
+            }
+        }
+        "entry-usdc-index" => {
+            // Usage: entry-usdc-index <tba|name|namehash> [from_block]
             if let Some(args) = command_arg {
                 let parts: Vec<&str> = args.split_whitespace().collect();
-                if parts.is_empty() {
-                    error!("Usage: usdc-history <address> [days=30] [limit=100]");
-                    return Ok(());
-                }
-                let addr_str = parts[0].to_string();
-                let days = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(3);
-                let limit = parts.get(2).and_then(|v| v.parse::<u32>().ok()).unwrap_or(100);
+                if parts.is_empty() { error!("Usage: entry-usdc-index <tba|name|namehash> [from_block]"); return Ok(()); }
+                let input = parts[0].trim();
+                let from_block_override = parts.get(1).and_then(|v| v.parse::<u64>().ok());
 
-                if BASESCAN_API_KEY.is_empty() {
-                    warn!("BASESCAN_API_KEY is not set. Please set it in helpers.rs before using this command.");
-                }
+                ensure_usdc_events_table(db)?;
 
-                // Compute start timestamp = now - days
-                let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-                let start_ts = now.saturating_sub(days.saturating_mul(86_400));
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let hyper = hypermap::Hypermap::new(provider.clone(), EthAddress::from_str(hypermap::HYPERMAP_ADDRESS).unwrap());
 
-                use hyperware_process_lib::http::client::send_request_await_response;
-                use hyperware_process_lib::http::Method;
+                // Resolve TBA and namehash
+                let (tba_addr, namehash_hex) = if input.starts_with("0x") && input.len() == 42 {
+                    (EthAddress::from_str(input).map_err(|e| anyhow!("Invalid address: {}", e))?, {
+                        // Try to get namehash from tba for logging
+                        match hyper.get_namehash_from_tba(EthAddress::from_str(input).unwrap()) { Ok(nh) => nh, Err(_) => String::from("") }
+                    })
+                } else if input.starts_with("0x") && input.len() == 66 {
+                    let nh = input.to_string();
+                    let (tba, _owner, _data) = match hyper.get_hash(&nh) { Ok(v) => v, Err(e) => { error!("Failed to get entry from namehash: {:?}", e); return Ok(()); } };
+                    (tba, nh)
+                } else {
+                    let (tba, _owner, _data) = match hyper.get(input) { Ok(v) => v, Err(e) => { error!("Failed to get entry from name: {:?}", e); return Ok(()); } };
+                    (tba, hypermap::namehash(input))
+                };
+                let tba_str = format!("0x{}", hex::encode(tba_addr));
+                info!("Indexing USDC for entry TBA {} (namehash {})", tba_str, namehash_hex);
 
-                // Step 1: get startblock via timestamp
-                let url_block = format!(
-                    "https://api.basescan.org/api?module=block&action=getblocknobytime&timestamp={}&closest=after&apikey={}",
-                    start_ts,
-                    BASESCAN_API_KEY,
-                );
-                let start_block = match url::Url::parse(&url_block)
-                    .ok()
-                    .and_then(|u| send_request_await_response(Method::GET, u, None, 30000, Vec::new()).ok())
-                    .and_then(|resp| serde_json::from_slice::<serde_json::Value>(&resp.body()).ok())
-                    .and_then(|j| j.get("result").cloned())
-                {
-                    Some(serde_json::Value::String(s)) => s,
-                    Some(v) => v.to_string(),
-                    None => {
-                        warn!("Failed to resolve start block by time; defaulting to 0");
-                        "0".to_string()
+                // Determine start block via Mint bootstrap unless overridden
+                let start_block = if let Some(fb) = from_block_override { fb } else {
+                    let mut nh_bytes = [0u8; 32];
+                    match hex::decode(namehash_hex.trim_start_matches("0x")) {
+                        Ok(b) if b.len() == 32 => nh_bytes.copy_from_slice(&b),
+                        _ => {}
+                    }
+                    let nh_b256 = B256::from(nh_bytes);
+                    let mint_f = hyper.mint_filter().topic2(vec![nh_b256]);
+                    match hyper.bootstrap(Some(hypermap::HYPERMAP_FIRST_BLOCK), vec![mint_f], Some((5, Some(5))), None) {
+                        Ok((_lb, results)) => {
+                            let mints = results.get(0).cloned().unwrap_or_default();
+                            mints.iter().filter_map(|l| l.block_number).min().unwrap_or(hypermap::HYPERMAP_FIRST_BLOCK)
+                        }
+                        Err(_) => hypermap::HYPERMAP_FIRST_BLOCK,
                     }
                 };
+                let latest = provider.get_block_number().unwrap_or(start_block);
+                info!("Scanning EntryPoint events from {} to {} (<=450/window)", start_block, latest);
 
-                // Step 2: query USDC token transfers for the address
-                let usdc_addr = USDC_BASE_ADDRESS;
-                let url_tokentx = format!(
-                    "https://api.basescan.org/api?module=account&action=tokentx&contractaddress={}&address={}&startblock={}&endblock=99999999&page=1&offset={}&sort=desc&apikey={}",
-                    usdc_addr,
-                    addr_str,
-                    start_block,
-                    limit,
-                    BASESCAN_API_KEY,
-                );
+                // EntryPoint UserOperationEvent filtered by sender
+                let entry_point = EthAddress::from_str("0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108").unwrap();
+                let userop_sig = keccak256("UserOperationEvent(bytes32,address,address,uint256,bool,uint256,uint256)".as_bytes());
+                let mut pad = [0u8; 32]; pad[12..].copy_from_slice(tba_addr.as_slice()); let topic_sender = B256::from(pad);
+                let base_filter = eth::Filter::new().address(entry_point).topic0(vec![userop_sig]).topic2(vec![topic_sender]);
 
-                match url::Url::parse(&url_tokentx) {
-                    Ok(url) => {
-                        match send_request_await_response(Method::GET, url, None, 30000, Vec::new()) {
-                            Ok(resp) => {
-                                let body_str = String::from_utf8_lossy(&resp.body());
-                                match serde_json::from_str::<serde_json::Value>(&body_str) {
-                                    Ok(json) => {
-                                        let status = json.get("status").and_then(|v| v.as_str()).unwrap_or("0");
-                                        if status == "1" {
-                                            if let Some(results) = json.get("result").and_then(|v| v.as_array()) {
-                                                info!("USDC transfers ({} max): {}", limit, results.len());
-                                                for item in results.iter() {
-                                                    let ts = item.get("timeStamp").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let hash = item.get("hash").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let from = item.get("from").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let to = item.get("to").and_then(|v| v.as_str()).unwrap_or("");
-                                                    let value = item.get("value").and_then(|v| v.as_str()).unwrap_or("");
-                                                    info!("ts={} hash={} from={} to={} value(units)={}", ts, hash, from, to, value);
-                                                }
-                                            } else {
-                                                info!("No result array in response");
+                let step: u64 = 450;
+                let mut cur = start_block;
+                let mut total_receipts = 0usize;
+                let mut total_transfers = 0usize;
+                while cur <= latest {
+                    let hi = latest.min(cur + step);
+                    let window = base_filter.clone().from_block(cur).to_block(hi);
+                    match provider.get_logs(&window) {
+                        Ok(logs) => {
+                            for lg in logs {
+                                if let Some(txh) = lg.transaction_hash { 
+                                    match provider.get_transaction_receipt(txh) {
+                                        Ok(Some(rcpt)) => {
+                                            total_receipts += 1;
+                                            for rlog in rcpt.inner.logs().iter() {
+                                                // Filter USDC Transfer logs in this tx pertaining to TBA
+                                                if format!("0x{}", hex::encode(rlog.address())) != USDC_BASE_ADDRESS { continue; }
+                                                let transfer_sig = keccak256("Transfer(address,address,uint256)".as_bytes());
+                                                if rlog.topics().first().copied() != Some(transfer_sig.into()) { continue; }
+                                                if rlog.topics().len() < 3 { continue; }
+                                                let from_addr = &rlog.topics()[1].as_slice()[12..];
+                                                let to_addr = &rlog.topics()[2].as_slice()[12..];
+                                                let from_hex = format!("0x{}", hex::encode(from_addr));
+                                                let to_hex = format!("0x{}", hex::encode(to_addr));
+                                                if !from_hex.eq_ignore_ascii_case(&tba_str) && !to_hex.eq_ignore_ascii_case(&tba_str) { continue; }
+                                                let amount = U256::from_be_slice(rlog.data().data.as_ref());
+                                                let blk = rcpt.block_number.unwrap_or(cur);
+                                                let log_index = rlog.log_index.map(|v| v.into());
+                                                insert_usdc_event(db, &tba_str, blk, None, &format!("0x{}", hex::encode(txh)), log_index, &from_hex, &to_hex, &amount.to_string())?;
+                                                total_transfers += 1;
                                             }
-                                        } else {
-                                            let message = json.get("message").and_then(|v| v.as_str()).unwrap_or("unknown");
-                                            info!("No results (status {}): {}", status, message);
                                         }
+                                        _ => {}
                                     }
-                                    Err(e) => error!("Failed to parse Basescan JSON: {}", e),
                                 }
                             }
-                            Err(e) => error!("HTTP error calling Basescan: {}", e),
                         }
+                        Err(e) => { warn!("getLogs error in window [{}, {}]: {:?}", cur, hi, e); }
                     }
-                    Err(e) => error!("Invalid URL: {}", e),
+                    if hi == latest { break; }
+                    cur = hi + 1;
                 }
+                info!("Completed index for {}: {} receipts scanned, {} USDC transfers recorded.", tba_str, total_receipts, total_transfers);
             } else {
-                error!("Usage: usdc-history <address> [days=30] [limit=100]");
+                error!("Usage: entry-usdc-index <tba|name|namehash> [from_block]");
             }
         }
-        //"test-submit-userop" => {
-        //    // this one works with, but the gas estimation is not working. so if we get lucky with the gas estimation it goes through
-        //    if let Some(command_args) = command_arg {
-        //        info!("--- Submit UserOperation Test (ACTUAL SUBMISSION) ---");
-        //        
-        //        let args: Vec<&str> = command_args.split_whitespace().collect();
-        //        if args.len() < 1 {
-        //            error!("Usage: test-submit-userop <amount>");
-        //            info!("Example: test-submit-userop 0.01");
-        //            info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
-        //            return Ok(());
-        //        }
-        //        
-        //        // Parse amount
-        //        let amount_usdc = match args[0].parse::<f64>() {
-        //            Ok(a) if a > 0.0 => a,
-        //            _ => {
-        //                error!("Invalid amount. Please provide a positive number.");
-        //                return Ok(());
-        //            }
-        //        };
-        //        
-        //        let amount_units = (amount_usdc * 1_000_000.0) as u128;
-        //        
-        //        // Configuration
-        //        let sender = "0x62DFaDaBFd0b036c1C616aDa273856c514e65819";
-        //        let usdc_contract = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913";
-        //        let recipient = "0x3138FE02bFc273bFF633E093Bd914F58930d111c";
-        //        let entry_point = "0x4337084D9E255Ff0702461CF8895CE9E3b5Ff108";
-        //        let private_key = "0x0988b51979846798cb05ffaa241c6f8bd5538b16344c14343f5dfb6a4dbb2e9a";
-        //        let chain_id = 8453u64;
-        //        let bundler_url = "https://api.candide.dev/public/v3/8453";
-        //        
-        //        let provider = Provider::new(chain_id, 30000);
-        //        
-        //        info!("🚀 SUBMITTING {} USDC transfer using Circle Paymaster", amount_usdc);
-        //        info!("⚠️  This will ACTUALLY execute the transaction!");
-        //        
-        //        
-        //        // Step 2: Fetch dynamic nonce
-        //        info!("=== STEP 2: FETCH DYNAMIC NONCE ===");
-        //        let nonce = match fetch_dynamic_nonce(&provider, sender, entry_point) {
-        //            Ok(n) => n,
-        //            Err(e) => {
-        //                error!("Failed to fetch nonce: {}", e);
-        //                return Ok(());
-        //            }
-        //        };
-        //        
-        //        // Step 3: Fetch dynamic gas prices
-        //        info!("=== STEP 3: FETCH BASE GAS PRICES FROM PROVIDER ===");
-        //        let (dynamic_max_fee, dynamic_priority_fee) = match fetch_dynamic_gas_prices(&provider) {
-        //            Ok(gas_data) => gas_data,
-        //            Err(e) => {
-        //                error!("Failed to fetch gas prices: {}", e);
-        //                return Ok(());
-        //            }
-        //        };
-        //        
-        //        // Step 4: Build USDC transfer calldata
-        //        info!("=== STEP 4: BUILD USDC TRANSFER CALLDATA ===");
-        //        let call_data = match build_usdc_transfer_calldata(usdc_contract, recipient, amount_units) {
-        //            Ok(data) => data,
-        //            Err(e) => {
-        //                error!("Failed to build calldata: {}", e);
-        //                return Ok(());
-        //            }
-        //        };
-        //        let call_data_hex = hex::encode(&call_data);
-        //        
-        //        // Step 5: Try multiple gas estimation strategies
-        //        info!("=== STEP 5: SMART GAS ESTIMATION ===");
-        //        
-        //        // Use conservative defaults that work reliably
-        //        let mut final_call_gas = 150_000u64;        // Higher default
-        //        let mut final_verif_gas = 250_000u64;       // Higher default  
-        //        let mut final_preverif_gas = 60_000u64;     // Higher default for Base L1 costs
-        //        
-        //        info!("Starting with conservative gas defaults:");
-        //        info!("  - callGas: {}", final_call_gas);
-        //        info!("  - verificationGas: {}", final_verif_gas);
-        //        info!("  - preVerificationGas: {}", final_preverif_gas);
-        //        
-        //        // Strategy 1: Try estimation without paymaster first
-        //        info!("🔄 Strategy 1: Estimate without paymaster");
-        //        let no_paymaster_userop = build_estimation_userop_json(
-        //            sender,
-        //            &nonce,
-        //            &call_data_hex,
-        //            final_call_gas as u128,
-        //            final_verif_gas as u128,
-        //            final_preverif_gas,
-        //            dynamic_max_fee,
-        //            dynamic_priority_fee,
-        //            false, // No paymaster
-        //        );
-        //        
-        //        if let Ok(Some(estimates)) = estimate_userop_gas(&no_paymaster_userop, entry_point, bundler_url) {
-        //            info!("No-paymaster estimation succeeded");
-        //            let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
-        //                Some(estimates),
-        //                final_call_gas as u128,
-        //                final_verif_gas as u128,
-        //                final_preverif_gas,
-        //            );
-        //            final_call_gas = call_est;
-        //            final_verif_gas = verif_est;
-        //            final_preverif_gas = preverif_est;
-        //            info!("Updated gas estimates from bundler:");
-        //            info!("  - callGas: {}", final_call_gas);
-        //            info!("  - verificationGas: {}", final_verif_gas);
-        //            info!("  - preVerificationGas: {}", final_preverif_gas);
-        //            } else {
-        //            info!("⚠️  No-paymaster estimation failed, using defaults");
-        //        }
-        //        
-        //        // Strategy 2: Try with paymaster (optional)
-        //        info!("🔄 Strategy 2: Try estimation with paymaster (non-blocking)");
-        //        let paymaster_userop = build_estimation_userop_json(
-        //            sender,
-        //            &nonce,
-        //            &call_data_hex,
-        //            final_call_gas as u128,
-        //            final_verif_gas as u128,
-        //            final_preverif_gas,
-        //            dynamic_max_fee,
-        //            dynamic_priority_fee,
-        //            true, // With paymaster
-        //        );
-        //        
-        //        if let Ok(Some(estimates)) = estimate_userop_gas(&paymaster_userop, entry_point, bundler_url) {
-        //            info!("Paymaster estimation also succeeded - using those values");
-        //            let (call_est, verif_est, preverif_est) = extract_gas_values_from_estimate(
-        //                Some(estimates),
-        //                final_call_gas as u128,
-        //                final_verif_gas as u128,
-        //                final_preverif_gas,
-        //            );
-        //            final_call_gas = call_est;
-        //            final_verif_gas = verif_est;
-        //            final_preverif_gas = preverif_est;
-        //    } else {
-        //            info!("⚠️  Paymaster estimation failed, but continuing with previous estimates");
-        //        }
-        //        
-        //        // Step 6: Calculate transaction cost
-        //        info!("=== STEP 6: FINALIZE GAS VALUES ===");
-        //        info!("Final gas values to use:");
-        //        info!("  - callGas: {}", final_call_gas);
-        //        info!("  - verificationGas: {}", final_verif_gas);
-        //        info!("  - preVerificationGas: {}", final_preverif_gas);
-        //        
-        //        let (total_cost_wei, total_cost_eth, total_cost_usd) = calculate_transaction_cost(
-        //            final_call_gas,
-        //            final_verif_gas,
-        //            final_preverif_gas,
-        //            dynamic_max_fee,
-        //        );
-        //        
-        //        // Step 8: Prepare paymaster data
-        //        info!("=== STEP 7: PREPARE PAYMASTER DATA ===");
-        //        // For hash calculation, we need the full paymasterAndData format:
-        //        // paymaster address (20 bytes) + verification gas (16 bytes padded) + post-op gas (16 bytes padded)
-        //        let mut paymaster_and_data = Vec::new();
-        //        
-        //        // Paymaster address
-        //        //let paymaster_addr = hex::decode("0578cFB241215b77442a541325d6A4E6dFE700Ec").unwrap();
-        //        let paymaster_addr = hex::decode("861a1Be40c595db980341e41A7a5D09C772f7c2b").unwrap();
-        //        paymaster_and_data.extend_from_slice(&paymaster_addr);
-        //        
-        //        // Paymaster verification gas limit (500000 = 0x7a120) - 16 bytes padded
-        //        let verif_gas: u128 = 500000;
-        //        paymaster_and_data.extend_from_slice(&verif_gas.to_be_bytes());
-        //        
-        //        // Paymaster post-op gas limit (300000 = 0x493e0) - 16 bytes padded
-        //        let post_op_gas: u128 = 300000;
-        //        paymaster_and_data.extend_from_slice(&post_op_gas.to_be_bytes());
-        //        
-        //        info!("PaymasterAndData for hash: 0x{}", hex::encode(&paymaster_and_data));
-        //        
-        //        // Step 9: Calculate UserOperation hash
-        //        info!("=== STEP 8: CALCULATE USEROPERATION HASH ===");
-        //        let user_op_hash = match calculate_userop_hash(
-        //            &provider,
-        //            entry_point,
-        //            sender,
-        //            &nonce,
-        //            &call_data,
-        //            final_call_gas,
-        //            final_verif_gas,
-        //            final_preverif_gas,
-        //            dynamic_max_fee,
-        //            dynamic_priority_fee,
-        //            &paymaster_and_data,
-        //        ) {
-        //            Ok(hash) => hash,
-        //            Err(e) => {
-        //                error!("Failed to calculate UserOp hash: {}", e);
-        //                return Ok(());
-        //            }
-        //        };
-        //        
-        //        // Step 10: Sign UserOperation
-        //        info!("=== STEP 9: SIGN USEROPERATION ===");
-        //        let signature = match sign_userop_hash(&user_op_hash, private_key, chain_id) {
-        //            Ok(sig) => sig,
-        //            Err(e) => {
-        //                error!("Failed to sign UserOp: {}", e);
-        //                return Ok(());
-        //            }
-        //        };
-        //        
-        //        // Step 11: Build final UserOperation
-        //        info!("=== STEP 10: BUILD FINAL USEROPERATION ===");
-        //        let final_userop = build_final_userop_json_with_data(
-        //            sender,
-        //            &nonce,
-        //            &call_data_hex,
-        //            final_call_gas,
-        //            final_verif_gas,
-        //            final_preverif_gas,
-        //            dynamic_max_fee,
-        //            dynamic_priority_fee,
-        //            &signature,
-        //            &Vec::new(), // Empty paymaster data for Candide API format
-        //        );
-        //        
-        //        info!("Final UserOperation ready for submission:");
-        //        info!("{}", serde_json::to_string_pretty(&final_userop).unwrap());
-        //        
-        //        // Step 11: SUBMIT TO BUNDLER WITH RETRY
-        //        info!("=== STEP 11: 🚀 SUBMIT TO BUNDLER ===");
-        //        
-        //        let mut retry_call_gas = final_call_gas;
-        //        let mut retry_verif_gas = final_verif_gas;
-        //        let mut retry_preverif_gas = final_preverif_gas;
-        //        
-        //        use hyperware_process_lib::http::client::send_request_await_response;
-        //        use hyperware_process_lib::http::Method;
-        //        
-        //        for attempt in 1..=3 {
-        //            info!("Attempt {}/3: Submitting UserOperation...", attempt);
-        //            info!("Gas limits: call={}, verif={}, preverif={}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
-        //            
-        //            // Use the same paymaster data that was used for hash calculation
-        //            let retry_paymaster_data = Vec::new(); // Empty for Candide API format
-        //            
-        //            let retry_userop = build_final_userop_json_with_data(
-        //                sender,
-        //                &nonce,
-        //                &call_data_hex,
-        //                retry_call_gas,
-        //                retry_verif_gas,
-        //                retry_preverif_gas,
-        //                dynamic_max_fee,
-        //                dynamic_priority_fee,
-        //                &signature,
-        //                &retry_paymaster_data,
-        //            );
-        //            
-        //            let submit_request = serde_json::json!({
-        //            "jsonrpc": "2.0",
-        //            "method": "eth_sendUserOperation",
-        //                "params": [retry_userop, entry_point],
-        //                "id": attempt
-        //            });
-        //            
-        //            let url = url::Url::parse(bundler_url).unwrap();
-        //        let mut headers = std::collections::HashMap::new();
-        //        headers.insert("Content-Type".to_string(), "application/json".to_string());
-        //        
-        //        match send_request_await_response(
-        //            Method::POST,
-        //            url,
-        //            Some(headers),
-        //            30000,
-        //                serde_json::to_vec(&submit_request).unwrap(),
-        //        ) {
-        //            Ok(response) => {
-        //                let response_str = String::from_utf8_lossy(&response.body());
-        //                
-        //                if let Ok(json) = serde_json::from_str::<serde_json::Value>(&response_str) {
-        //                        if let Some(result) = json.get("result") {
-        //                            let user_op_hash = result.as_str().unwrap_or("unknown");
-        //                            info!("SUCCESS! UserOperation submitted on attempt {}!", attempt);
-        //                            info!("🔗 UserOperation Hash: {}", user_op_hash);
-        //                            info!("📊 Transaction details:");
-        //                            info!("   - Amount: {} USDC ({} units)", amount_usdc, amount_units);
-        //                            info!("   - From: {}", sender);
-        //                            info!("   - To: {}", recipient);
-        //                            info!("   - Final gas: call={}, verif={}, preverif={}", retry_call_gas, retry_verif_gas, retry_preverif_gas);
-        //            return Ok(());
-        //                            
-        //                        } else if let Some(error) = json.get("error") {
-        //                            let error_message = error.get("message").and_then(|m| m.as_str()).unwrap_or("Unknown error");
-        //                            error!("❌ Attempt {} failed: {}", attempt, error_message);
-        //                            
-        //                            if (error_message.contains("AA33") || error_message.contains("AA21")) && attempt < 3 {
-        //                                info!("💡 Gas/paymaster issue - increasing limits and retrying in 2 seconds...");
-        //                                
-        //                                // Increase gas limits by 25%
-        //                                retry_call_gas = (retry_call_gas as f64 * 1.25) as u64;
-        //                                retry_verif_gas = (retry_verif_gas as f64 * 1.25) as u64;
-        //                                retry_preverif_gas = (retry_preverif_gas as f64 * 1.25) as u64;
-        //                                
-        //                                std::thread::sleep(std::time::Duration::from_secs(2));
-        //        } else {
-        //                                error!("❌ Final failure: {}", serde_json::to_string_pretty(error).unwrap());
-        //                                break;
-        //                            }
-        //                        }
-        //                    } else {
-        //                        error!("❌ Failed to parse bundler response: {}", response_str);
-        //                        break;
-        //                }
-        //            }
-        //            Err(e) => {
-        //                    error!("❌ Network error on attempt {}: {}", attempt, e);
-        //                    if attempt < 3 {
-        //                        std::thread::sleep(std::time::Duration::from_secs(2));
-        //                    }
-        //                }
-        //            }
-        //        }
-        //        
-        //        error!("❌ All submission attempts failed");
-        //        
-        //        info!("=== SUBMISSION TEST COMPLETE ===");
-        //        
-        //                } else {
-        //        error!("Usage: test-submit-userop <amount>");
-        //        info!("Example: test-submit-userop 0.01");
-        //        info!("⚠️  WARNING: This ACTUALLY SUBMITS the UserOp to the bundler!");
-        //    }
-        //}
+        "usdc-scan-direct" => {
+            // Usage: usdc-scan-direct <tba|name|namehash> [from_block]
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() { error!("Usage: usdc-scan-direct <tba|name|namehash> [from_block]"); return Ok(()); }
+                let input = parts[0].trim();
+                let from_block_override = parts.get(1).and_then(|v| v.parse::<u64>().ok());
 
+                ensure_usdc_events_table(db)?;
+
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let hyper = hypermap::Hypermap::new(provider.clone(), EthAddress::from_str(hypermap::HYPERMAP_ADDRESS).unwrap());
+
+                // Resolve TBA
+                let tba_addr = if input.starts_with("0x") && input.len() == 42 {
+                    EthAddress::from_str(input).map_err(|e| anyhow!("Invalid address: {}", e))?
+                } else if input.starts_with("0x") && input.len() == 66 {
+                    let (tba, _owner, _data) = match hyper.get_hash(input) { Ok(v) => v, Err(e) => { error!("Failed to get entry from namehash: {:?}", e); return Ok(()); } };
+                    tba
+                } else {
+                    let (tba, _owner, _data) = match hyper.get(input) { Ok(v) => v, Err(e) => { error!("Failed to get entry from name: {:?}", e); return Ok(()); } };
+                    tba
+                };
+                let tba_str = format!("0x{}", hex::encode(tba_addr));
+
+                // Determine start block via Mint bootstrap unless overridden
+                let start_block = if let Some(fb) = from_block_override { fb } else {
+                    let nh = match hyper.get_namehash_from_tba(tba_addr) { Ok(nh) => nh, Err(_) => String::new() };
+                    let mut nh_bytes = [0u8; 32];
+                    if let Ok(b) = hex::decode(nh.trim_start_matches("0x")) { if b.len() == 32 { nh_bytes.copy_from_slice(&b); } }
+                    let nh_b256 = B256::from(nh_bytes);
+                    let mint_f = hyper.mint_filter().topic2(vec![nh_b256]);
+                    match hyper.bootstrap(Some(hypermap::HYPERMAP_FIRST_BLOCK), vec![mint_f], Some((5, Some(5))), None) {
+                        Ok((_lb, results)) => {
+                            let mints = results.get(0).cloned().unwrap_or_default();
+                            mints.iter().filter_map(|l| l.block_number).min().unwrap_or(hypermap::HYPERMAP_FIRST_BLOCK)
+                        }
+                        Err(_) => hypermap::HYPERMAP_FIRST_BLOCK,
+                    }
+                };
+                let latest = provider.get_block_number().unwrap_or(start_block);
+                info!("Direct USDC scan for {} from {} to {} (<=450/window)", tba_str, start_block, latest);
+
+                // Build USDC Transfer filters
+                let usdc = EthAddress::from_str(USDC_BASE_ADDRESS).unwrap_or(EthAddress::ZERO);
+                let transfer_sig = keccak256("Transfer(address,address,uint256)".as_bytes());
+                let mut pad = [0u8; 32]; pad[12..].copy_from_slice(tba_addr.as_slice()); let topic_addr = B256::from(pad);
+                let base_from = eth::Filter::new().address(usdc).topic0(vec![transfer_sig.into()]).topic1(vec![topic_addr]);
+                let base_to   = eth::Filter::new().address(usdc).topic0(vec![transfer_sig.into()]).topic2(vec![topic_addr]);
+
+                let step: u64 = 450;
+                let mut cur = start_block;
+                let mut rows = 0usize;
+                while cur <= latest {
+                    let hi = latest.min(cur + step);
+                    let wf = base_from.clone().from_block(cur).to_block(hi);
+                    let wt = base_to.clone().from_block(cur).to_block(hi);
+                    for flt in [&wf, &wt] {
+                        match provider.get_logs(flt) {
+                            Ok(logs) => {
+                                for lg in logs {
+                                    let txh = match lg.transaction_hash { Some(h) => h, None => continue };
+                                    if lg.topics().len() < 3 { continue; }
+                                    let from_addr = &lg.topics()[1].as_slice()[12..];
+                                    let to_addr = &lg.topics()[2].as_slice()[12..];
+                                    let from_hex = format!("0x{}", hex::encode(from_addr));
+                                    let to_hex = format!("0x{}", hex::encode(to_addr));
+                                    if !from_hex.eq_ignore_ascii_case(&tba_str) && !to_hex.eq_ignore_ascii_case(&tba_str) { continue; }
+                                    let amount = U256::from_be_slice(lg.data().data.as_ref());
+                                    let blk = lg.block_number.unwrap_or(cur);
+                                    let log_index = lg.log_index.map(|v| v.into());
+                                    insert_usdc_event(db, &tba_str, blk, None, &format!("0x{}", hex::encode(txh)), log_index, &from_hex, &to_hex, &amount.to_string())?;
+                                    rows += 1;
+                                }
+                            }
+                            Err(e) => { warn!("getLogs error in window [{}, {}]: {:?}", cur, hi, e); }
+                        }
+                    }
+                    if hi == latest { break; }
+                    cur = hi + 1;
+                }
+                info!("Direct USDC scan complete for {}. Rows inserted: {}", tba_str, rows);
+            } else {
+                error!("Usage: usdc-scan-direct <tba|name|namehash> [from_block]");
+            }
+        }
+        "usdc-scan-bisect" => {
+            // Usage: usdc-scan-bisect <tba|name|namehash>
+            if let Some(args) = command_arg {
+                let input = args.trim();
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let hyper = hypermap::Hypermap::new(provider.clone(), EthAddress::from_str(hypermap::HYPERMAP_ADDRESS).unwrap());
+
+                // Resolve TBA and creation block via hypermap
+                let (tba_addr, start_block) = {
+                    let tba = if input.starts_with("0x") && input.len() == 42 {
+                        EthAddress::from_str(input).map_err(|e| anyhow!("Invalid address: {}", e))?
+                    } else if input.starts_with("0x") && input.len() == 66 {
+                        let (t, _o, _d) = hyper.get_hash(input).map_err(|e| anyhow!("get_hash: {:?}", e))?; t
+                    } else { let (t, _o, _d) = hyper.get(input).map_err(|e| anyhow!("get(name): {:?}", e))?; t };
+                    // creation via Mint
+                    let nh = hyper.get_namehash_from_tba(tba).unwrap_or_default();
+                    let mut nh_bytes = [0u8; 32]; if let Ok(b) = hex::decode(nh.trim_start_matches("0x")) { if b.len()==32 { nh_bytes.copy_from_slice(&b); } }
+                    let mint_f = hyper.mint_filter().topic2(vec![B256::from(nh_bytes)]);
+                    let (_lb, res) = hyper.bootstrap(Some(hypermap::HYPERMAP_FIRST_BLOCK), vec![mint_f], Some((5, Some(5))), None).map_err(|e| anyhow!("bootstrap: {:?}", e))?;
+                    let mints = res.get(0).cloned().unwrap_or_default();
+                    let created = mints.iter().filter_map(|l| l.block_number).min().unwrap_or(hypermap::HYPERMAP_FIRST_BLOCK);
+                    (tba, created)
+                };
+                let latest = provider.get_block_number().unwrap_or(start_block);
+                info!("Bisect USDC scan for {} from {} to {}", format!("0x{}", hex::encode(tba_addr)), start_block, latest);
+
+                let usdc = EthAddress::from_str(USDC_BASE_ADDRESS).unwrap_or(EthAddress::ZERO);
+                let window_cap: u64 = 450; // switch to logs when ranges are small enough
+
+                let mut cache: std::collections::HashMap<u64, U256> = std::collections::HashMap::new();
+                let mut get_bal = |blk: u64| -> anyhow::Result<U256> {
+                    if let Some(v) = cache.get(&blk) { return Ok(*v); }
+                    let v = erc20_balance_of_at(&provider, usdc, tba_addr, blk)?;
+                    cache.insert(blk, v);
+                    Ok(v)
+                };
+
+                let mut ranges: Vec<(u64,u64)> = Vec::new();
+                if start_block < latest {
+                    bisect_change_ranges(&provider, usdc, tba_addr, start_block, latest, window_cap, &mut get_bal, &mut ranges).ok();
+                }
+                if ranges.is_empty() {
+                    info!("No USDC balance changes detected across range. Nothing to fetch.");
+                    return Ok(());
+                }
+                info!("{} change windows to fetch logs in", ranges.len());
+
+                // For each small window, fetch both in/out logs and insert
+                let transfer_sig = keccak256("Transfer(address,address,uint256)".as_bytes());
+                let mut pad = [0u8; 32]; pad[12..].copy_from_slice(tba_addr.as_slice()); let topic_addr = B256::from(pad);
+                let base_from = eth::Filter::new().address(usdc).topic0(vec![transfer_sig.into()]).topic1(vec![topic_addr]);
+                let base_to   = eth::Filter::new().address(usdc).topic0(vec![transfer_sig.into()]).topic2(vec![topic_addr]);
+
+                ensure_usdc_events_table(db)?;
+                let mut inserted = 0usize;
+                for (lo, hi) in ranges.into_iter() {
+                    for flt in [base_from.clone().from_block(lo).to_block(hi), base_to.clone().from_block(lo).to_block(hi)] {
+                        match provider.get_logs(&flt) {
+                            Ok(logs) => {
+                                for lg in logs {
+                                    let txh = match lg.transaction_hash { Some(h) => h, None => continue };
+                                    if lg.topics().len() < 3 { continue; }
+                                    let from_addr = &lg.topics()[1].as_slice()[12..];
+                                    let to_addr = &lg.topics()[2].as_slice()[12..];
+                                    let from_hex = format!("0x{}", hex::encode(from_addr));
+                                    let to_hex = format!("0x{}", hex::encode(to_addr));
+                                    let amount = U256::from_be_slice(lg.data().data.as_ref());
+                                    let blk = lg.block_number.unwrap_or(lo);
+                                    let log_index = lg.log_index.map(|v| v.into());
+                                    insert_usdc_event(db, &format!("0x{}", hex::encode(tba_addr)), blk, None, &format!("0x{}", hex::encode(txh)), log_index, &from_hex, &to_hex, &amount.to_string())?;
+                                    inserted += 1;
+                                }
+                            }
+                            Err(e) => warn!("getLogs error in bisect window [{}, {}]: {:?}", lo, hi, e),
+                        }
+                    }
+                }
+                info!("Bisect USDC scan complete. Rows inserted: {}", inserted);
+            } else {
+                error!("Usage: usdc-scan-bisect <tba|name|namehash>");
+            }
+        }
+        "usdc-show" => {
+            // Usage: usdc-show <tba_address> [limit=50]
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() { error!("Usage: usdc-show <tba_address> [limit=50]"); return Ok(()); }
+                let addr_norm = match EthAddress::from_str(parts[0]) {
+                    Ok(a) => format!("0x{}", hex::encode(a)),
+                    Err(e) => { error!("Invalid address: {}", e); return Ok(()); }
+                };
+                let limit = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(50);
+
+                ensure_usdc_events_table(db)?;
+                let q = r#"
+                    SELECT block, time, tx_hash, log_index, from_addr, to_addr, value_units
+                    FROM usdc_events
+                    WHERE address = ?1
+                    ORDER BY block DESC, COALESCE(log_index, 0) DESC
+                    LIMIT ?2
+                "#.to_string();
+                let params = vec![
+                    serde_json::Value::String(addr_norm.clone()),
+                    serde_json::Value::Number(serde_json::Number::from(limit)),
+                ];
+                match db.read(q, params) {
+                    Ok(rows) => {
+                        if rows.is_empty() {
+                            info!("No USDC events for {}", addr_norm);
+                        } else {
+                            info!("USDC events for {} (showing {}):", addr_norm, rows.len());
+                            for row in rows {
+                                let blk = row.get("block").and_then(|v| v.as_i64()).unwrap_or(0);
+                                let ts = row.get("time").and_then(|v| v.as_i64()).unwrap_or(0);
+                                let tx = row.get("tx_hash").and_then(|v| v.as_str()).unwrap_or("");
+                                let li = row.get("log_index").and_then(|v| v.as_i64()).unwrap_or(0);
+                                let fa = row.get("from_addr").and_then(|v| v.as_str()).unwrap_or("");
+                                let ta = row.get("to_addr").and_then(|v| v.as_str()).unwrap_or("");
+                                let vu = row.get("value_units").and_then(|v| v.as_str()).unwrap_or("");
+                                info!("block={} ts={} tx={} log_index={} from={} to={} value(units)={} ", blk, ts, tx, li, fa, ta, vu);
+                            }
+                        }
+                    }
+                    Err(e) => error!("DB read error for usdc_show: {:?}", e),
+                }
+            } else {
+                error!("Usage: usdc-show <tba_address> [limit=50]");
+            }
+        }
+        "ledger-build" => {
+            // Usage: usdc-ledger-build <tba>
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() { error!("Usage: usdc-ledger-build <tba>"); return Ok(()); }
+                let tba = parts[0].to_lowercase();
+                ledger::ensure_usdc_events_table(db)?;
+                ledger::ensure_usdc_call_ledger_table(db)?;
+                let n = ledger::build_usdc_ledger_for_tba(state, db, &tba)?;
+                info!("ledger-build complete for {} ({} rows)", tba, n);
+            } else { error!("Usage: usdc-ledger-build <tba>"); }
+        }
+        "ledger-show" => {
+            // Usage: usdc-ledger-show <tba> [limit=20]
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() { error!("Usage: usdc-ledger-show <tba> [limit=20]"); return Ok(()); }
+                let tba = parts[0].to_lowercase();
+                let limit = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(20);
+                ledger::show_ledger(db, &tba, limit)?;
+            } else { error!("Usage: usdc-ledger-show <tba> [limit=20]"); }
+        }
+        "usdc-history" => {
+            // Usage: usdc-history <tba_address> [limit=200]
+            if let Some(args) = command_arg {
+                let parts: Vec<&str> = args.split_whitespace().collect();
+                if parts.is_empty() { error!("Usage: usdc-history <tba_address> [limit=200]"); return Ok(()); }
+                let addr_norm = match EthAddress::from_str(parts[0]) {
+                    Ok(a) => format!("0x{}", hex::encode(a)),
+                    Err(e) => { error!("Invalid address: {}", e); return Ok(()); }
+                };
+                let limit = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(200);
+
+                ensure_usdc_events_table(db)?;
+
+                // Fill missing timestamps for this address (cheap cache)
+                let provider = eth::Provider::new(structs::CHAIN_ID, 30000);
+                let q_missing = r#"
+                    SELECT DISTINCT block FROM usdc_events
+                    WHERE address = ?1 AND time IS NULL
+                    ORDER BY block ASC
+                    LIMIT 200
+                "#.to_string();
+                if let Ok(rows) = db.read(q_missing.clone(), vec![serde_json::Value::String(addr_norm.clone())]) {
+                    for r in rows {
+                        if let Some(bn) = r.get("block").and_then(|v| v.as_i64()).map(|v| v as u64) {
+                            if let Ok(Some(b)) = provider.get_block_by_number(hyperware_process_lib::eth::BlockNumberOrTag::Number(bn), false) {
+                                let ts = b.header.inner.timestamp;
+                                let upd = "UPDATE usdc_events SET time = ?1 WHERE address = ?2 AND block = ?3 AND time IS NULL".to_string();
+                                let p = vec![serde_json::Value::Number(ts.into()), serde_json::Value::String(addr_norm.clone()), serde_json::Value::Number((bn as i64).into())];
+                                let _ = db.write(upd, p, None);
+                            }
+                        }
+                    }
+                }
+
+                // Now read ordered ascending to compute running balance
+                let q = r#"
+                    SELECT block, time, tx_hash, log_index, from_addr, to_addr, value_units
+                    FROM usdc_events
+                    WHERE address = ?1
+                    ORDER BY block ASC, COALESCE(log_index, 0) ASC
+                    LIMIT ?2
+                "#.to_string();
+                let params = vec![serde_json::Value::String(addr_norm.clone()), serde_json::Value::Number(serde_json::Number::from(limit))];
+                match db.read(q, params) {
+                    Ok(rows) => {
+                        if rows.is_empty() { info!("No USDC events for {}", addr_norm); return Ok(()); }
+                        let mut balance = U256::from(0);
+                        let decimals = U256::from(1_000_000u64);
+                        info!("USDC history for {} ({} events):", addr_norm, rows.len());
+                        for row in rows {
+                            let blk = row.get("block").and_then(|v| v.as_i64()).unwrap_or(0) as u64;
+                            let ts = row.get("time").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let tx = row.get("tx_hash").and_then(|v| v.as_str()).unwrap_or("");
+                            let li = row.get("log_index").and_then(|v| v.as_i64()).unwrap_or(0);
+                            let fa = row.get("from_addr").and_then(|v| v.as_str()).unwrap_or("");
+                            let ta = row.get("to_addr").and_then(|v| v.as_str()).unwrap_or("");
+                            let vu = row.get("value_units").and_then(|v| v.as_str()).unwrap_or("0");
+                            let amt = U256::from_str_radix(vu, 10).unwrap_or(U256::from(0));
+                            let incoming = ta.eq_ignore_ascii_case(&addr_norm);
+                            if incoming { balance = balance.saturating_add(amt); } else { balance = balance.saturating_sub(amt); }
+                            // format amount and balance with 6 decimals
+                            let amt_whole = amt / decimals; let amt_frac = (amt % decimals).to::<u64>();
+                            let bal_whole = balance / decimals; let bal_frac = (balance % decimals).to::<u64>();
+                            let dir = if incoming { "IN" } else { "OUT" };
+                            let counterparty = if incoming { fa } else { ta };
+                            info!(
+                                "blk={} ts={} tx={} idx={} dir={} cp={} amt={}{}.{} bal={}{}.{}",
+                                blk,
+                                ts,
+                                tx,
+                                li,
+                                dir,
+                                counterparty,
+                                if incoming { "+" } else { "-" },
+                                amt_whole.to_string(),
+                                format!("{:06}", amt_frac),
+                                bal_whole.to_string(),
+                                ".",
+                                format!("{:06}", bal_frac),
+                            );
+                        }
+                    }
+                    Err(e) => error!("DB read error for usdc-history: {:?}", e),
+                }
+            } else {
+                error!("Usage: usdc-history <tba_address> [limit=200]");
+            }
+        }
         "get-receipt" => {
             if let Some(user_op_hash) = command_arg {
                 info!("--- Manual UserOperation Receipt Lookup ---");
