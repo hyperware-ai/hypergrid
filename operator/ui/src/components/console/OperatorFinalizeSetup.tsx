@@ -89,50 +89,45 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
       setTimeout(() => {
         onComplete?.();
         reset();
+        try { window.location.reload(); } catch {}
       }, 2000);
     }
   }, [isConfirmed, onComplete, reset]);
 
   return (
-    <div style={{ border: '1px solid #ddd', padding: 12, background: '#fafafa' }}>
-      <div style={{ fontWeight: 600, marginBottom: 4 }}>Finalize operator setup</div>
-      <div style={{ color: '#555', fontSize: 12, marginBottom: 10 }}>
-        Adds '~grid-beta-signers' with one hot wallet and approves $200 USDC for the paymaster in one tx.
-      </div>
-      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-        <button
-          onClick={onClick}
-          disabled={disabled}
-          style={{ background: disabled ? '#eee' : '#111', color: disabled ? '#888' : '#fff', padding: '6px 12px', border: '1px solid #ddd' }}
-        >
-          {isPending || isConfirming ? 'Confirm in wallet…' : 'Finalize operator'}
-        </button>
-        {hash && (
-          <a href={`https://basescan.org/tx/${hash}`} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
-            view tx
-          </a>
-        )}
-        {error && <div style={{ color: 'red', fontSize: 12 }}>Error: {error.message}</div>}
-      </div>
-      <div style={{ marginTop: 8, padding: 8, background: '#fff', border: '1px dashed #ddd' }}>
-        <div style={{ fontWeight: 600, marginBottom: 6 }}>Details</div>
-        {disabled && disabledReasons.length > 0 && (
-          <div style={{ color: '#b00', fontSize: 12, marginBottom: 6 }}>Disabled because: {disabledReasons.join(', ')}</div>
-        )}
-        <div style={{ display: 'grid', gridTemplateColumns: '200px 1fr', gap: 6, fontSize: 12 }}>
-          <div>Wallet (EOA)</div><div>{eoa || '—'}</div>
-          <div>Operator TBA</div><div>{operatorTbaAddress || '—'}</div>
-          <div>Hot wallet</div><div>{hotWalletAddress || '—'}</div>
-          <div>USDC</div><div>{USDC_ADDRESS_BASE}</div>
-          <div>Paymaster</div><div>{PAYMASTER_ADDRESS}</div>
-          <div>Multicall</div><div>{MULTICALL_ADDRESS}</div>
-          <div>Hypermap</div><div>{HYPERMAP_ADDRESS}</div>
-          <div>Chain</div><div>Base ({BASE_CHAIN_ID})</div>
-          <div>Tx status</div><div>{isPending ? 'pending' : isConfirming ? 'confirming' : isConfirmed ? 'confirmed' : 'idle'}</div>
-          <div>Tx hash</div><div>{hash ? <a href={`https://basescan.org/tx/${hash}`} target="_blank" rel="noreferrer">{hash}</a> : '—'}</div>
-          <div>Last error</div><div style={{ color: '#b00' }}>{error?.message || '—'}</div>
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div style={{ width: 520, maxWidth: 'min(520px, 100%)', background: '#fff', borderRadius: 12, boxShadow: '0 10px 30px rgba(0,0,0,0.2)', border: '1px solid #e5e7eb' }}>
+        <div style={{ padding: 16, borderBottom: '1px solid #eee', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ fontWeight: 600 }}>Step 2 · Finalize operator setup</div>
         </div>
-        <div style={{ marginTop: 6, color: '#666' }}>Plan: operator.execute(MULTICALL via DELEGATECALL) → [HYPERMAP.note('~grid-beta-signers',[hot]), USDC.approve(paymaster, 200 USDC)].</div>
+        <div style={{ padding: 16 }}>
+          <div style={{ color: '#4b5563', fontSize: 13, marginBottom: 12 }}>
+            Links the hot wallet as signer and approves the paymaster for gasless execution.
+          </div>
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
+            <button
+              onClick={onClick}
+              disabled={disabled}
+              style={{ background: disabled ? '#e5e7eb' : '#111827', color: disabled ? '#9ca3af' : '#ffffff', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8 }}
+            >
+              {isPending || isConfirming ? 'Confirm in wallet…' : 'Finalize operator'}
+            </button>
+            {hash && (
+              <a href={`https://basescan.org/tx/${hash}`} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
+                view tx
+              </a>
+            )}
+            {error && <div style={{ color: '#b91c1c', fontSize: 12 }}>Error: {error.message}</div>}
+          </div>
+
+          {disabled && disabledReasons.length > 0 && (
+            <div style={{ color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 10 }}>
+              {disabledReasons.join(', ')}
+            </div>
+          )}
+
+          {/* details removed per request */}
+        </div>
       </div>
     </div>
   );
