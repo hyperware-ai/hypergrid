@@ -475,8 +475,49 @@ fn handle_get_setup_status(state: &State) -> anyhow::Result<()> {
 }
 
 fn handle_get_state(state: &State) -> anyhow::Result<()> {
-    info!("Returning full application state");
-    send_json_response(StatusCode::OK, &json!(state))
+    info!("Returning full application state (enriched)");
+    // Start with a JSON view of state
+    let mut out = match serde_json::to_value(state) {
+        Ok(v) => v,
+        Err(_) => json!(state),
+    };
+
+    // Try to enrich call_history with ledger totals, same as in handle_get_call_history
+    if let Some(db) = &state.db_conn {
+        let mut rows = state.call_history.clone();
+        for rec in &mut rows {
+            let tx_opt = match &rec.payment_result {
+                Some(crate::structs::PaymentAttemptResult::Success { tx_hash, .. }) => Some(tx_hash.clone()),
+                _ => None,
+            };
+            if let Some(tx) = tx_opt {
+                let q = r#"SELECT total_cost_units FROM usdc_call_ledger WHERE lower(tx_hash) = lower(?1) LIMIT 1"#.to_string();
+                if let Ok(rs) = db.read(q, vec![serde_json::Value::String(tx.clone())]) {
+                    if let Some(row) = rs.get(0) {
+                        if let Some(units_str) = row.get("total_cost_units").and_then(|v| v.as_str()) {
+                            if let Ok(units_i) = units_str.parse::<i128>() {
+                                let whole = units_i / 1_000_000;
+                                let frac = (units_i % 1_000_000).abs();
+                                let formatted = format!("{}.{}", whole, format!("{:06}", frac));
+                                // attach helper blob
+                                let mut extra = serde_json::json!({});
+                                if let Some(existing) = &rec.response_json { if let Ok(mut e) = serde_json::from_str::<serde_json::Value>(existing) { if e.is_object() { extra = e; } } }
+                                extra["total_cost_usdc"] = serde_json::Value::String(formatted);
+                                rec.response_json = Some(extra.to_string());
+                                if let Some(crate::structs::PaymentAttemptResult::Success { amount_paid, .. }) = &mut rec.payment_result {
+                                    *amount_paid = format!("{}", whole as f64 + (frac as f64)/1_000_000.0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Replace call_history in the outgoing state JSON
+        if let Ok(v) = serde_json::to_value(&rows) { out["call_history"] = v; }
+    }
+
+    send_json_response(StatusCode::OK, &out)
 }
 
 fn handle_get_all_providers(db: &Sqlite) -> anyhow::Result<()> {
@@ -710,9 +751,49 @@ fn handle_search_registry(db: &Sqlite, query: String) -> anyhow::Result<()> {
 
 fn handle_get_call_history(state: &State) -> anyhow::Result<()> {
     info!("Getting call history");
-            let history_clone = state.call_history.clone(); 
-            send_json_response(StatusCode::OK, &history_clone)
+    // Enrich with ledger totals if available
+    let mut rows = state.call_history.clone();
+    let db = match &state.db_conn {
+        Some(db) => db.clone(),
+        None => {
+            send_json_response(StatusCode::OK, &rows)?;
+            return Ok(());
         }
+    };
+    // Build a map of tx_hash -> total_cost_units and overwrite amount_paid so UI shows real ledger cost
+    // We query per record; small list keeps this simple and fast.
+    for rec in &mut rows {
+        let tx_opt = match &rec.payment_result {
+            Some(crate::structs::PaymentAttemptResult::Success { tx_hash, .. }) => Some(tx_hash.clone()),
+            _ => None,
+        };
+        if let Some(tx) = tx_opt {
+            let q = r#"SELECT total_cost_units FROM usdc_call_ledger WHERE lower(tx_hash) = lower(?1) LIMIT 1"#.to_string();
+            if let Ok(rs) = db.read(q, vec![serde_json::Value::String(tx.clone())]) {
+                if let Some(row) = rs.get(0) {
+                    if let Some(units_str) = row.get("total_cost_units").and_then(|v| v.as_str()) {
+                        // convert base units (6 dp) to display string and set as event cost
+                        if let Ok(units_i) = units_str.parse::<i128>() {
+                            let whole = units_i / 1_000_000;
+                            let frac = (units_i % 1_000_000).abs();
+                            let formatted = format!("{}.{}", whole, format!("{:06}", frac));
+                            // Attach detail blob
+                            let mut extra = serde_json::json!({});
+                            if let Some(existing) = &rec.response_json { if let Ok(mut e) = serde_json::from_str::<serde_json::Value>(existing) { if e.is_object() { extra = e; } } }
+                            extra["total_cost_usdc"] = serde_json::Value::String(formatted);
+                            rec.response_json = Some(extra.to_string());
+                            // Overwrite the displayed price used by UI to the ledger total
+                            if let Some(crate::structs::PaymentAttemptResult::Success { amount_paid, .. }) = &mut rec.payment_result {
+                                *amount_paid = format!("{}", whole as f64 + (frac as f64)/1_000_000.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    send_json_response(StatusCode::OK, &rows)
+}
 
 // --- Wallet Management Operations ---
 

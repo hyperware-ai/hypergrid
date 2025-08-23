@@ -376,7 +376,9 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
             sortedClients.map((client: any) => {
               const overlay = optimistic[client.id] || {};
               const merged = { ...client, ...overlay } as HwClient & { lastActivity?: string };
-              const monthlyUsage = ((merged.monthlySpent || 0) / (merged.monthlyLimit || 1)) * 100;
+              const spent = Number((merged as any).monthlySpent || 0);
+              const limit = Number((merged as any).monthlyLimit || 0);
+              const monthlyUsage = limit > 0 ? (spent / limit) * 100 : 0;
               const isExpanded = expandedClient === merged.id;
               return (
                 <div key={client.id}>
@@ -409,8 +411,8 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                       <div className={`px-2 py-1 text-xs rounded-full ${merged.status === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{merged.status}</div>
                     </div>
                     <div className="flex items-center gap-6 text-xs text-gray-600">
-                      <span>Spent: ${(merged.monthlySpent || 0).toLocaleString()}</span>
-                      <span>Limit: {(merged.monthlyLimit || 0).toLocaleString()}</span>
+                      <span>Spent: ${spent.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                      <span>Limit: ${limit.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
                       <span className="text-gray-400">{isExpanded ? '−' : '+'}</span>
                     </div>
                   </div>
@@ -433,7 +435,7 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                             <div className="w-full bg-gray-200 rounded-full h-2">
                               <div className={`h-2 rounded-full transition-all ${monthlyUsage > 90 ? 'bg-red-500' : monthlyUsage > 70 ? 'bg-yellow-500' : 'bg-green-500'}`} style={{ width: `${Math.min(monthlyUsage, 100)}%` }} />
                             </div>
-                            <div className="text-xs text-gray-600 mt-1">${(merged.monthlySpent || 0).toLocaleString()} / ${(merged.monthlyLimit || 0).toLocaleString()} ({monthlyUsage.toFixed(1)}%)</div>
+                            <div className="text-xs text-gray-600 mt-1">${spent.toLocaleString(undefined, { maximumFractionDigits: 6 })} / ${limit.toLocaleString(undefined, { maximumFractionDigits: 6 })} ({monthlyUsage.toFixed(1)}%)</div>
                           </div>
                         </div>
                         <div className="flex items-center gap-2 pb-2">
@@ -519,7 +521,19 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                         </td>
                         <td className="py-2"><span className="block max-w-[220px] truncate" title={event.providerName || event.provider || ''}>{event.providerName || event.provider || '—'}</span></td>
                         <td className="py-2 whitespace-nowrap"><span className={`px-2 py-0.5 rounded ${status.classes}`}>{status.label}</span></td>
-                        <td className="py-2 font-medium whitespace-nowrap">${(event.cost || 0).toLocaleString()}</td>
+                        <td className="py-2 font-medium whitespace-nowrap">
+                          {(() => {
+                            const cost = Number((event as any)?.cost || 0); // This is now ledger total (incl. gas) when available
+                            const provider = Number((event as any)?.providerCost || 0);
+                            const formatted = cost.toLocaleString(undefined, { maximumFractionDigits: 6 });
+                            const providerFmt = provider.toLocaleString(undefined, { maximumFractionDigits: 6 });
+                            return (
+                              <span title={`Total (ledger): $${formatted}${provider ? ` • Provider price: $${providerFmt}` : ''}`}>
+                                ${formatted}
+                              </span>
+                            );
+                          })()}
+                        </td>
                         <td className="py-2 whitespace-nowrap">
                           {event.txHash ? (
                             <a href={`https://basescan.org/tx/${event.txHash}`} target="_blank" rel="noreferrer" className="text-blue-600 hover:text-blue-800">

@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use hyperware_process_lib::wallet::KeyStorage;
+use hyperware_process_lib::sqlite::Sqlite;
+use anyhow::Result;
 use rmp_serde;
 use crate::authorized_services::HotWalletAuthorizedClient;
 
@@ -286,6 +288,42 @@ impl State {
                 error!("Failed to serialize state for saving: {:?}", e);
             }
         }
+    }
+
+    /// Refresh per-client total spend from the on-disk USDC ledger.
+    /// Counts total_cost (provider payout + gas/fees) toward the client limit.
+    pub fn refresh_client_totals_from_ledger(&mut self, db: &Sqlite, tba_address: &str) -> Result<()> {
+        // Sum totals per client from the ledger in base units (6 decimals)
+        let q = r#"
+            SELECT client_id, SUM(CAST(total_cost_units AS INTEGER)) AS total_units
+            FROM usdc_call_ledger
+            WHERE tba_address = ?1 AND client_id IS NOT NULL
+            GROUP BY client_id
+        "#.to_string();
+        let params = vec![serde_json::Value::String(tba_address.to_lowercase())];
+        let rows = db.read(q, params)?;
+
+        // Helper to format base units (6 dp) to display string
+        fn format_units(units: i64) -> String {
+            let whole = units / 1_000_000;
+            let frac = (units % 1_000_000).abs();
+            format!("{}.{}", whole, format!("{:06}", frac))
+        }
+
+        // Update only known clients in the cache
+        for row in rows {
+            let client_id = match row.get("client_id").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let total_units = row.get("total_units").and_then(|v| v.as_i64()).unwrap_or(0);
+            let display = format_units(total_units);
+            if let Some(entry) = self.client_limits_cache.get_mut(&client_id) {
+                entry.total_spent = Some(display);
+            }
+        }
+
+        Ok(())
     }
 }
 // calls from the MCP shim (and now also UI)

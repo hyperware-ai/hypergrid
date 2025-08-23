@@ -152,6 +152,29 @@ fn init(our: Address) {
         }
     };
 
+    // Bootstrap USDC ledger and refresh client totals (no network scans).
+    if let Some(tba) = state.operator_tba_address.clone() {
+        if let Err(e) = crate::ledger::ensure_usdc_events_table(&db) {
+            error!("Failed ensuring usdc_events table: {:?}", e);
+        }
+        if let Err(e) = crate::ledger::ensure_usdc_call_ledger_table(&db) {
+            error!("Failed ensuring usdc_call_ledger table: {:?}", e);
+        }
+        match crate::ledger::build_usdc_ledger_for_tba(&state, &db, &tba.to_lowercase()) {
+            Ok(n) => info!("USDC ledger built on boot for {} ({} rows)", tba, n),
+            Err(e) => error!("Failed to build USDC ledger on boot: {:?}", e),
+        }
+        if let Err(e) = state.refresh_client_totals_from_ledger(&db, &tba) {
+            error!("Failed to refresh client totals from ledger: {:?}", e);
+        } else {
+            // Persist updated totals for UI
+            state.save();
+        }
+    }
+
+    // Attach DB conn to state for http handlers that need it (e.g., enriching call history)
+    state.db_conn = Some(db.clone());
+
     // get state, check if there is a hot wallet, if not, create one
 
     // Initialize Chain Syncing

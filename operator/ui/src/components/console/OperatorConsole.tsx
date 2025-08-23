@@ -533,23 +533,23 @@ const OperatorConsole: React.FC = () => {
 
     // Clients from state.authorized_clients
     const authClients: any = (state?.authorized_clients as any) || {};
-    const clientArr: HwClient[] = Object.values(authClients).map((c: any) => ({
-      id: c.id,
-      name: c.name,
-      status: 'active',
-      monthlyLimit: (() => {
-        // Prefer client-scoped limits; fall back to wallet-scoped for legacy
-        const clientLims = (state as any)?.client_limits_cache?.[c.id];
-        if (clientLims?.maxTotal != null) return Number(clientLims.maxTotal);
-        const wlKey = (c.associated_hot_wallet_address || '').toLowerCase?.() || c.associated_hot_wallet_address;
-        const walletLims = (state as any)?.wallet_limits_cache?.[wlKey] || (state as any)?.wallet_limits_cache?.[c.associated_hot_wallet_address];
-        const v = walletLims?.maxTotal ?? null;
-        return v ? Number(v) : undefined;
-      })(),
-      dailyLimit: undefined,
-      monthlySpent: undefined,
-      dailySpent: undefined,
-    }));
+    const clientArr: HwClient[] = Object.values(authClients).map((c: any) => {
+      const lims = (state as any)?.client_limits_cache?.[c.id] || {};
+      const spent = lims.total_spent ?? lims.totalSpent ?? '0';
+      const max = lims.max_total ?? lims.maxTotal ?? null;
+      const wlKey = (c.associated_hot_wallet_address || '').toLowerCase?.() || c.associated_hot_wallet_address;
+      const wlLims = (state as any)?.wallet_limits_cache?.[wlKey] || (state as any)?.wallet_limits_cache?.[c.associated_hot_wallet_address] || {};
+      const fallbackMax = wlLims.max_total ?? wlLims.maxTotal ?? null;
+      return {
+        id: c.id,
+        name: c.name,
+        status: 'active',
+        monthlyLimit: max != null ? Number(max) : (fallbackMax != null ? Number(fallbackMax) : undefined),
+        monthlySpent: Number(spent || '0'),
+        dailyLimit: undefined,
+        dailySpent: undefined,
+      } as HwClient;
+    });
 
     // Events from state.call_history
     const history: any[] = (state?.call_history || []) as any[];
@@ -570,6 +570,32 @@ const OperatorConsole: React.FC = () => {
       const providerNameFromRecord = r.provider_name || r.providerName;
       const providerIdFromRecord = r.target_provider_id || r.targetProviderId || r.provider_lookup_key;
 
+      // Prefer ledger total cost (incl. gas) if present; fallback to provider amount
+      const providerAmount = success ? Number(success.amount_paid) : 0;
+      const ledgerCandidates = [
+        (r as any)?.total_cost_usdc,
+        (r as any)?.total_cost,
+        (r as any)?.ledger_total_usdc,
+        (r as any)?.ledger_total_cost,
+        (r as any)?.cost_total_usdc,
+        (r as any)?.cost_total,
+        (r as any)?.spent_total_usdc,
+        (r as any)?.spent_total,
+      ];
+      const ledgerValRaw = ledgerCandidates.find((v) => v !== undefined && v !== null);
+      const ledgerAmount = ledgerValRaw != null ? Number(ledgerValRaw) : NaN;
+      const effectiveCost = Number.isFinite(ledgerAmount) ? ledgerAmount : providerAmount;
+
+      // Pull ledger-enriched total if embedded in response_json as total_cost_usdc
+      let ledgerCostFromJson: number | undefined = undefined;
+      if (typeof r.response_json === 'string' && r.response_json.length) {
+        try {
+          const blob = JSON.parse(r.response_json);
+          const val = blob?.total_cost_usdc;
+          if (val != null) ledgerCostFromJson = Number(val);
+        } catch {}
+      }
+
       return {
         id: r.timestamp_start_ms,
         timestamp: new Date(r.timestamp_start_ms).toISOString(),
@@ -583,7 +609,8 @@ const OperatorConsole: React.FC = () => {
         })(),
         provider: providerIdFromArgs || providerIdFromRecord || r.provider_lookup_key || r.target_provider_id,
         providerName: providerNameFromArgs || providerNameFromRecord || r.provider_lookup_key || r.target_provider_id,
-        cost: success ? Number(success.amount_paid) : 0,
+        cost: Number.isFinite(ledgerCostFromJson as any) ? (ledgerCostFromJson as number) : effectiveCost,
+        providerCost: providerAmount,
         txHash: success ? success.tx_hash : '',
         status,
         skippedReason: skipped ? skipped.reason : undefined,

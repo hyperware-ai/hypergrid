@@ -2141,6 +2141,51 @@ pub fn handle_terminal_debug(
                 ledger::show_ledger(db, &tba, limit)?;
             } else { error!("Usage: usdc-ledger-show <tba> [limit=20]"); }
         }
+        "ledger-clients" => {
+            // Usage: ledger-clients [tba]
+            // Refresh totals from ledger and print client_id -> spent/limit mapping
+            let tba = if let Some(arg) = command_arg {
+                arg.trim().to_lowercase()
+            } else if let Some(t) = state.operator_tba_address.clone() { t.to_lowercase() } else {
+                error!("No TBA provided and operator_tba_address not set");
+                return Ok(());
+            };
+
+            if let Err(e) = state.refresh_client_totals_from_ledger(db, &tba) {
+                error!("Failed to refresh totals from ledger: {:?}", e);
+            }
+
+            info!("Client spend mapping for {}:", tba);
+            // Build list of client ids to display (union of caches and authorized_clients)
+            let mut ids: Vec<String> = Vec::new();
+            for k in state.authorized_clients.keys() { if !ids.iter().any(|x| x == k) { ids.push(k.clone()); } }
+            for k in state.client_limits_cache.keys() { if !ids.iter().any(|x| x == k) { ids.push(k.clone()); } }
+            if ids.is_empty() { info!("(no clients)"); return Ok(()); }
+
+            for cid in ids {
+                let name = state.authorized_clients.get(&cid).map(|c| c.name.clone()).unwrap_or_default();
+                let entry = state.client_limits_cache.get(&cid);
+                let spent_str = entry.and_then(|e| e.total_spent.clone()).unwrap_or_else(|| "0.000000".to_string());
+                let limit_str = entry.and_then(|e| e.max_total.clone());
+                let currency = entry.and_then(|e| e.currency.clone()).unwrap_or_else(|| "USDC".to_string());
+
+                let spent_val = spent_str.parse::<f64>().unwrap_or(0.0);
+                let limit_val = limit_str.as_deref().and_then(|s| s.parse::<f64>().ok());
+                let pct = limit_val.map(|lv| if lv > 0.0 { (spent_val / lv) * 100.0 } else { 0.0 });
+
+                if let Some(lv) = limit_val {
+                    info!(
+                        "client={} name={} spent=${:.6} / ${:.3} ({:.2}%) {}",
+                        cid, name, spent_val, lv, pct.unwrap_or(0.0), currency
+                    );
+                } else {
+                    info!(
+                        "client={} name={} spent=${:.6} {} (no limit)",
+                        cid, name, spent_val, currency
+                    );
+                }
+            }
+        }
         "usdc-history" => {
             // Usage: usdc-history <tba_address> [limit=200]
             if let Some(args) = command_arg {
