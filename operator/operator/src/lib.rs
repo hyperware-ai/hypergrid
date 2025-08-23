@@ -138,6 +138,16 @@ fn init(our: Address) {
         }
     }
 
+    // Generate a wallet for the operator
+    // if no wallet in state, generate one
+    if state.selected_wallet_id.is_none() {
+        info!("No wallet selected, generating initial wallet");
+        if let Err(e) = hyperwallet_client::service::generate_initial_wallet(&mut state) {
+            error!("Failed to generate wallet for operator: {:?}", e);
+        }
+    } else {
+        info!("Wallet selected: {}", state.selected_wallet_id.as_ref().unwrap());
+    }
 
     // Save state with session info
     state.save();

@@ -274,20 +274,21 @@ impl State {
     }
     /// Saves the serializable state (including wallet_storage)
     pub fn save(&mut self) {
-        // Detach DB connection and session before saving
+        // Temporarily detach DB conn to avoid accidental serialization side-effects,
+        // then restore it immediately after. hyperwallet_session is #[serde(skip)], so it stays.
+        let db_keep = self.db_conn.clone();
         self.db_conn = None;
-        // Note: hyperwallet_session is already marked with #[serde(skip)] so it won't be serialized
         match rmp_serde::to_vec(self) {
             Ok(state_bytes) => {
                 set_state(&state_bytes);
                 info!("state set");
             },
             Err(e) => {
-                // Re-attach DB connection if save failed?
-                // For now, just log.
                 error!("Failed to serialize state for saving: {:?}", e);
             }
         }
+        // Restore connection handle for subsequent requests
+        self.db_conn = db_keep;
     }
 
     /// Refresh per-client total spend from the on-disk USDC ledger.
@@ -310,7 +311,7 @@ impl State {
             format!("{}.{}", whole, format!("{:06}", frac))
         }
 
-        // Update only known clients in the cache
+        // Update or insert client totals in the cache
         for row in rows {
             let client_id = match row.get("client_id").and_then(|v| v.as_str()) {
                 Some(s) => s.to_string(),
@@ -318,8 +319,22 @@ impl State {
             };
             let total_units = row.get("total_units").and_then(|v| v.as_i64()).unwrap_or(0);
             let display = format_units(total_units);
-            if let Some(entry) = self.client_limits_cache.get_mut(&client_id) {
-                entry.total_spent = Some(display);
+            match self.client_limits_cache.get_mut(&client_id) {
+                Some(entry) => {
+                    entry.total_spent = Some(display);
+                }
+                None => {
+                    // Insert a new limits entry with just total_spent (currency defaults to USDC)
+                    self.client_limits_cache.insert(
+                        client_id,
+                        SpendingLimits {
+                            max_per_call: None,
+                            max_total: None,
+                            currency: Some("USDC".to_string()),
+                            total_spent: Some(display),
+                        },
+                    );
+                }
             }
         }
 

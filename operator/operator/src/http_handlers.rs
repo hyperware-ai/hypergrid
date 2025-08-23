@@ -1230,6 +1230,15 @@ fn execute_provider_call(
     
     state.call_history.push(record);
     limit_call_history(state);
+    // Live-cover the new call via single-receipt fetch if needed
+    if let Some(tba) = &state.operator_tba_address {
+        if let Some(db) = &state.db_conn {
+            if let Some(crate::structs::PaymentAttemptResult::Success { tx_hash, .. }) = &state.call_history.last().and_then(|r| r.payment_result.clone()) {
+                let provider = state.hypermap.provider.clone();
+                let _ = crate::ledger::verify_calls_covering(state, db, &provider, &tba.to_lowercase());
+            }
+        }
+    }
     state.save();
     
     // Handle final response
@@ -1665,6 +1674,14 @@ fn record_call_failure(
     };
     state.call_history.push(record);
     limit_call_history(state);
+    if let Some(tba) = &state.operator_tba_address {
+        if let Some(db) = &state.db_conn {
+            if let Some(crate::structs::PaymentAttemptResult::Success { tx_hash, .. }) = &state.call_history.last().and_then(|r| r.payment_result.clone()) {
+                let provider = state.hypermap.provider.clone();
+                let _ = crate::ledger::verify_calls_covering(state, db, &provider, &tba.to_lowercase());
+            }
+        }
+    }
     state.save(); 
 }
 
