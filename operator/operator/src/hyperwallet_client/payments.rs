@@ -11,6 +11,8 @@ use alloy_primitives::Address as EthAddress;
 use crate::constants::{USDC_BASE_ADDRESS, PUBLISHER};
 
 use crate::structs::{State, PaymentAttemptResult};
+use hyperware_process_lib::http::{client::send_request_await_response, Method};
+use url::Url;
 
 /// Asset types for withdrawals
 #[derive(Debug, Clone, Copy)]
@@ -20,70 +22,15 @@ pub enum AssetType {
 }
 
 ///// one-stop thing
-//pub fn execute_payment(
-//    state: &State,
-//    provider_wallet_address: &str,
-//    amount_usdc_str: &str,
-//    _provider_id: String,
-//    operator_wallet_id: &str,
-//) -> Option<PaymentAttemptResult> {
-//    info!("Executing payment via hyperwallet: {} USDC to {}", amount_usdc_str, provider_wallet_address);
-//    
-//    let session = match &state.hyperwallet_session {
-//        Some(session) => session,
-//        None => {
-//            error!("No hyperwallet session available - not initialized");
-//            return Some(PaymentAttemptResult::Failed {
-//                error: "Hyperwallet session not initialized".to_string(),
-//                amount_attempted: amount_usdc_str.to_string(),
-//                currency: "USDC".to_string(),
-//            });
-//        }
-//    };
-//    
-//    let (usdc_contract, operator_tba, recipient_addr, amount_units) = match validate_payment_setup(state, provider_wallet_address, amount_usdc_str) {
-//        Ok(setup) => setup,
-//        Err(result) => return Some(result),
-//    };
-//    
-//    let tx_hash = match hyperwallet_client::execute_gasless_payment(
-//        &session.session_id,
-//        operator_wallet_id,
-//        &operator_tba,
-//        &recipient_addr.to_string(),
-//        amount_units,
-//    ) {
-//        Ok(tx_hash) => {
-//            info!("Gasless payment completed: tx_hash = {}", tx_hash);
-//            tx_hash
-//        }
-//        Err(e) => {
-//            error!("Failed to execute gasless payment: {}", e);
-//            return Some(PaymentAttemptResult::Failed {
-//                error: format!("Payment failed: {}", e),
-//                amount_attempted: amount_usdc_str.to_string(),
-//                currency: "USDC".to_string(),
-//            });
-//        }
-//    };
-//
-//    Some(PaymentAttemptResult::Success {
-//        tx_hash,
-//        amount_paid: amount_usdc_str.to_string(),
-//        currency: "USDC".to_string(),
-//    })
-//}
-
 pub fn execute_payment(
     state: &State,
     provider_wallet_address: &str,
     amount_usdc_str: &str,
     _provider_id: String,
-    eoa_wallet_id: &str,
+    operator_wallet_id: &str,
 ) -> Option<PaymentAttemptResult> {
     info!("Executing payment via hyperwallet: {} USDC to {}", amount_usdc_str, provider_wallet_address);
     
-    // Get the hyperwallet session from state
     let session = match &state.hyperwallet_session {
         Some(session) => session,
         None => {
@@ -96,104 +43,29 @@ pub fn execute_payment(
         }
     };
     
-    // Step 1: Validate setup and get required addresses
     let (usdc_contract, operator_tba, recipient_addr, amount_units) = match validate_payment_setup(state, provider_wallet_address, amount_usdc_str) {
         Ok(setup) => setup,
         Err(result) => return Some(result),
     };
     
-    // Step 2: Create TBA execute calldata using the new API
-    let tba_calldata = match hyperwallet_client::create_tba_payment_calldata(&usdc_contract, &recipient_addr.to_string(), amount_units) {
-        Ok(calldata) => calldata,
-        Err(e) => {
-            error!("Failed to create TBA calldata: {}", e);
-            return Some(PaymentAttemptResult::Failed {
-                error: format!("Calldata creation failed: {}", e),
-                amount_attempted: amount_usdc_str.to_string(),
-                currency: "USDC".to_string(),
-            });
-        }
-    };
-    
-    // Step 3: Build and sign UserOperation using new API
-    let build_response = match hyperwallet_client::build_and_sign_user_operation_for_payment(
+    let tx_hash = match hyperwallet_client::execute_gasless_payment(
         &session.session_id,
-        eoa_wallet_id,
+        operator_wallet_id,
         &operator_tba,
-        &operator_tba, // not used anyway
-        &tba_calldata,
-        true,
-        Some(Default::default()),
-        None,
+        &recipient_addr.to_string(),
+        amount_units,
     ) {
-        Ok(response) => {
-            info!("UserOperation built and signed: {:?}", response);
-            response
-        },
-        Err(e) => {
-            error!("Failed to build and sign user operation: {}", e);
-            return Some(PaymentAttemptResult::Failed {
-                error: format!("Build failed: {}", e),
-                amount_attempted: amount_usdc_str.to_string(),
-                currency: "USDC".to_string(),
-            });
-        }
-    };
-
-    // Step 4: Submit UserOperation using new API
-    let signed_user_op_value = match serde_json::from_str(&build_response.signed_user_operation) {
-        Ok(val) => val,
-        Err(e) => {
-            error!("Failed to parse signed user operation: {}", e);
-            return Some(PaymentAttemptResult::Failed {
-                error: format!("Parse signed user op failed: {}", e),
-                amount_attempted: amount_usdc_str.to_string(),
-                currency: "USDC".to_string(),
-            });
-        }
-    };
-    
-    let user_op_hash = match hyperwallet_client::submit_user_operation(
-        &session.session_id,
-        signed_user_op_value,
-        &build_response.entry_point,
-        None,
-    ) {
-        Ok(hash) => {
-            info!("UserOperation submitted: user_op_hash = {}", hash);
-            hash
-        }
-        Err(e) => {
-            error!("Failed to submit user operation: {}", e);
-            return Some(PaymentAttemptResult::Failed {
-                error: format!("Submit failed: {}", e),
-                amount_attempted: amount_usdc_str.to_string(),
-                currency: "USDC".to_string(),
-            });
-        }
-    };
-
-    // Step 5: Get receipt using new API
-    let tx_hash = match hyperwallet_client::get_user_operation_receipt(
-        &session.session_id,
-        &user_op_hash,
-    ) {
-        Ok(receipt_response) => {
-            // Extract tx_hash from typed response (receipt is a JSON string)
-            let tx_hash = receipt_response
-                .receipt
-                .as_ref()
-                .and_then(|r| serde_json::from_str::<serde_json::Value>(r).ok())
-                .and_then(|val| val.get("transactionHash").cloned())
-                .and_then(|h| h.as_str().map(String::from))
-                .unwrap_or(user_op_hash.clone()); // Fallback to userOp hash
-                
-            info!("Payment receipt received: tx_hash = {}", tx_hash);
+        Ok(tx_hash) => {
+            info!("Gasless payment completed: tx_hash = {}", tx_hash);
             tx_hash
         }
         Err(e) => {
-            warn!("Receipt failed ({}), using userOp hash as fallback: {}", e, user_op_hash);
-            user_op_hash // Fallback to userOp hash
+            error!("Failed to execute gasless payment: {}", e);
+            return Some(PaymentAttemptResult::Failed {
+                error: format!("Payment failed: {}", e),
+                amount_attempted: amount_usdc_str.to_string(),
+                currency: "USDC".to_string(),
+            });
         }
     };
 
@@ -203,6 +75,170 @@ pub fn execute_payment(
         currency: "USDC".to_string(),
     })
 }
+
+//pub fn execute_payment(
+//    state: &State,
+//    provider_wallet_address: &str,
+//    amount_usdc_str: &str,
+//    _provider_id: String,
+//    eoa_wallet_id: &str,
+//) -> Option<PaymentAttemptResult> {
+//    info!("Executing payment via hyperwallet: {} USDC to {}", amount_usdc_str, provider_wallet_address);
+//    
+//    // Get the hyperwallet session from state
+//    let session = match &state.hyperwallet_session {
+//        Some(session) => session,
+//        None => {
+//            error!("No hyperwallet session available - not initialized");
+//            return Some(PaymentAttemptResult::Failed {
+//                error: "Hyperwallet session not initialized".to_string(),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//    
+//    // Step 1: Validate setup and get required addresses
+//    let (usdc_contract, operator_tba, recipient_addr, amount_units) = match validate_payment_setup(state, provider_wallet_address, amount_usdc_str) {
+//        Ok(setup) => setup,
+//        Err(result) => return Some(result),
+//    };
+//    
+//    // Step 2: Create TBA execute calldata using the new API
+//    let tba_calldata = match hyperwallet_client::create_tba_payment_calldata(&usdc_contract, &recipient_addr.to_string(), amount_units) {
+//        Ok(calldata) => calldata,
+//        Err(e) => {
+//            error!("Failed to create TBA calldata: {}", e);
+//            return Some(PaymentAttemptResult::Failed {
+//                error: format!("Calldata creation failed: {}", e),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//    
+//    // Step 3: Build and sign UserOperation using new API
+//    let build_response = match hyperwallet_client::build_and_sign_user_operation_for_payment(
+//        &session.session_id,
+//        eoa_wallet_id,
+//        &operator_tba,
+//        &operator_tba, // not used anyway
+//        &tba_calldata,
+//        true,
+//        Some(Default::default()),
+//        None,
+//    ) {
+//        Ok(response) => {
+//            info!("UserOperation built and signed: {:?}", response);
+//            response
+//        },
+//        Err(e) => {
+//            error!("Failed to build and sign user operation: {}", e);
+//            return Some(PaymentAttemptResult::Failed {
+//                error: format!("Build failed: {}", e),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//
+//    // Step 4: Submit UserOperation using new API
+//    let signed_user_op_value = match serde_json::from_str(&build_response.signed_user_operation) {
+//        Ok(val) => val,
+//        Err(e) => {
+//            error!("Failed to parse signed user operation: {}", e);
+//            return Some(PaymentAttemptResult::Failed {
+//                error: format!("Parse signed user op failed: {}", e),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//    
+//    let user_op_hash = match hyperwallet_client::submit_user_operation(
+//        &session.session_id,
+//        signed_user_op_value,
+//        &build_response.entry_point,
+//        None,
+//    ) {
+//        Ok(hash) => {
+//            info!("UserOperation submitted: user_op_hash = {}", hash);
+//            hash
+//        }
+//        Err(e) => {
+//            error!("Failed to submit user operation: {}", e);
+//            return Some(PaymentAttemptResult::Failed {
+//                error: format!("Submit failed: {}", e),
+//                amount_attempted: amount_usdc_str.to_string(),
+//                currency: "USDC".to_string(),
+//            });
+//        }
+//    };
+//
+//    // Step 5: Get receipt by polling the bundler directly with our own timeout budget
+//    let bundler_url = match crate::structs::CHAIN_ID {
+//        8453 => "https://api.candide.dev/public/v3/8453",
+//        _ => "https://api.candide.dev/public/v3/8453", // default to Base
+//    };
+//    let tx_hash = match get_user_op_receipt_from_bundler_with_retry(&user_op_hash, bundler_url, 45000) {
+//        Some(h) => {
+//            info!("Payment receipt received from bundler: tx_hash = {}", h);
+//            h
+//        }
+//        None => {
+//            warn!("Bundler receipt not ready within timeout; falling back to userOp hash {}", user_op_hash);
+//            user_op_hash.clone()
+//        }
+//    };
+//
+//    Some(PaymentAttemptResult::Success {
+//        tx_hash,
+//        amount_paid: amount_usdc_str.to_string(),
+//        currency: "USDC".to_string(),
+//    })
+//}
+fn get_user_op_receipt_from_bundler_with_retry(user_op_hash: &str, bundler_url: &str, total_budget_ms: u64) -> Option<String> {
+    // Retry schedule similar to hyperwallet’s internal polling but bounded by total_budget_ms
+    let schedule = [3000u64, 1000, 1000, 1000, 1000, 1000, 1000, 2000, 4000, 6000, 8000, 12000];
+    let url = Url::parse(bundler_url).ok()?;
+    let mut elapsed = 0u64;
+    for delay in schedule.iter() {
+        if elapsed >= total_budget_ms { break; }
+        // Build JSON-RPC request
+        let body = serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "eth_getUserOperationReceipt",
+            "params": [user_op_hash],
+            "id": 1
+        });
+        // Use a per-request timeout of min(10s, remaining budget)
+        let per_req = std::cmp::min(10_000u64, total_budget_ms.saturating_sub(elapsed));
+        let mut headers = std::collections::HashMap::new();
+        headers.insert("Content-Type".to_string(), "application/json".to_string());
+        if let Ok(resp) = send_request_await_response(Method::POST, url.clone(), Some(headers), per_req, serde_json::to_vec(&body).ok()?) {
+            if let Ok(json) = serde_json::from_slice::<serde_json::Value>(&resp.body()) {
+                if let Some(result) = json.get("result") {
+                    if !result.is_null() {
+                        if let Some(tx_hash) = result.get("receipt")
+                            .and_then(|r| if r.is_string() { serde_json::from_str::<serde_json::Value>(r.as_str().unwrap_or("")).ok() } else { Some(r.clone()) })
+                            .and_then(|val| val.get("transactionHash").and_then(|h| h.as_str().map(|s| s.to_string()))) {
+                            return Some(tx_hash);
+                        }
+                        // Some bundlers may return transactionHash at root level
+                        if let Some(tx_hash) = result.get("transactionHash").and_then(|h| h.as_str().map(|s| s.to_string())) {
+                            return Some(tx_hash);
+                        }
+                    }
+                }
+            }
+        }
+        // Wait delay before next attempt
+        std::thread::sleep(std::time::Duration::from_millis(*delay));
+        elapsed = elapsed.saturating_add(*delay);
+    }
+    None
+}
+
 
 
 

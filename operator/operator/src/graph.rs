@@ -18,6 +18,7 @@ use crate::structs::{
     GraphNode,
     GraphEdge,
     GraphNodeData,
+    CoarseState,
     //NodePosition, // Assuming frontend will handle layout initially
     OperatorWalletFundingInfo,
     HotWalletFundingInfo,
@@ -117,6 +118,7 @@ pub fn build_hypergrid_graph_data(
 
     let operator_identity_details = identity::check_operator_identity_detailed(our); 
     let mut operator_wallet_node_id: Option<String> = None;
+    let mut linked_wallets_count: usize = 0;
     let fresh_operator_entry_name: Option<String> = match &operator_identity_details {
         IdentityStatus::Verified { entry_name, .. } => Some(entry_name.clone()),
         _ => None,
@@ -154,6 +156,7 @@ pub fn build_hypergrid_graph_data(
         let linked_wallets = get_all_onchain_linked_hot_wallet_addresses(Some(entry_name));
         
         if let Ok(linked_hw_addresses) = &linked_wallets {
+            linked_wallets_count = linked_hw_addresses.len();
             if !linked_hw_addresses.is_empty() {
                 // We have linked wallets, so both notes should be set
                 access_list_note_status_text = "Access List Note: Set".to_string();
@@ -392,6 +395,7 @@ pub fn build_hypergrid_graph_data(
     if operator_wallet_node_id.is_some() {
         match get_all_onchain_linked_hot_wallet_addresses(fresh_operator_entry_name.as_deref()) {
             Ok(linked_hw_addresses) => {
+                linked_wallets_count = linked_hw_addresses.len();
                 // Auto-select first delegated wallet if no wallet is currently selected
                 if state.selected_wallet_id.is_none() && !linked_hw_addresses.is_empty() {
                     info!("No wallet selected - checking for delegated wallets to auto-select");
@@ -563,7 +567,15 @@ pub fn build_hypergrid_graph_data(
             }
         }
     }
-    Ok(HypergridGraphResponse { nodes, edges })
+
+    // Derive coarse state for simplified UI
+    let coarse_state = match (&operator_wallet_node_id, linked_wallets_count) {
+        (None, _) => CoarseState::BeforeWallet,
+        (Some(_), 0) => CoarseState::AfterWalletNoClients,
+        (Some(_), _) => CoarseState::AfterWalletWithClients,
+    };
+
+    Ok(HypergridGraphResponse { nodes, edges, coarse_state })
 }
 
 pub fn handle_get_hypergrid_graph_layout(
@@ -581,7 +593,7 @@ pub fn handle_get_hypergrid_graph_layout(
         Ok(graph_response) => {
             // Log the serialized JSON before sending
             match serde_json::to_string_pretty(&graph_response) {
-                Ok(json_string) => info!("Serialized HypergridGraphResponse JSON:\n{}", json_string),
+                Ok(_json_string) => {}//info!("Serialized HypergridGraphResponse JSON:\n{}", json_string),
                 Err(e) => error!("Failed to serialize HypergridGraphResponse for logging: {:?}", e),
             }
             send_json_response(StatusCode::OK, &graph_response)

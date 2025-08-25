@@ -1,8 +1,8 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ConfigureAuthorizedClientResponse } from '../logic/types'; // Import from types.ts
 import Modal from './modals/Modal';
 import { truncate } from '../utils/truncate';
-import { BsInfoCircle, BsLayers, BsSortDown, BsSortUp } from 'react-icons/bs';
+import { BsInfoCircle, BsLayers, BsSortDown, BsSortUp, BsCheckCircleFill, BsCircle, BsChevronRight } from 'react-icons/bs';
 import { ImSpinner8 } from 'react-icons/im';
 
 // Helper function to generate a random API key (copied from AccountManager.tsx)
@@ -28,20 +28,40 @@ interface ShimApiConfigModalProps {
     isOpen: boolean;
     onClose: (shouldRefresh?: boolean) => void;
     hotWalletAddress: string; // Changed from optional to required
+    onClientCreated?: (clientId: string, token: string) => void;
 }
 
 const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     isOpen,
     onClose,
-    hotWalletAddress // Now mandatory
+    hotWalletAddress, // Now mandatory
+    onClientCreated
 }) => {
     const [apiConfig, setApiConfig] = useState<any | null>(null);
     const [isGeneratingConfig, setIsGeneratingConfig] = useState<boolean>(false);
     const [generationError, setGenerationError] = useState<string | null>(null);
     const [copiedCommand, setCopiedCommand] = useState(false);
     const [copiedMcpConfig, setCopiedMcpConfig] = useState(false);
+    const [copiedJson, setCopiedJson] = useState(false);
     const [showManualInstructions, setShowManualInstructions] = useState(false);
     const [hasGeneratedCredentials, setHasGeneratedCredentials] = useState(false);
+    const [currentStep, setCurrentStep] = useState(1);
+    const [shouldNavigateOnGenerate, setShouldNavigateOnGenerate] = useState(false);
+
+    // Auto-navigate to step 2 when credentials are generated after clicking "Generate & Continue"
+    useEffect(() => {
+        if (apiConfig && shouldNavigateOnGenerate && !generationError) {
+            setCurrentStep(2);
+            setShouldNavigateOnGenerate(false);
+        }
+    }, [apiConfig, shouldNavigateOnGenerate, generationError]);
+    
+    // Reset navigation flag if there's an error
+    useEffect(() => {
+        if (generationError && shouldNavigateOnGenerate) {
+            setShouldNavigateOnGenerate(false);
+        }
+    }, [generationError, shouldNavigateOnGenerate]);
 
     const copyToClipboard = useCallback((text: string, setCopiedState: (value: boolean) => void) => {
         navigator.clipboard.writeText(text).then(() => {
@@ -93,6 +113,10 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                 setApiConfig(configData);
                 setGenerationError(null);
                 setHasGeneratedCredentials(true);
+                // Notify parent immediately so UI can reflect the new client without a full refetch
+                try {
+                    onClientCreated && onClientCreated(responseData.client_id, responseData.raw_token);
+                } catch (e) { /* no-op */ }
             })
             .catch(err => {
                 console.error("Error generating API config:", err);
@@ -112,6 +136,8 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
         onClose(hasGeneratedCredentials);
         setHasGeneratedCredentials(false);
         setApiConfig(null);
+        setShouldNavigateOnGenerate(false);
+        setCurrentStep(1);
     };
 
     const authCommand = apiConfig ?
@@ -126,144 +152,235 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
         }
     };
 
+    // Step definitions - simplified to 2 steps
+    const steps = [
+        { id: 1, title: 'Add MCP Server', completed: copiedMcpConfig },
+        { id: 2, title: 'Authorize Client', completed: copiedCommand }
+    ];
+
+    const handleStepClick = (stepId: number) => {
+        if (stepId === 1) {
+            setCurrentStep(1);
+        } else if (stepId === 2) {
+            // If going to step 2 and no credentials, generate them first
+            if (!apiConfig && !isGeneratingConfig) {
+                setShouldNavigateOnGenerate(true);
+                handleGenerateApiConfig();
+            } else if (apiConfig) {
+                setCurrentStep(2);
+            }
+        }
+    };
+
     return (
         <Modal
             title={`MCP Configuration`}
             onClose={handleClose}
             preventAccidentalClose={true}
-            titleChildren={
-                <div className="flex gap-2 text-xs ml-auto items-center">
-                    <span className="font-bold p-2">For Hot Wallet:</span>
-                    <span className="py-1 px-2 bg-dark-gray/25 rounded-lg">{truncate(hotWalletAddress, 6, 4)}</span>
-                </div>
-            }
         >
-            <div className="grow self-stretch grid grid-cols-2 gap-12">
-                <div className="p-4 bg-white rounded-lg flex flex-col gap-2 self-start">
-                    <h4 className="text-lg font-bold">Step 1: Add the MCP Server to Claude</h4>
-                    <p className="text-sm">
-                        Add this to your Claude Desktop config:
-                    </p>
-                    <div className="relative">
-                        <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
-                            {JSON.stringify(mcpServerConfig, null, 2)}
-                        </pre>
-                        <button
-                            onClick={() => copyToClipboard(JSON.stringify(mcpServerConfig, null, 2), setCopiedMcpConfig)}
-                            className="absolute top-2 right-2 px-2 py-1 text-sm bg-dark-gray text-white rounded-md cursor-pointer"
-                        >
-                            {copiedMcpConfig ? '✓' : 'Copy'}
-                        </button>
-                    </div>
-                    <p className="text-sm bg-cyan p-2 rounded-full flex items-center gap-2 self-start">
-                        <BsInfoCircle />
-                        <span>Then restart Claude Desktop.</span>
-                    </p>
+            <div className="grow self-stretch flex flex-col gap-6 max-w-2xl mx-auto w-full overflow-hidden">
+                {/* Step Indicator */}
+                <div className="flex items-center justify-between">
+                    {steps.map((step, index) => (
+                        <React.Fragment key={step.id}>
+                            <button
+                                onClick={() => handleStepClick(step.id)}
+                                className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-200 ${
+                                    currentStep === step.id
+                                        ? 'bg-dark-gray text-white'
+                                        : step.completed
+                                        ? 'bg-green-100 text-green-700 hover:bg-green-200 cursor-pointer'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200 cursor-pointer'
+                                }`}
+                                disabled={false}
+                            >
+                                {step.completed ? (
+                                    <BsCheckCircleFill className="text-green-600" />
+                                ) : isGeneratingConfig && step.id === 2 ? (
+                                    <ImSpinner8 className="animate-spin text-gray-500" />
+                                ) : (
+                                    <span className={`w-6 h-6 rounded-full border-2 flex items-center justify-center text-xs font-bold ${
+                                        currentStep === step.id ? 'border-white bg-white text-dark-gray' : 'border-gray-300'
+                                    }`}>
+                                        {step.id}
+                                    </span>
+                                )}
+                                <span className="font-medium">{step.title}</span>
+                            </button>
+                            {index < steps.length - 1 && (
+                                <BsChevronRight className="text-gray-300" />
+                            )}
+                        </React.Fragment>
+                    ))}
                 </div>
 
-                {/* Step 2: Generate Credentials */}
-                <div className="flex flex-col gap-2">
-                    <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
-                        <h4 className="text-lg font-bold">Step 2: Generate Authorization Credentials</h4>
-                        <p className="text-sm">
-                            Each generation creates a new authorized client for this hot wallet.
-                            This allows multiple MCP servers or environments to use the same wallet.
-                        </p>
-                        <button
-                            onClick={handleGenerateApiConfig}
-                            disabled={isGeneratingConfig}
-                            className="self-start bg-dark-gray/5 font-bold py-2 px-4  hover:bg-dark-gray/10"
-                        >
-                            {isGeneratingConfig ? <ImSpinner8 className="animate-spin" /> : <BsLayers />}
-                            {isGeneratingConfig ? 'Generating...' :
-                                (apiConfig ? 'Generate New Credentials' : 'Generate Credentials')}
-                        </button>
-                        {generationError && (
-                            <p className="text-red-500">{generationError}</p>
-                        )}
-                    </div>
+                {/* Step Content */}
+                <div className="min-h-[400px] w-full transition-all duration-300 overflow-hidden">
+                    {/* Step 1: Add MCP Server */}
+                    {currentStep === 1 && (
+                        <div className="p-6 bg-dark-gray/5 border border-gray-200 rounded-xl flex flex-col gap-4 transition-all duration-300 ease-out">
+                            <div>
+                                <h4 className="text-lg font-bold mb-2">Step 1: Add MCP Server</h4>
+                                <p className="text-sm text-gray-600">Add the Hypergrid MCP server to your client configuration.</p>
+                            </div>
 
-                    {/* Step 3: Authorize in Claude */}
-                    {apiConfig && (
-                        <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
-                            <h4 className="text-lg font-bold">Step 3: Authorize in Claude</h4>
-                            <p className="text-sm">
-                                Copy this command and paste it into Claude:
-                            </p>
-                            <div className="relative">
-                                <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
-                                    {authCommand}
-                                </pre>
+                            {/* MCP Server Config Section */}
+                            <div>
+                                <p className="font-medium mb-2">Add this to your MCP client config:</p>
+                                <div className="relative">
+                                    <pre className="bg-dark-gray text-white p-4 rounded-lg text-sm overflow-x-auto max-w-full"
+                                         style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+{JSON.stringify(mcpServerConfig, null, 2)}
+                                    </pre>
+                                    <button
+                                        onClick={() => copyToClipboard(JSON.stringify(mcpServerConfig, null, 2), setCopiedMcpConfig)}
+                                        className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer hover:bg-gray-600"
+                                    >
+                                        {copiedMcpConfig ? '✓ Copied' : 'Copy'}
+                                    </button>
+                                </div>
+                                <p className="text-xs text-gray-500 mt-2 flex items-center gap-1">
+                                    <BsInfoCircle />
+                                    <span>After adding this config, restart your MCP client.</span>
+                                </p>
+                            </div>
+
+                            {/* Navigation */}
+                            <div className="flex justify-end mt-4">
                                 <button
-                                    onClick={() => copyToClipboard(authCommand, setCopiedCommand)}
-                                    className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer"
+                                    onClick={() => {
+                                        if (!apiConfig) {
+                                            // Generate credentials behind the scenes and navigate
+                                            setShouldNavigateOnGenerate(true);
+                                            handleGenerateApiConfig();
+                                        } else {
+                                            // If already generated, just navigate
+                                            setCurrentStep(2);
+                                        }
+                                    }}
+                                    disabled={isGeneratingConfig}
+                                    className="px-4 py-2 bg-dark-gray text-white rounded-lg hover:bg-dark-gray/80 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    {copiedCommand ? '✓' : 'Copy'}
+                                    {isGeneratingConfig ? (
+                                        <>
+                                            <ImSpinner8 className="animate-spin" />
+                                            <span>Loading...</span>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <span>Continue to Step 2</span>
+                                            <BsChevronRight />
+                                        </>
+                                    )}
                                 </button>
                             </div>
-                            <p className="text-sm">
-                                This will permanently configure the MCP server with your credentials.
-                            </p>
+                            
+                            {generationError && (
+                                <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+                                    <p className="text-red-700 text-sm">Unable to proceed: {generationError}</p>
+                                </div>
+                            )}
                         </div>
                     )}
 
-                    {/* That's it! */}
-                    {apiConfig && <>
-                        <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
-                            <p className="text-sm">
-                                <strong>That's it!</strong> Once you run the authorize command in Claude,
-                                you can use these tools:
-                            </p>
-                            <div className="flex flex-col gap-2">
-                                <div className="flex items-center gap-2">
-                                    <code className="bg-dark-gray text-white p-2 rounded-lg">search-registry</code>
-                                    <span className="text-sm">
-                                        Search for services in the Hypergrid network
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <code className="bg-dark-gray text-white p-2 rounded-lg">call-provider</code>
-                                    <span className="text-sm">
-                                        Call a provider with specific arguments
-                                    </span>
-                                </div>
+                    {/* Step 2: Authorize Client */}
+                    {currentStep === 2 && (
+                        <div className="p-6 bg-dark-gray/5 border border-gray-200 rounded-xl flex flex-col gap-4 transition-all duration-300 ease-out">
+                            <div>
+                                <h4 className="text-lg font-bold mb-2">Step 2: Authorize Client</h4>
+                                <p className="text-sm text-gray-600">Run the authorization command in your MCP client to complete the setup.</p>
                             </div>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                            <button
-                                onClick={() => setShowManualInstructions(!showManualInstructions)}
-                                className="self-start bg-dark-gray/5 py-2 px-4  hover:bg-dark-gray/10"
-                            >
-                                {showManualInstructions ? <BsSortUp className="text-lg" /> : <BsSortDown className="text-lg" />}
 
-                                <span>{showManualInstructions ? 'Hide' : 'Show'} manual setup option</span>
-                            </button>
-
-                            {showManualInstructions && (
-                                <div className="p-4 bg-white dark:bg-black rounded-lg flex flex-col gap-2">
-                                    <p>Alternative: Save this as <code className="bg-dark-gray text-white p-2 rounded-lg">grid-shim-api.json</code>:</p>
-                                    <div className="relative">
-                                        <pre className="bg-dark-gray text-white p-4 rounded-lg overflow-x-auto">
-                                            {JSON.stringify(apiConfig, null, 2)}
-                                        </pre>
-                                        <button
-                                            onClick={() => copyToClipboard(JSON.stringify(apiConfig, null, 2), setCopiedCommand)}
-                                            className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer"
-                                        >
-                                            {copiedCommand ? '✓' : 'Copy'}
-                                        </button>
+                            {apiConfig ? (
+                                <>
+                                    {/* Authorization Command */}
+                                    <div className="w-full">
+                                        <p className="font-medium mb-2">Paste this command into your MCP client:</p>
+                                        <div className="relative w-full">
+                                            <div className="bg-dark-gray text-white p-4 rounded-lg w-full overflow-hidden">
+                                                <p className="text-sm break-all m-0 font-mono whitespace-pre-wrap">{authCommand}</p>
+                                            </div>
+                                            <button
+                                                onClick={() => copyToClipboard(authCommand, setCopiedCommand)}
+                                                className="absolute top-2 right-2 px-2 py-1 text-sm bg-gray-700 text-white rounded-md cursor-pointer hover:bg-gray-600 z-10"
+                                            >
+                                                {copiedCommand ? '✓ Copied' : 'Copy'}
+                                            </button>
+                                        </div>
                                     </div>
-                                    <p>Then use: <code className="bg-dark-gray text-white p-2 rounded-lg">npx @hyperware-ai/hypergrid-mcp -c grid-shim-api.json</code></p>
+
+                                    {/* Success Info */}
+                                    <div className="mt-6 bg-green-50 border-2 border-green-200 rounded-lg p-4 shadow-sm">
+                                        <p className="text-green-700 font-medium mb-2">After running the command, your MCP client will have access to the following tools:</p>
+                                        <div className="flex flex-col gap-2">
+                                            <div className="flex items-center gap-2">
+                                                <code className="bg-dark-gray text-white px-2 py-1 rounded text-xs">search-registry</code>
+                                                <span className="text-xs text-gray-600">Search for services in Hypergrid</span>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <code className="bg-dark-gray text-white px-2 py-1 rounded text-xs">call-provider</code>
+                                                <span className="text-xs text-gray-600">Call a provider with arguments</span>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    {/* Manual setup option - hidden by default */}
+                                    <div className="border-t pt-4">
+                                        <button
+                                            onClick={() => setShowManualInstructions(!showManualInstructions)}
+                                            className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                                        >
+                                            {showManualInstructions ? <BsSortUp /> : <BsSortDown />}
+                                            <span>{showManualInstructions ? 'Hide' : 'Show'} alternative setup</span>
+                                        </button>
+                                        
+                                        {showManualInstructions && (
+                                            <div className="mt-3 p-4 bg-gray-50 rounded-lg">
+                                                <p className="text-sm mb-2">Alternative: Save this as <code className="bg-dark-gray text-white px-2 py-1 rounded text-xs">grid-shim-api.json</code>:</p>
+                                                <div className="relative">
+                                                    <pre className="bg-dark-gray text-white p-3 rounded text-xs overflow-x-auto max-w-full"
+                                                         style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', overflowWrap: 'break-word' }}>
+{JSON.stringify(apiConfig, null, 2)}
+                                                    </pre>
+                                                    <button
+                                                        onClick={() => copyToClipboard(JSON.stringify(apiConfig, null, 2), setCopiedJson)}
+                                                        className="absolute top-2 right-2 px-2 py-1 text-xs bg-gray-700 text-white rounded cursor-pointer hover:bg-gray-600"
+                                                    >
+                                                        {copiedJson ? '✓ Copied' : 'Copy'}
+                                                    </button>
+                                                </div>
+                                                <p className="text-xs mt-2">Then run: <code className="bg-dark-gray text-white px-2 py-1 rounded text-xs">npx @hyperware-ai/hypergrid-mcp -c grid-shim-api.json</code></p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </>
+                            ) : (
+                                // This should rarely be seen since we auto-generate, but keeping as fallback
+                                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                                    <p className="text-yellow-700">Loading authorization details...</p>
                                 </div>
                             )}
 
+                            {/* Navigation */}
+                            <div className="flex justify-between mt-4">
+                                <button
+                                    onClick={() => setCurrentStep(1)}
+                                    className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                                >
+                                    <BsChevronRight className="rotate-180" />
+                                    Back to Step 1
+                                </button>
+                                <button
+                                    onClick={handleClose}
+                                    className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700"
+                                >
+                                    Done
+                                </button>
+                            </div>
                         </div>
-                    </>}
-
+                    )}
                 </div>
-
             </div>
-
         </Modal>
     );
 };

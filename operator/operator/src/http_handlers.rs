@@ -25,7 +25,6 @@ use crate::{
     authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities},
     db as dbm,
     helpers::send_json_response,
-    identity,
     structs::{*, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse, McpRequest, ApiRequest},
     hyperwallet_client::{service as hyperwallet_service, payments as hyperwallet_payments},
     graph::handle_get_hypergrid_graph_layout,
@@ -233,12 +232,12 @@ fn handle_shim_mcp_route(
 }
 
 fn handle_api_actions_route(
-    our: &Address,
+    _our: &Address,
     state: &mut State,
-    db: &Sqlite,
+    _db: &Sqlite,
 ) -> anyhow::Result<()> {
     info!("Routing to handle_api_actions (for UI API operations)");
-    handle_api_actions( state)
+    handle_api_actions(state)
 }
 
 fn authenticate_shim_with_headers(
@@ -310,6 +309,7 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
                 ApiRequest::ActivateWallet { password } => handle_activate_wallet(state, password),
                 ApiRequest::DeactivateWallet {} => handle_deactivate_wallet(state),
                 ApiRequest::SetWalletLimits { limits } => handle_set_wallet_limits(state, limits),
+                ApiRequest::SetClientLimits { client_id, limits } => handle_set_client_limits(state, client_id, limits),
                 ApiRequest::ExportSelectedPrivateKey { password } => handle_export_private_key(state, password),
                 ApiRequest::SetSelectedWalletPassword { new_password, old_password } => handle_set_wallet_password(state, new_password, old_password),
                 ApiRequest::RemoveSelectedWalletPassword { current_password } => handle_remove_wallet_password(state, current_password),
@@ -474,8 +474,52 @@ fn handle_get_setup_status(state: &State) -> anyhow::Result<()> {
 }
 
 fn handle_get_state(state: &State) -> anyhow::Result<()> {
-    info!("Returning full application state");
-    send_json_response(StatusCode::OK, &json!(state))
+    info!("Returning full application state (enriched)");
+    // Start with a JSON view of state
+    let out = match serde_json::to_value(state) {
+        Ok(v) => v,
+        Err(_) => json!(state),
+    };
+
+    // Try to enrich call_history with ledger totals, same as in handle_get_call_history
+    if let Some(db) = &state.db_conn {
+        let mut rows = state.call_history.clone();
+        for rec in &mut rows {
+            let tx_opt = match &rec.payment_result {
+                Some(crate::structs::PaymentAttemptResult::Success { tx_hash, .. }) => Some(tx_hash.clone()),
+                _ => None,
+            };
+            if let Some(tx) = tx_opt {
+                let q = r#"SELECT total_cost_units FROM usdc_call_ledger WHERE lower(tx_hash) = lower(?1) LIMIT 1"#.to_string();
+                if let Ok(rs) = db.read(q, vec![serde_json::Value::String(tx.clone())]) {
+                    if let Some(row) = rs.get(0) {
+                        if let Some(units_str) = row.get("total_cost_units").and_then(|v| v.as_str()) {
+                            if let Ok(units_i) = units_str.parse::<i128>() {
+                                let whole = units_i / 1_000_000;
+                                let frac = (units_i % 1_000_000).abs();
+                                let formatted = format!("{}.{}", whole, format!("{:06}", frac));
+                                // attach helper blob
+                                let mut extra = serde_json::json!({});
+                                if let Some(existing) = &rec.response_json { if let Ok(e) = serde_json::from_str::<serde_json::Value>(existing) { if e.is_object() { extra = e; } } }
+                                extra["total_cost_usdc"] = serde_json::Value::String(formatted);
+                                rec.response_json = Some(extra.to_string());
+                                if let Some(crate::structs::PaymentAttemptResult::Success { amount_paid, .. }) = &mut rec.payment_result {
+                                    *amount_paid = format!("{}", whole as f64 + (frac as f64)/1_000_000.0);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Replace call_history in the outgoing state JSON
+        if let Ok(v) = serde_json::to_value(&rows) {
+            let mut out_obj = out.as_object().cloned().unwrap_or_default();
+            out_obj.insert("call_history".to_string(), v);
+            return send_json_response(StatusCode::OK, &serde_json::Value::Object(out_obj));
+        }
+    }
+    send_json_response(StatusCode::OK, &out)
 }
 
 fn handle_get_all_providers(db: &Sqlite) -> anyhow::Result<()> {
@@ -612,7 +656,8 @@ fn handle_provider_call_request(
                 PaymentAttemptResult::Skipped {
                     reason: format!("DB Lookup Failed: Key '{}' not found", returned_lookup_key)
                 },
-                wallet_id_for_failure
+                wallet_id_for_failure,
+                Some(provider_name.clone())
             );
             send_json_response(StatusCode::NOT_FOUND, &json!({ 
                 "error": format!("Provider '{}' not found", returned_lookup_key) 
@@ -651,7 +696,8 @@ fn execute_provider_flow(
                 PaymentAttemptResult::Skipped {
                     reason: format!("Provider health check failed: {}", health_error)
                 },
-                wallet_id_for_failure
+                wallet_id_for_failure,
+                Some(provider_name.clone())
             );
             return send_json_response(StatusCode::SERVICE_UNAVAILABLE, &json!({ 
                 "error": "Provider is not responding", 
@@ -684,7 +730,8 @@ fn execute_provider_flow(
                 provider_details.provider_id.clone(),
                 call_args_json, 
                 payment_result.clone(),
-                wallet_id_for_failure
+                wallet_id_for_failure,
+                Some(provider_name.clone())
             );
             send_json_response(StatusCode::PAYMENT_REQUIRED, &json!({ 
                 "error": "Pre-payment failed or was skipped.", 
@@ -706,9 +753,49 @@ fn handle_search_registry(db: &Sqlite, query: String) -> anyhow::Result<()> {
 
 fn handle_get_call_history(state: &State) -> anyhow::Result<()> {
     info!("Getting call history");
-            let history_clone = state.call_history.clone(); 
-            send_json_response(StatusCode::OK, &history_clone)
+    // Enrich with ledger totals if available
+    let mut rows = state.call_history.clone();
+    let db = match &state.db_conn {
+        Some(db) => db.clone(),
+        None => {
+            send_json_response(StatusCode::OK, &rows)?;
+            return Ok(());
         }
+    };
+    // Build a map of tx_hash -> total_cost_units and overwrite amount_paid so UI shows real ledger cost
+    // We query per record; small list keeps this simple and fast.
+    for rec in &mut rows {
+        let tx_opt = match &rec.payment_result {
+            Some(crate::structs::PaymentAttemptResult::Success { tx_hash, .. }) => Some(tx_hash.clone()),
+            _ => None,
+        };
+        if let Some(tx) = tx_opt {
+            let q = r#"SELECT total_cost_units FROM usdc_call_ledger WHERE lower(tx_hash) = lower(?1) LIMIT 1"#.to_string();
+            if let Ok(rs) = db.read(q, vec![serde_json::Value::String(tx.clone())]) {
+                if let Some(row) = rs.get(0) {
+                    if let Some(units_str) = row.get("total_cost_units").and_then(|v| v.as_str()) {
+                        // convert base units (6 dp) to display string and set as event cost
+                        if let Ok(units_i) = units_str.parse::<i128>() {
+                            let whole = units_i / 1_000_000;
+                            let frac = (units_i % 1_000_000).abs();
+                            let formatted = format!("{}.{}", whole, format!("{:06}", frac));
+                            // Attach detail blob
+                            let mut extra = serde_json::json!({});
+                            if let Some(existing) = &rec.response_json { if let Ok(e) = serde_json::from_str::<serde_json::Value>(existing) { if e.is_object() { extra = e; } } }
+                            extra["total_cost_usdc"] = serde_json::Value::String(formatted);
+                            rec.response_json = Some(extra.to_string());
+                            // Overwrite the displayed price used by UI to the ledger total
+                            if let Some(crate::structs::PaymentAttemptResult::Success { amount_paid, .. }) = &mut rec.payment_result {
+                                *amount_paid = format!("{}", whole as f64 + (frac as f64)/1_000_000.0);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    send_json_response(StatusCode::OK, &rows)
+}
 
 // --- Wallet Management Operations ---
 
@@ -827,6 +914,15 @@ fn handle_set_wallet_limits(state: &mut State, limits: SpendingLimits) -> anyhow
             "error": e 
         })),
     }
+}
+
+fn handle_set_client_limits(state: &mut State, client_id: String, limits: SpendingLimits) -> anyhow::Result<()> {
+    info!("Setting client spending limits for {}", client_id);
+    // Persist to state cache immediately for UI readback
+    state.client_limits_cache.insert(client_id.clone(), limits.clone());
+    state.save();
+    // No hyperwallet call needed; client limits are enforced in our payment pipeline
+    send_json_response(StatusCode::OK, &json!({ "success": true }))
 }
 
 // Similar pattern for other wallet operations...
@@ -1056,7 +1152,7 @@ fn determine_ui_payment_wallet(state: &State) -> Result<String, PaymentAttemptRe
 
 // Helper function to execute provider call (no payment)
 fn execute_provider_call(
-    our: &Address,
+    _our: &Address,
     state: &mut State,
     provider_details: &ProviderDetails,
     provider_name: String,
@@ -1077,7 +1173,7 @@ fn execute_provider_call(
     // Prepare request
     info!("Preparing request for provider process at {}", target_address);
     let provider_request_data = ProviderRequest {
-        provider_name,
+        provider_name: provider_name.clone(),
         arguments,
         payment_tx_hash: payment_tx_hash_clone,
     };
@@ -1121,15 +1217,30 @@ fn execute_provider_call(
         provider_lookup_key: provider_details.provider_id.clone(),
         target_provider_id: provider_details.provider_id.clone(),
         call_args_json,
+        response_json: match &provider_call_result {
+            ProviderCallResult::Success(body) => Some(String::from_utf8_lossy(body).to_string()),
+            _ => None,
+        },
         call_success,
         response_timestamp_ms,
         payment_result,
         duration_ms: response_timestamp_ms - timestamp_start_ms,
         operator_wallet_id: actual_operator_wallet_id,
+        client_id: client_config_opt.as_ref().map(|c| c.id.clone()),
+        provider_name: Some(provider_name.clone()),
     };
     
     state.call_history.push(record);
     limit_call_history(state);
+    // Live-cover the new call via single-receipt fetch if needed
+    if let Some(tba) = &state.operator_tba_address {
+        if let Some(db) = &state.db_conn {
+            if let Some(crate::structs::PaymentAttemptResult::Success { .. }) = &state.call_history.last().and_then(|r| r.payment_result.clone()) {
+                let provider = state.hypermap.provider.clone();
+                let _ = crate::ledger::verify_calls_covering(state, db, &provider, &tba.to_lowercase());
+            }
+        }
+    }
     state.save();
     
     // Handle final response
@@ -1168,12 +1279,12 @@ fn execute_provider_call(
 //        ("hypergrid-provider", "hypergrid-provider", "grid.hypr")
 //    );
 //
-//    let DummyArgument = serde_json::json!({
+//    let dummy_argument = serde_json::json!({
 //        "argument": "swag"
 //    });
 //
 //    let wrapped_request = serde_json::json!({
-//        "HealthPing": DummyArgument
+//        "HealthPing": dummy_argument
 //    });
 //
 //    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
@@ -1214,12 +1325,12 @@ fn perform_provider_health_check(provider_details: &ProviderDetails) -> anyhow::
         ("provider", "hypergrid", PUBLISHER)
     );
     
-    let DummyArgument = serde_json::json!({
+    let dummy_argument = serde_json::json!({
         "argument": "swag"
     });
     
     let wrapped_request = serde_json::json!({
-        "HealthPing": DummyArgument
+        "HealthPing": dummy_argument
     });
     
     let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
@@ -1382,7 +1493,7 @@ pub fn handle_authorize_shim_request(
 
     // Create/Open the file in VFS tmp and write
     match vfs::create_file(&vfs_file_path, None) {
-        Ok(mut file) => {
+        Ok(file) => {
             match file.write(json_string.as_bytes()) {
                 Ok(_) => {
                     info!("Successfully wrote shim config file to VFS tmp.");
@@ -1547,20 +1658,32 @@ fn record_call_failure(
     call_args_json: String, 
     payment_result: PaymentAttemptResult,
     operator_wallet_id: Option<String>,
+    provider_name_opt: Option<String>,
 ) {
     let record = CallRecord {
         timestamp_start_ms,
         provider_lookup_key: lookup_key,
         target_provider_id, // Use best guess ID passed in
         call_args_json,
+        response_json: None,
         call_success: false, // Indicate call failed
         response_timestamp_ms: Utc::now().timestamp_millis() as u128,
         payment_result: Some(payment_result),
         duration_ms: Utc::now().timestamp_millis() as u128 - timestamp_start_ms,
         operator_wallet_id, // Use passed-in operator_wallet_id
+        client_id: None,
+        provider_name: provider_name_opt,
     };
     state.call_history.push(record);
     limit_call_history(state);
+    if let Some(tba) = &state.operator_tba_address {
+        if let Some(db) = &state.db_conn {
+            if let Some(crate::structs::PaymentAttemptResult::Success { .. }) = &state.call_history.last().and_then(|r| r.payment_result.clone()) {
+                let provider = state.hypermap.provider.clone();
+                let _ = crate::ledger::verify_calls_covering(state, db, &provider, &tba.to_lowercase());
+            }
+        }
+    }
     state.save(); 
 }
 
@@ -1583,6 +1706,34 @@ fn handle_payment(
         Err(payment_result) => return PaymentResult::Failed(payment_result),
     };
     
+    // Enforce client limit BEFORE attempting payment
+    if let Some(cfg) = client_config_opt {
+        // Sum from ledger: total_cost_units for this client
+        if let (Some(db), Some(tba)) = (state.db_conn.as_ref(), state.operator_tba_address.as_ref()) {
+            let q = r#"SELECT COALESCE(SUM(CAST(total_cost_units AS INTEGER)),0) AS total FROM usdc_call_ledger WHERE tba_address = ?1 AND client_id = ?2"#.to_string();
+            if let Ok(rows) = db.read(q, vec![serde_json::Value::String(tba.to_lowercase()), serde_json::Value::String(cfg.id.clone())]) {
+                let spent_units = rows.get(0).and_then(|r| r.get("total")).and_then(|v| v.as_i64()).unwrap_or(0) as i128;
+                // incoming price in USDC units
+                let price_units = (price_f64 * 1_000_000.0) as i128;
+                let projected = spent_units.saturating_add(price_units);
+                // client limit in USDC (string dollars)
+                let limit_units = state.client_limits_cache.get(&cfg.id)
+                    .and_then(|lim| lim.max_total.as_deref())
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .map(|f| (f * 1_000_000.0) as i128);
+                if let Some(lim_u) = limit_units {
+                    if projected > lim_u {
+                        return PaymentResult::Failed(PaymentAttemptResult::LimitExceeded {
+                            limit: (lim_u as f64 / 1_000_000.0).to_string(),
+                            amount_attempted: provider_details.price_str.clone(),
+                            currency: "USDC".to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
     info!("Attempting payment of {} to {} for provider {} using wallet {}", 
           provider_details.price_str, 
           provider_details.wallet_address, 
