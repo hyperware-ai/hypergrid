@@ -9,7 +9,7 @@
         "mirrors": ["sam.hypr", "backup-distro-node.os"],
         "code_hashes": {
             "1.0.0": "001a49117374abc3bdb38179d8ce05d76205b008bb55683e116be36f3e1635ce",
-            "1.1.0": "444680a4299d727294a140dd83a5c4d8b11f1589ef09d31f31f10b5f34b0a62a"
+            "1.1.0": "b9a3255a0778ffc9540bbae08aa05320525378a75dca5ba02f311ab192bda79f"
         },
         "wit_version": 1,
         "dependencies": []
