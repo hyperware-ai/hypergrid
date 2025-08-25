@@ -9,7 +9,8 @@
       "http-client:distro:sys",
       "http-server:distro:sys",
       "vfs:distro:sys",
-      "eth:distro:sys"
+      "eth:distro:sys",
+      "timer:distro:sys"
     ],
     "grant_capabilities": [
       "homepage:homepage:sys",
@@ -17,7 +18,8 @@
       "http-server:distro:sys",
       "vfs:distro:sys",
       "terminal:terminal:sys",
-      "eth:distro:sys"
+      "eth:distro:sys",
+      "timer:distro:sys"
     ],
     "public": false
   }

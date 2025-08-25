@@ -5,7 +5,7 @@
     "properties": {
         "package_name": "hypergrid",
         "current_version": "1.0.0",
-        "publisher": "ware.hypr",
+        "publisher": "test.hypr",
         "mirrors": ["sam.hypr", "backup-distro-node.os"],
         "code_hashes": {
             "1.0.0": "001a49117374abc3bdb38179d8ce05d76205b008bb55683e116be36f3e1635ce"

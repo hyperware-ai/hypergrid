@@ -1,6 +1,6 @@
 use hyperprocess_macro::hyperprocess;
 use hyperware_app_common::get_server;
-use hyperware_app_common::hyperware_process_lib::kiprintln;
+
 use hyperware_app_common::hyperware_process_lib::logging::RemoteLogSettings;
 use hyperware_app_common::hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
@@ -17,11 +17,13 @@ use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::str::FromStr; // Needed for EthAddress::from_str
+use std::collections::HashMap;
 
 pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
 
 mod util; // Declare the util module
 use util::*; // Use its public items
+pub use util::call_provider;
 
 mod db; // Declare the db module  
 use db::*; // Use its public items
@@ -77,21 +79,115 @@ pub enum TerminalCommand {
 }
 
 // --- Modified EndpointDefinition ---
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+// OLD STRUCTURE - KEPT FOR REFERENCE
+// #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+// pub struct EndpointDefinition {
+//     pub name: String,                            // Operation name, e.g., "getUserById"
+//     pub method: HttpMethod,                      // GET, POST
+//     pub request_structure: RequestStructureType, // Explicitly define the structure
+//     pub base_url_template: String, // e.g., "https://api.example.com/users/{id}" or "https://api.example.com/v{apiVersion}/users"
+//     pub path_param_keys: Option<Vec<String>>, // Keys for placeholders in base_url_template, relevant for GetWithPath, PostWithJson
+//     pub query_param_keys: Option<Vec<String>>, // Keys for dynamic query params, relevant for GetWithQuery, PostWithJson
+//     pub header_keys: Option<Vec<String>>, // Keys for dynamic headers (always potentially relevant)
+//     pub body_param_keys: Option<Vec<String>>, // Keys for dynamic body params, relevant for PostWithJson
+//     pub api_key: Option<String>, // The actual secret key
+//     pub api_key_query_param_name: Option<String>, // e.g., "api_key"
+//     pub api_key_header_name: Option<String>,      // e.g., "X-API-Key"
+// }
+
+// NEW CURL-BASED STRUCTURE
+#[derive(PartialEq, Clone, Debug, Serialize)]
 pub struct EndpointDefinition {
-    pub name: String,                            // Operation name, e.g., "getUserById"
-    pub method: HttpMethod,                      // GET, POST
-    pub request_structure: RequestStructureType, // Explicitly define the structure
-    pub base_url_template: String, // e.g., "https://api.example.com/users/{id}" or "https://api.example.com/v{apiVersion}/users"
-    pub path_param_keys: Option<Vec<String>>, // Keys for placeholders in base_url_template, relevant for GetWithPath, PostWithJson
-    pub query_param_keys: Option<Vec<String>>, // Keys for dynamic query params, relevant for GetWithQuery, PostWithJson
-    pub header_keys: Option<Vec<String>>, // Keys for dynamic headers (always potentially relevant)
-    pub body_param_keys: Option<Vec<String>>, // Keys for dynamic body params, relevant for PostWithJson
+    // Core curl template data
+    pub original_curl: String,
+    pub method: String,  // "GET", "POST", etc
+    pub base_url: String,
+    pub url_template: String,
+    pub original_headers: Vec<(String, String)>,
+    pub original_body: Option<String>,
+    
+    // Parameter definitions for substitution
+    pub parameters: Vec<ParameterDefinition>,
+    pub parameter_names: Vec<String>,
+}
 
-    pub api_key: Option<String>, // The actual secret key
+// Custom Deserialize implementation for EndpointDefinition to handle migration
+impl<'de> Deserialize<'de> for EndpointDefinition {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Use an untagged enum to try different deserialization strategies
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum EndpointDefinitionVariant {
+            New(NewEndpointDefinition),
+            Old(OldEndpointDefinition),
+        }
+        
+        match EndpointDefinitionVariant::deserialize(deserializer) {
+            Ok(EndpointDefinitionVariant::New(new_endpoint)) => {
+                Ok(EndpointDefinition {
+                    original_curl: new_endpoint.original_curl,
+                    method: new_endpoint.method,
+                    base_url: new_endpoint.base_url,
+                    url_template: new_endpoint.url_template,
+                    original_headers: new_endpoint.original_headers,
+                    original_body: new_endpoint.original_body,
+                    parameters: new_endpoint.parameters,
+                    parameter_names: new_endpoint.parameter_names,
+                })
+            },
+            Ok(EndpointDefinitionVariant::Old(_old_endpoint)) => {
+                info!("Migrating old EndpointDefinition to new structure - creating empty endpoint definition");
+                // Create an empty endpoint definition for migration
+                Ok(EndpointDefinition::empty())
+            },
+            Err(_) => {
+                // If both fail, create an empty endpoint definition
+                info!("Failed to deserialize EndpointDefinition as old or new format - creating empty definition");
+                Ok(EndpointDefinition::empty())
+            }
+        }
+    }
+}
 
-    pub api_key_query_param_name: Option<String>, // e.g., "api_key"
-    pub api_key_header_name: Option<String>,      // e.g., "X-API-Key"
+// Helper structs for deserialization
+#[derive(Deserialize)]
+struct NewEndpointDefinition {
+    original_curl: String,
+    method: String,
+    base_url: String,
+    url_template: String,
+    original_headers: Vec<(String, String)>,
+    original_body: Option<String>,
+    parameters: Vec<ParameterDefinition>,
+    parameter_names: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[allow(dead_code)] // Fields are used for deserialization pattern matching but not directly accessed
+struct OldEndpointDefinition {
+    name: String,
+    method: HttpMethod,
+    request_structure: RequestStructureType,
+    base_url_template: String,
+    path_param_keys: Option<Vec<String>>,
+    query_param_keys: Option<Vec<String>>,
+    header_keys: Option<Vec<String>>,
+    body_param_keys: Option<Vec<String>>,
+    api_key: Option<String>,
+    api_key_query_param_name: Option<String>,
+    api_key_header_name: Option<String>,
+}
+
+#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+pub struct ParameterDefinition {
+    pub parameter_name: String,
+    pub json_pointer: String,  // e.g., "/body/user_id", "/headers/X-API-Key"
+    pub location: String,      // "body", "query", "path", "header"
+    pub example_value: String,
+    pub value_type: String,    // "string", "number", etc
 }
 
 // --- New Provider Struct ---
@@ -368,7 +464,7 @@ impl HypergridProviderState {
             return Err(error_msg);
         }
         
-        // Validate the endpoint by making a test call
+        // Use the new curl-based validation
         let validation_result = call_provider(
             provider.provider_name.clone(),
             provider.endpoint.clone(),
@@ -382,10 +478,82 @@ impl HypergridProviderState {
             .map_err(|e| format!("Validation failed: {}", e))?;
 
         info!("Provider validation successful: {}", provider.provider_name);
-        Ok(validation_result)
+        
+        // Return the validated provider object as JSON for frontend consistency
+        let response = serde_json::json!({
+            "validation_result": validation_result,
+            "provider": provider
+        });
+        
+        serde_json::to_string(&response)
+            .map_err(|e| format!("Failed to serialize validation response: {}", e))
     }
 
 
+
+    #[http]
+    async fn validate_provider_update(
+        &mut self,
+        provider_name: String,
+        updated_provider: RegisteredProvider,
+        arguments: Vec<(String, String)>,
+    ) -> Result<String, String> {
+        info!("Validating provider update: {}", provider_name);
+        
+        // Check if the original provider exists
+        if !self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == provider_name)
+        {
+            let error_msg = format!(
+                "Provider with name '{}' not found for update.",
+                provider_name
+            );
+            warn!("{}", error_msg);
+            return Err(error_msg);
+        }
+        
+        // If the name is changing, check if new name already exists
+        if provider_name != updated_provider.provider_name {
+            if self
+                .registered_providers
+                .iter()
+                .any(|p| p.provider_name == updated_provider.provider_name)
+            {
+                let error_msg = format!(
+                    "A provider with name '{}' already exists. Please choose a different name.",
+                    updated_provider.provider_name
+                );
+                warn!("{}", error_msg);
+                return Err(error_msg);
+            }
+        }
+        
+        // Use the new curl-based validation
+        let validation_result = call_provider(
+            updated_provider.provider_name.clone(),
+            updated_provider.endpoint.clone(),
+            &arguments,
+            our().node.to_string(),
+        )
+        .await?;
+        
+        info!("Validation result: {}", validation_result);
+        validate_response_status(&validation_result)
+            .map_err(|e| format!("Validation failed: {}", e))?;
+
+        info!("Provider update validation successful: {}", updated_provider.provider_name);
+        
+        // Return the validated provider object as JSON for frontend consistency
+        let response = serde_json::json!({
+            "validation_result": validation_result,
+            "provider": updated_provider
+        });
+        
+        serde_json::to_string(&response)
+            .map_err(|e| format!("Failed to serialize validation response: {}", e))
+    }
 
     #[http]
     async fn update_provider(
@@ -561,6 +729,20 @@ impl HypergridProviderState {
     async fn get_registered_providers(&self) -> Result<Vec<RegisteredProvider>, String> {
         debug!("Fetching registered providers");
         Ok(self.registered_providers.clone())
+    }
+
+    #[http]
+    async fn get_providers_needing_configuration(&self) -> Result<Vec<RegisteredProvider>, String> {
+        debug!("Fetching providers that need endpoint configuration");
+        let providers_needing_config: Vec<RegisteredProvider> = self
+            .registered_providers
+            .iter()
+            .filter(|provider| provider.endpoint.is_empty())
+            .cloned()
+            .collect();
+        
+        info!("Found {} providers needing endpoint configuration", providers_needing_config.len());
+        Ok(providers_needing_config)
     }
 
     #[http]
@@ -758,7 +940,7 @@ impl HypergridProviderState {
 
                 let source_node_id = "anotherdayanothertestingnodeweb.os".to_string();
 
-                validate_transaction_payment(&provider_request, self, source_node_id.clone()).await?;
+                //validate_transaction_payment(&provider_request, self, source_node_id.clone()).await?;
 
 
                 let registered_provider = match self
@@ -833,6 +1015,43 @@ impl HypergridProviderState {
                 Ok(format!("Database: {:?}", json_providers))
             }
         }
+    }
+}
+
+// Helper functions for data conversion
+impl EndpointDefinition {
+    /// Create an empty EndpointDefinition for migration purposes
+    pub fn empty() -> Self {
+        Self {
+            original_curl: String::new(),
+            method: "GET".to_string(),
+            base_url: String::new(),
+            url_template: String::new(),
+            original_headers: Vec::new(),
+            original_body: None,
+            parameters: Vec::new(),
+            parameter_names: Vec::new(),
+        }
+    }
+
+    /// Check if this endpoint definition is empty (needs configuration)
+    pub fn is_empty(&self) -> bool {
+        self.original_curl.is_empty() && 
+        self.base_url.is_empty() && 
+        self.url_template.is_empty()
+    }
+
+    /// Parse the original_body string as JSON, returning None if parsing fails or field is None
+    pub fn get_original_body_json(&self) -> Option<serde_json::Value> {
+        self.original_body.as_ref()
+            .and_then(|body_str| serde_json::from_str(body_str).ok())
+    }
+
+    /// Convert original_headers Vec<(String, String)> to HashMap<String, String> for processing
+    pub fn get_original_headers_map(&self) -> HashMap<String, String> {
+        self.original_headers.iter()
+            .cloned()
+            .collect()
     }
 }
 

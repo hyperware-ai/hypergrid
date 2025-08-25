@@ -55,9 +55,9 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   const hasError = !!(mintError || notesError);
 
   return (
-    <div className="fixed inset-0 bg-white dark:bg-black flex flex-col justify-center items-center z-50 p-5">
-      <div className="bg-gray dark:bg-dark-gray p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-4">
-        <h3 className="text-2xl font-bold">
+    <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl max-w-md mx-4 text-center">
+        <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-6">
           Blockchain Registration
         </h3>
 
@@ -77,17 +77,17 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
           />
         </div>
 
-        {/* Status Message */}
-        <div className="text-sm">
-          {step === 'minting' && 'Creating provider entry on blockchain...'}
-          {step === 'notes' && 'Setting provider metadata...'}
-          {step === 'complete' && 'Registration complete!'}
+        {/* Status Message and Loading */}
+        <div className="flex flex-col items-center gap-4 my-6">
+          {isLoading && !hasError && (
+            <ImSpinner8 className="animate-spin text-blue-600 text-2xl" />
+          )}
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            {step === 'minting' && 'Creating provider entry on blockchain...'}
+            {step === 'notes' && 'Setting provider metadata...'}
+            {step === 'complete' && 'Registration complete!'}
+          </div>
         </div>
-
-        {/* Loading Indicator */}
-        {isLoading && !hasError && (
-          <ImSpinner8 className="animate-spin" />
-        )}
 
         {/* Success State */}
         {step === 'complete' && mintedProviderAddress && (
@@ -101,7 +101,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
             {onClose && (
               <button
                 onClick={onClose}
-                className="px-5 py-2 bg-black text-cyan dark:bg-cyan dark:text-black"
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Continue to Dashboard
               </button>
