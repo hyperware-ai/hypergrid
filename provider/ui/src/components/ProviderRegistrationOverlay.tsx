@@ -55,9 +55,9 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
   const hasError = !!(mintError || notesError);
 
   return (
-    <div className="fixed inset-0 bg-white flex flex-col justify-center items-center z-50 p-5">
-      <div className="bg-gray p-10 rounded-xl max-w-md w-full text-center flex flex-col gap-4">
-        <h3 className="text-2xl font-bold">
+    <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50">
+      <div className="bg-white dark:bg-gray-800 p-8 rounded-lg shadow-xl max-w-md mx-4 text-center">
+        <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 mb-6">
           Blockchain Registration
         </h3>
 
@@ -77,31 +77,31 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
           />
         </div>
 
-        {/* Status Message */}
-        <div className="text-sm">
-          {step === 'minting' && 'Creating provider entry on blockchain...'}
-          {step === 'notes' && 'Setting provider metadata...'}
-          {step === 'complete' && 'Registration complete!'}
+        {/* Status Message and Loading */}
+        <div className="flex flex-col items-center gap-4 my-6">
+          {isLoading && !hasError && (
+            <ImSpinner8 className="animate-spin text-blue-600 text-2xl" />
+          )}
+          <div className="text-sm text-gray-600 dark:text-gray-400">
+            {step === 'minting' && 'Creating provider entry on blockchain...'}
+            {step === 'notes' && 'Setting provider metadata...'}
+            {step === 'complete' && 'Registration complete!'}
+          </div>
         </div>
-
-        {/* Loading Indicator */}
-        {isLoading && !hasError && (
-          <ImSpinner8 className="animate-spin" />
-        )}
 
         {/* Success State */}
         {step === 'complete' && mintedProviderAddress && (
           <div className="flex flex-col gap-2">
-            <div className="text-green-400 text-lg">
+            <div className="text-green-400 dark:text-green-400 text-lg">
               ✓ Provider registered successfully
             </div>
-            <div className="font-mono text-xs break-all p-3 bg-white/5 rounded-md">
+            <div className="font-mono text-xs break-all p-3 bg-white/5 dark:bg-black/5 rounded-md">
               {mintedProviderAddress}
             </div>
             {onClose && (
               <button
                 onClick={onClose}
-                className="px-5 py-2 bg-black text-cyan"
+                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
               >
                 Continue to Dashboard
               </button>
@@ -111,7 +111,7 @@ export const ProviderRegistrationOverlay: React.FC<ProviderRegistrationOverlayPr
 
         {/* Error Display */}
         {hasError && (
-          <div className="text-red-400 p-4 bg-red-400/10 rounded-md text-sm">
+          <div className="text-red-400 p-4 bg-red-400/10 dark:bg-red-400/10 rounded-md text-sm">
             {(mintError || notesError)?.message}
           </div>
         )}

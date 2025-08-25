@@ -7,6 +7,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
 use hyperware_process_lib::wallet::KeyStorage;
+use hyperware_process_lib::sqlite::Sqlite;
+use anyhow::Result;
 use rmp_serde;
 use crate::authorized_services::HotWalletAuthorizedClient;
 
@@ -107,13 +109,21 @@ pub struct CallRecord {
    pub provider_lookup_key: String, // What was used to find the provider (name or id)
    pub target_provider_id: String, // The actual process ID called
    pub call_args_json: String, // Arguments sent (as JSON string)
+   #[serde(default)]
+   pub response_json: Option<String>, // Provider response body (JSON or preview)
    pub call_success: bool, // Did the provider respond without communication error?
    pub response_timestamp_ms: u128,
    pub payment_result: Option<PaymentAttemptResult>, // Payment outcome
    pub duration_ms: u128, // Calculated duration
    pub operator_wallet_id: Option<String>, // Added field
+   #[serde(default)]
+   pub client_id: Option<String>,
+   #[serde(default)]
+   pub provider_name: Option<String>, // Human tool name (e.g., haiku-message-answering-machine)
 }
 // --- End Call History Structs ---
+
+// Removed USDC scaffolding per user request
 
 // Copied types from indexer
 type Namehash = String;
@@ -159,11 +169,15 @@ pub struct State {
     pub operator_tba_address: Option<String>,
     #[serde(default)]
     pub wallet_limits_cache: HashMap<String, SpendingLimits>,
+    #[serde(default)]
+    pub client_limits_cache: HashMap<String, SpendingLimits>,
     #[serde(skip)]
     pub active_signer_cache: Option<LocalSigner>,
     #[serde(skip)]
     pub cached_active_details: Option<ActiveAccountDetails>,
     pub call_history: Vec<CallRecord>,
+
+    // (USDC scaffolding removed)
 
     // hypergrid-shim auth
     pub hashed_shim_api_key: Option<String>,
@@ -214,6 +228,7 @@ impl State {
             operator_entry_name: None,
             operator_tba_address: None,
             wallet_limits_cache: HashMap::new(),
+            client_limits_cache: HashMap::new(),
             active_signer_cache: None,
             cached_active_details: None,
             call_history: Vec::new(),
@@ -259,17 +274,71 @@ impl State {
     }
     /// Saves the serializable state (including wallet_storage)
     pub fn save(&mut self) {
-        // Detach DB connection and session before saving
+        // Temporarily detach DB conn to avoid accidental serialization side-effects,
+        // then restore it immediately after. hyperwallet_session is #[serde(skip)], so it stays.
+        let db_keep = self.db_conn.clone();
         self.db_conn = None;
-        // Note: hyperwallet_session is already marked with #[serde(skip)] so it won't be serialized
         match rmp_serde::to_vec(self) {
-            Ok(state_bytes) => set_state(&state_bytes),
+            Ok(state_bytes) => {
+                set_state(&state_bytes);
+                info!("state set");
+            },
             Err(e) => {
-                // Re-attach DB connection if save failed?
-                // For now, just log.
                 error!("Failed to serialize state for saving: {:?}", e);
             }
         }
+        // Restore connection handle for subsequent requests
+        self.db_conn = db_keep;
+    }
+
+    /// Refresh per-client total spend from the on-disk USDC ledger.
+    /// Counts total_cost (provider payout + gas/fees) toward the client limit.
+    pub fn refresh_client_totals_from_ledger(&mut self, db: &Sqlite, tba_address: &str) -> Result<()> {
+        // Sum totals per client from the ledger in base units (6 decimals)
+        let q = r#"
+            SELECT client_id, SUM(CAST(total_cost_units AS INTEGER)) AS total_units
+            FROM usdc_call_ledger
+            WHERE tba_address = ?1 AND client_id IS NOT NULL
+            GROUP BY client_id
+        "#.to_string();
+        let params = vec![serde_json::Value::String(tba_address.to_lowercase())];
+        let rows = db.read(q, params)?;
+
+        // Helper to format base units (6 dp) to display string
+        fn format_units(units: i64) -> String {
+            let whole = units / 1_000_000;
+            let frac = (units % 1_000_000).abs();
+            format!("{}.{}", whole, format!("{:06}", frac))
+        }
+
+        // Update or insert client totals in the cache
+        for row in rows {
+            let client_id = match row.get("client_id").and_then(|v| v.as_str()) {
+                Some(s) => s.to_string(),
+                None => continue,
+            };
+            let total_units = row.get("total_units").and_then(|v| v.as_i64()).unwrap_or(0);
+            let display = format_units(total_units);
+            match self.client_limits_cache.get_mut(&client_id) {
+                Some(entry) => {
+                    entry.total_spent = Some(display);
+                }
+                None => {
+                    // Insert a new limits entry with just total_spent (currency defaults to USDC)
+                    self.client_limits_cache.insert(
+                        client_id,
+                        SpendingLimits {
+                            max_per_call: None,
+                            max_total: None,
+                            currency: Some("USDC".to_string()),
+                            total_spent: Some(display),
+                        },
+                    );
+                }
+            }
+        }
+
+        Ok(())
     }
 }
 // calls from the MCP shim (and now also UI)
@@ -314,6 +383,7 @@ pub enum ApiRequest {
     ActivateWallet { password: Option<String> },
     DeactivateWallet {}, 
     SetWalletLimits { limits: SpendingLimits }, // Use SpendingLimits struct defined above
+    SetClientLimits { client_id: String, limits: SpendingLimits },
     ExportSelectedPrivateKey { password: Option<String> }, 
     SetSelectedWalletPassword { new_password: String, old_password: Option<String> }, 
     RemoveSelectedWalletPassword { current_password: String }, 
@@ -678,11 +748,21 @@ pub struct GraphEdge {
     pub animated: Option<bool>,
 }
 
+// Coarse onboarding state for simplified UI flows
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub enum CoarseState {
+    BeforeWallet,
+    AfterWalletNoClients,
+    AfterWalletWithClients,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct HypergridGraphResponse {
     pub nodes: Vec<GraphNode>,
     pub edges: Vec<GraphEdge>,
+    pub coarse_state: CoarseState,
 }
 
 // --- End Backend-Driven Graph Visualizer DTOs ---

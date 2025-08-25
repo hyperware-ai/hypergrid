@@ -36,19 +36,7 @@ pub fn make_filters(state: &State) -> (eth::Filter, eth::Filter) {
 pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
     let (mints_filter, notes_filter) = make_filters(&state);
 
-    // Restore subscribe_loop for mint events
-    state
-        .hypermap
-        .provider
-        .subscribe_loop(11, mints_filter.clone(), 0, 1); // verbosity 1 for error in loop
-    info!("Initiated Mint event subscription loop (sub_id 11).");
-
-    // Restore subscribe_loop for note events
-    state
-        .hypermap
-        .provider
-        .subscribe_loop(22, notes_filter.clone(), 0, 1); // verbosity 1 for error in loop
-    info!("Initiated Note event subscription loop (sub_id 22).");
+    // (Removed subscribe_loop calls per user request)
 
     let mut pending_logs: PendingLogs = Vec::new();
     
@@ -61,6 +49,8 @@ pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
     } else {
         warn!("Timers already initialized, skipping timer initialization in start_fetch");
     }
+
+    // (USDC subscribe placeholder removed)
     
     // --- Try to get historical logs from the local hypermap-cacher ---
     info!("Attempting to bootstrap historical Mint/Note logs from local hypermap cache");
@@ -117,17 +107,23 @@ pub fn start_fetch(state: &mut State, db: &Sqlite) -> PendingLogs {
     if let Some(bootstrap_block) = bootstrap_block {
         // Only fetch logs newer than what bootstrap gave us
         if bootstrap_block < state.hypermap.provider.get_block_number().unwrap_or(bootstrap_block) {
-            info!("Fetching gap logs from block {} to latest", bootstrap_block);
-            let gap_mints_filter = mints_filter.from_block(bootstrap_block + 1);
-            let gap_notes_filter = notes_filter.from_block(bootstrap_block + 1);
+            info!("Fetching gap logs from block {} to latest (clamped to <=450 blocks)", bootstrap_block);
+            let latest = state.hypermap.provider.get_block_number().unwrap_or(bootstrap_block);
+            let from = bootstrap_block + 1;
+            let to = latest.min(from + 450);
+            let gap_mints_filter = mints_filter.clone().from_block(from).to_block(to);
+            let gap_notes_filter = notes_filter.clone().from_block(from).to_block(to);
             fetch_and_process_logs(state, db, &mut pending_logs, &gap_mints_filter);
             fetch_and_process_logs(state, db, &mut pending_logs, &gap_notes_filter);
         }
     } else {
         // Bootstrap failed, fall back to full RPC fetch from last checkpoint
         info!("Bootstrap failed, falling back to full RPC log fetch from block {}", state.last_checkpoint_block);
-        let fallback_mints_filter = mints_filter.from_block(state.last_checkpoint_block);
-        let fallback_notes_filter = notes_filter.from_block(state.last_checkpoint_block);
+        let latest = state.hypermap.provider.get_block_number().unwrap_or(state.last_checkpoint_block);
+        let from = state.last_checkpoint_block;
+        let to = latest.min(from + 450);
+        let fallback_mints_filter = mints_filter.clone().from_block(from).to_block(to);
+        let fallback_notes_filter = notes_filter.clone().from_block(from).to_block(to);
         fetch_and_process_logs(state, db, &mut pending_logs, &fallback_mints_filter);
         fetch_and_process_logs(state, db, &mut pending_logs, &fallback_notes_filter);
     }
@@ -165,13 +161,13 @@ fn fetch_and_process_logs(
             }
             Err(e) => {
                 retries += 1;
-                error!( // Changed to error! and added more context
+                error!(
                     "Error fetching logs (attempt {}/{}) for filter {:?}: {:?}. Retrying in {}s...",
                     retries, MAX_FETCH_RETRIES, filter, e, current_delay_secs
                 );
                 std::thread::sleep(std::time::Duration::from_secs(current_delay_secs));
                 // Optional: Implement exponential backoff or increase delay systematically
-                // current_delay_secs = (current_delay_secs * 2).min(60); // Example: double delay, cap at 60s
+                // current_delay_secs = (current_delay_secs * 2).min(60);
             }
         }
     }
