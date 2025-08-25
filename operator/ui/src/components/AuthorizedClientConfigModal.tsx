@@ -260,7 +260,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
             {newToken && <>
                 <h4 className="font-bold">New Authorization Command</h4>
                 <p className="text-sm opacity-50">
-                    Copy this command and paste it into Claude:
+                    Copy this command and paste it into your MCP client:
                 </p>
                 <div className="relative">
                     <pre className="p-2 rounded bg-dark-gray/5 text-sm overflow-x-auto break-words whitespace-pre-wrap">
