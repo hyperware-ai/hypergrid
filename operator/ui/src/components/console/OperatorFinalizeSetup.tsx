@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo } from 'react';
 import { Address, Hex, encodeFunctionData } from 'viem';
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 import {
   encodeAddressArray,
@@ -20,9 +21,10 @@ type Props = {
   operatorTbaAddress?: Address;
   hotWalletAddress?: Address;
   onComplete?: () => void;
+  autoReload?: boolean; // defaults to true for backward compatibility
 };
 
-const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletAddress, onComplete }) => {
+const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletAddress, onComplete, autoReload = true }) => {
   const { address: eoa } = useAccount();
   const { data: hash, error, isPending, writeContract, reset } = useWriteContract();
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash, chainId: BASE_CHAIN_ID });
@@ -33,7 +35,7 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
 
   const disabledReasons = useMemo(() => {
     const reasons: string[] = [];
-    if (!eoa) reasons.push('wallet not connected');
+    if (!eoa) reasons.push('wallet not connected - be sure to connect the wallet that owns your Hyperware name');
     if (!operatorTbaAddress) reasons.push('operator TBA missing');
     if (!hotWalletAddress) reasons.push('hot wallet address missing');
     if (isPending) reasons.push('transaction pending');
@@ -89,10 +91,12 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
       setTimeout(() => {
         onComplete?.();
         reset();
-        try { window.location.reload(); } catch {}
+        if (autoReload) {
+          try { window.location.reload(); } catch {}
+        }
       }, 2000);
     }
-  }, [isConfirmed, onComplete, reset]);
+  }, [isConfirmed, onComplete, reset, autoReload]);
 
   return (
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(17,24,39,0.45)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
@@ -120,7 +124,15 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
             {error && <div style={{ color: '#b91c1c', fontSize: 12 }}>Error: {error.message}</div>}
           </div>
 
-          {disabled && disabledReasons.length > 0 && (
+          {!eoa && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 8 }}>
+                wallet not connected - be sure to connect the wallet that owns your Hyperware name
+              </div>
+              <ConnectButton />
+            </div>
+          )}
+          {eoa && disabled && disabledReasons.length > 0 && (
             <div style={{ color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 10 }}>
               {disabledReasons.join(', ')}
             </div>

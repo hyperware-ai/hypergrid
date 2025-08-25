@@ -4,6 +4,8 @@ import { base } from 'viem/chains';
 import BackendDrivenHypergridVisualizerWrapper from '../BackendDrivenHypergridVisualizer';
 import OneClickOperatorBoot from './OneClickOperatorBoot';
 import OperatorFinalizeSetup from './OperatorFinalizeSetup';
+import WelcomeIntro from './WelcomeIntro';
+import SetupComplete from './SetupComplete';
 import HyperwalletInterface, { HwClient, HwEvent } from './HyperwalletInterface';
 import AuthorizedClientConfigModal from '../AuthorizedClientConfigModal';
 import ShimApiConfigModal from '../ShimApiConfigModal';
@@ -114,6 +116,8 @@ const OperatorConsole: React.FC = () => {
   const [operatorUsdcBalance, setOperatorUsdcBalance] = useState<string>('0');
   const [hotWalletForNewClient, setHotWalletForNewClient] = useState<string | null>(null);
   const [isRefreshingUi, setIsRefreshingUi] = useState<boolean>(false);
+  const [showIntro, setShowIntro] = useState<boolean>(true);
+  const [showSetupComplete, setShowSetupComplete] = useState<boolean>(false);
   // Mock mode state (scoped to this console)
   const [mockMode, setMockMode] = useState<boolean>(false);
   const [mockOperatorTba, setMockOperatorTba] = useState<string>('0xDeaDbeEf00000000000000000000000000000000');
@@ -678,7 +682,12 @@ const OperatorConsole: React.FC = () => {
 
   return (
     <div style={{ ...monoBox, display: 'flex', flexDirection: 'column', gap: 12, padding: 16 }}>
-      {isBefore && (
+      {isBefore && showIntro && (
+        <WelcomeIntro
+          onContinue={() => setShowIntro(false)}
+        />
+      )}
+      {isBefore && !showIntro && (
         <OneClickOperatorBoot
           parentTbaAddress={ownerNodeTba as any}
           defaultOperatorEntryName={operatorEntryName}
@@ -690,14 +699,23 @@ const OperatorConsole: React.FC = () => {
           }}
         />
       )}
-      {isAfterNoClients && (
+      {isAfterNoClients && !showSetupComplete && (
         <OperatorFinalizeSetup
           operatorTbaAddress={operatorTbaFromState as any}
           hotWalletAddress={singleHotWallet as any}
+          autoReload={false}
           onComplete={() => {
             fetchState();
             fetchActive();
+            setShowSetupComplete(true);
+          }}
+        />
+      )}
+      {isAfterNoClients && showSetupComplete && (
+        <SetupComplete
+          onDone={() => {
             setCoarseState(null);
+            window.location.reload();
           }}
         />
       )}

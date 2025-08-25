@@ -1,6 +1,7 @@
 import React, { useCallback, useMemo, useEffect, useState } from 'react';
 import { Address, Hex, encodeFunctionData, encodePacked, stringToHex } from 'viem';
 import { useAccount, useWaitForTransactionReceipt, useWriteContract } from 'wagmi';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
 
 import {
   viemNamehash,
@@ -84,7 +85,7 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
 
   const disabledReasons = useMemo(() => {
     const reasons: string[] = [];
-    if (!eoa) reasons.push('wallet not connected');
+    if (!eoa) reasons.push('wallet not connected - be sure to connect the wallet that owns your Hyperware name');
     if (!parentTbaAddress) reasons.push('owner node TBA not found');
     if (!operatorEntryName) reasons.push('operator entry name missing');
     if (isPending) reasons.push('transaction pending');
@@ -190,7 +191,15 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
             {error && <div style={{ color: '#b91c1c', fontSize: 12 }}>Error: {error.message}</div>}
           </div>
 
-          {disabled && disabledReasons.length > 0 && (
+          {!eoa && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 8 }}>
+                wallet not connected - be sure to connect the wallet that owns your Hyperware name
+              </div>
+              <ConnectButton />
+            </div>
+          )}
+          {eoa && disabled && disabledReasons.length > 0 && (
             <div style={{ color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 10 }}>
               {disabledReasons.join(', ')}
             </div>
