@@ -172,7 +172,7 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
         </div>
         <div style={{ padding: 16 }}>
           <div style={{ color: '#4b5563', fontSize: 13, marginBottom: 12 }}>
-            This will mint the operator sub-wallet ‘{operatorSubLabel}’ under your node and set the initial access list.
+            Signing this transaction will mint a Hyperwallet for Hypergrid to use. Your Hyperwallet is a smart account, and in the next step we'll authorize Hypergrid to use it send microtransactions on your behalf.
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
             <button
