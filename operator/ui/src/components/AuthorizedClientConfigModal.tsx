@@ -242,8 +242,8 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
                 onBlur={handleNameInputBlur}
                 onKeyDown={handleNameInputKeyDown}
                 onClick={(e) => { e.stopPropagation(); setIsEditingName(true); }}
-                className={classNames("p-2 rounded bg-dark-gray/5", {
-                    "border border-black": isEditingName,
+                className={classNames("p-2 rounded bg-dark-gray/5 dark:bg-gray/5", {
+                    "border border-black dark:border-white": isEditingName,
                 })}
                 disabled={isRegenerating || isDeleting}
             />
@@ -263,12 +263,12 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
                     Copy this command and paste it into your MCP client:
                 </p>
                 <div className="relative">
-                    <pre className="p-2 rounded bg-dark-gray/5 text-sm overflow-x-auto break-words whitespace-pre-wrap">
+                    <pre className="p-2 rounded bg-dark-gray/5 dark:bg-gray/5 text-sm overflow-x-auto break-words whitespace-pre-wrap">
                         {authCommand}
                     </pre>
                     <button
                         onClick={() => copyToClipboard(authCommand)}
-                        className="absolute top-2 right-2 px-2 py-1 text-xs bg-black text-white rounded hover:bg-gray-800"
+                        className="absolute top-2 right-2 px-2 py-1 text-xs bg-black dark:bg-white text-white dark:text-black rounded hover:bg-gray-800"
                     >
                         {copiedCommand ? '✓' : 'Copy'}
                     </button>
@@ -324,4 +324,4 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     );
 };
 
-export default AuthorizedClientConfigModal; 
+export default AuthorizedClientConfigModal;

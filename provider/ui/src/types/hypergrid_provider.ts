@@ -18,22 +18,43 @@ export enum RequestStructureType {
   PostWithJson = "PostWithJson",
 }
 
+// OLD STRUCTURE - KEPT FOR REFERENCE
+// export interface EndpointDefinition {
+//   name: string;
+//   method: HttpMethod;
+//   request_structure: RequestStructureType;
+//   base_url_template: string;
+//   path_param_keys?: string[];
+//   query_param_keys?: string[];
+//   header_keys?: string[];
+//   body_param_keys?: string[];
+//   api_key?: string;
+//   api_key_query_param_name?: string;
+//   api_key_header_name?: string;
+// }
+
+// NEW CURL-BASED STRUCTURE
+export interface ParameterDefinition {
+  parameter_name: string;
+  json_pointer: string;  // e.g., "/body/user_id", "/headers/X-API-Key"
+  location: string;      // "body", "query", "path", "header"
+  example_value: string;
+  value_type: string;    // "string", "number", etc
+}
+
 // Interface for EndpointDefinition, matching Rust's struct
 export interface EndpointDefinition {
-  name: string;
-  method: HttpMethod;
-  request_structure: RequestStructureType; // Added field
-  base_url_template: string;
-  path_param_keys?: string[]; // Changed to optional
-  query_param_keys?: string[]; // Changed to optional
-  header_keys?: string[];      // Changed to optional
-  body_param_keys?: string[];
-
-  api_key?: string;
-
-  // API Key Authentication
-  api_key_query_param_name?: string;
-  api_key_header_name?: string;
+  // Core curl template data
+  original_curl: string;
+  method: string;  // "GET", "POST", etc
+  base_url: string;
+  url_template: string;
+  original_headers: [string, string][];
+  original_body?: string;
+  
+  // Parameter definitions for substitution
+  parameters: ParameterDefinition[];
+  parameter_names: string[];
 }
 
 // Interface for RegisteredProvider, matching Rust's struct

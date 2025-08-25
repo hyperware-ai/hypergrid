@@ -385,4 +385,4 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     );
 };
 
-export default ShimApiConfigModal; 
+export default ShimApiConfigModal;

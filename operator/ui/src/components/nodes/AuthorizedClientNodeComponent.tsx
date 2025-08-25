@@ -22,7 +22,7 @@ const AuthorizedClientNodeComponent: React.FC<AuthorizedClientNodeComponentProps
                 <button
                     onClick={(e) => { e.stopPropagation(); onOpenSettingsModal(); }}
                     title="Open Settings"
-                    className="text-lg hover:text-gray-300"
+                    className="text-lg"
                 >
                     <SlPencil />
                 </button>
@@ -38,8 +38,8 @@ const AuthorizedClientNodeComponent: React.FC<AuthorizedClientNodeComponentProps
                 </span>
 
                 <div className="text-sm leading-relaxed flex justify-between items-center">
-                    <span className="text-gray-400 mr-2 whitespace-nowrap">Client ID:</span>
-                    <span className="text-gray-300 break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
+                    <span className="text-dark-gray dark:text-gray mr-2 whitespace-nowrap">Client ID:</span>
+                    <span className="text-dark-gray dark:text-gray break-all text-right flex-grow" onClick={(e) => e.stopPropagation()}>
                         <CopyToClipboardText textToCopy={clientId} className="text-blue-400 cursor-pointer no-underline hover:underline">
                             {truncate(clientId, 8, 8)}
                         </CopyToClipboardText>
@@ -59,4 +59,4 @@ const AuthorizedClientNodeComponent: React.FC<AuthorizedClientNodeComponentProps
     );
 };
 
-export default AuthorizedClientNodeComponent; 
+export default AuthorizedClientNodeComponent;

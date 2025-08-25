@@ -70,7 +70,7 @@ function App() {
         accountButtonRef.current &&
         !accountButtonRef.current.contains(event.target as Node)
       ) {
-        //setIsAccountModalOpen(false); 
+        //setIsAccountModalOpen(false);
       }
     }
     document.addEventListener("mousedown", handleClickOutside);
@@ -81,7 +81,7 @@ function App() {
 
   return (
     <div className="flex h-screen">
-      <header className="flex flex-col py-8 px-6  bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
+      <header className="flex flex-col py-8 px-6 dark:bg-black bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <HeaderSearch />
         <AppSwitcher currentApp="operator" />

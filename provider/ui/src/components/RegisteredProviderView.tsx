@@ -10,20 +10,29 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
 
   const formatPrice = (price: number) => {
     if (typeof price !== 'number' || isNaN(price)) return 'N/A';
-    
-    // Format the number and remove trailing zeros
+
+    // Convert to string and check if it's in scientific notation
+    const priceStr = price.toString();
     let formatted: string;
-    if (price < 0.01) {
-      formatted = price.toFixed(8); // Use more decimals for very small numbers
-    } else if (price < 1) {
-      formatted = price.toFixed(6);
+    
+    if (priceStr.includes('e') || priceStr.includes('E')) {
+      // For scientific notation, use high precision to preserve the full value
+      formatted = price.toFixed(20).replace(/\.?0+$/, '');
     } else {
-      formatted = price.toFixed(2);
+      // For normal numbers, use appropriate precision
+      if (price < 0.000001) {
+        formatted = price.toFixed(8);
+      } else if (price < 0.01) {
+        formatted = price.toFixed(6);
+      } else if (price < 1) {
+        formatted = price.toFixed(4);
+      } else {
+        formatted = price.toFixed(2);
+      }
+      // Remove trailing zeros
+      formatted = formatted.replace(/\.?0+$/, '');
     }
-    
-    // Remove trailing zeros after decimal point
-    formatted = formatted.replace(/\.?0+$/, '');
-    
+
     return formatted + ' USDC';
   };
 
@@ -36,7 +45,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
 
   return (
     <div
-      className="bg-white p-5 rounded-xl shadow-sm border border-gray-200 hover:shadow-md transition-all cursor-pointer"
+      className="bg-white dark:bg-black p-5 rounded-xl shadow-sm border border-gray-200 dark:border-white hover:shadow-md  transition-all cursor-pointer"
       onClick={handleClick}
     >
       <div className="flex flex-col gap-3">
@@ -45,17 +54,17 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
           <div className="flex items-start gap-3 flex-1 min-w-0">
             <span className="text-xl mt-0.5">🔌</span>
             <div className="flex-1 min-w-0">
-              <h3 className="text-base font-semibold text-gray-900 break-words">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 break-words">
                 {provider.provider_name}.obfusc-grid123.hypr
               </h3>
               {provider.description && (
-                <p className="text-gray-500 text-sm mt-1">{provider.description}</p>
+                <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{provider.description}</p>
               )}
             </div>
           </div>
-          
+
           <button
-            className="px-3 py-1.5 bg-gray-900 hover:bg-gray-800 text-white rounded-lg text-sm transition-colors flex items-center gap-1.5 font-medium flex-shrink-0"
+            className="px-3 py-1.5 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg text-sm flex-shrink-0 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
             onClick={(e) => {
               e.stopPropagation();
               onEdit?.(provider);
@@ -65,11 +74,11 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
             <span>Edit</span>
           </button>
         </div>
-        
+
         {/* Bottom row with price */}
-        <div className="flex items-center gap-1.5 text-sm">
-          <span className="text-gray-500">💰 Price:</span>
-          <span className="font-semibold text-gray-900">{formatPrice(provider.price)}</span>
+        <div className="text-sm text-gray-700 dark:text-gray-300">
+          <span>💰 Price: </span>
+          <span className="font-semibold text-gray-900 dark:text-gray-100">{formatPrice(provider.price)}</span>
         </div>
       </div>
     </div>
