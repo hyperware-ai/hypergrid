@@ -293,10 +293,7 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
           {isLoading ? (
             <>
               {/* Render exact structure with placeholders */}
-              <div className="absolute left-4 top-3 flex items-center gap-2 opacity-60">
-                <div className="h-5 w-28 bg-gray-200 rounded" />
-              </div>
-              <div className="absolute right-4 top-3 text-sm text-gray-400 font-medium">—</div>
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-3 text-sm text-gray-400 font-medium">—</div>
               <div className="absolute inset-0 flex items-center justify-center text-gray-400">
                 <span className="font-semibold text-4xl align-middle">0.000</span>
                 <span className="ml-2 text-sm align-middle">USDC</span>
@@ -305,13 +302,9 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
             </>
           ) : (
             <>
-              {/* Top-left: Hypergrid logo */}
-              <div className="absolute left-4 top-3 flex items-center gap-2">
-                <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="HYPERGRID" className="h-6 w-auto" />
-              </div>
-              {/* Top-right: node.os name */}
-              <div className="absolute right-4 top-3 text-sm text-gray-900 font-medium">
-                {nodeName || '—'}
+              {/* Top-center: grid-wallet.node.os name */}
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-3 text-sm text-gray-900 font-medium">
+                {nodeName ? `grid-wallet.${nodeName}` : '—'}
               </div>
               {/* Center: balance */}
               <div className="absolute inset-0 flex items-center justify-center text-gray-900">
