@@ -25,7 +25,7 @@ export default function Modal({
                 <div
                     className="flex items-center gap-2 mb-0.5 pb-0.5 border-b border-gray-200 dark:border-gray-700"
                 >
-                    <span className="font-bold text-xl text-cyan">{title}</span>
+                    <span className="font-bold text-xl text-black dark:text-white">{title}</span>
                     {titleChildren}
                     <button
                         onClick={onClose}

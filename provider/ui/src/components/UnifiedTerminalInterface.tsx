@@ -52,10 +52,7 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
     <div className="bg-stone-100 dark:bg-gray-800 border border-stone-300 dark:border-gray-600 rounded-lg font-mono text-sm overflow-hidden">
       {/* Terminal Header */}
       <div className="flex items-center gap-2 p-4 pb-3 border-b border-stone-300 dark:border-gray-700 bg-stone-200 dark:bg-gray-900">
-        <div className="w-3 h-3 rounded-full bg-red-500"></div>
-        <div className="w-3 h-3 rounded-full bg-yellow-500"></div>
-        <div className="w-3 h-3 rounded-full bg-green-500"></div>
-        <span className="ml-2 text-stone-600 dark:text-gray-400 text-xs">provider.config</span>
+        <span className="text-stone-600 dark:text-gray-400 text-xs">provider.config</span>
       </div>
 
       {/* API Configuration Section */}
