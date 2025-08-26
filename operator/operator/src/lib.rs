@@ -70,7 +70,7 @@ fn init_http() -> anyhow::Result<HttpServer> {
 
 call_init!(init);
 fn init(our: Address) {
-    let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.os", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };   
+    let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.hypr", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };   
     init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).unwrap();
     info!("begin hypergrid operator for: {}", our.node);
 
