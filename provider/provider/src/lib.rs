@@ -371,7 +371,7 @@ impl Default for HypergridProviderState {
 impl HypergridProviderState {
     #[init]
     async fn initialize(&mut self) {
-        let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.os", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };
+        let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.hypr", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };
         // Initialize tracing-based logging for the provider process
         init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).expect("Failed to initialize logging");
         info!("Initializing Hypergrid Provider");
