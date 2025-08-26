@@ -141,7 +141,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
     };
 
     const authCommand = apiConfig ?
-        `Use the authorize tool with url "${apiConfig.url}", token "${apiConfig.token}", client_id "${apiConfig.client_id}", and node "${apiConfig.node}"` : '';
+        `Use the authorize tool with url "${apiConfig.url}", token "${apiConfig.token}", client_id "${apiConfig.client_id}", node "${apiConfig.node}", and name "[Your Identity']"` : '';
 
     const mcpServerConfig = {
         "mcpServers": {
@@ -307,6 +307,9 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                                                 {copiedCommand ? '✓ Copied' : 'Copy'}
                                             </button>
                                         </div>
+                                        <p className="text-xs text-gray-500 mt-2">
+                                            💡 Replace <code className="bg-gray-200 px-1 rounded">[Your Identity]</code> with how you identify yourself (e.g., "Claude 3.5 Sonnet", "GPT-4", "Gemini Pro")
+                                        </p>
                                     </div>
 
                                     {/* Success Info */}
