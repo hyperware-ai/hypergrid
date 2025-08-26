@@ -10,7 +10,7 @@
         "code_hashes": {
             "1.0.0": "001a49117374abc3bdb38179d8ce05d76205b008bb55683e116be36f3e1635ce",
             "1.1.0": "b9a3255a0778ffc9540bbae08aa05320525378a75dca5ba02f311ab192bda79f",
-            "1.1.1": "e121d8fc064aef2ae1674267499da2cc32802d6e1956d4a6fe88e14b3ccd982d"
+            "1.1.1": "52c826cf4ed84b9138c01a99db09ab17079dd020623951475558a28af19a7c1c"
         },
         "wit_version": 1,
         "dependencies": []
