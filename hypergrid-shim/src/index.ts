@@ -16,6 +16,7 @@ interface ShimConfig {
     token: string;
     client_id: string;
     node: string;
+    name?: string;
 }
 
 // Global config that can be updated at runtime
@@ -106,16 +107,20 @@ async function main() {
             url: z.string().describe("The base URL for the Hypergrid API (e.g., http://localhost:8080/operator:hypergrid:ware.hypr/shim/mcp or http://localhost:8080/operator:hypergrid:test.hypr/shim/mcp)"),
             token: z.string().describe("The authentication token"),
             client_id: z.string().describe("The unique client ID"),
-            node: z.string().describe("The Hyperware node name")
+            node: z.string().describe("The Hyperware node name"),
+            name: z.string().optional().describe("Your identity (e.g., 'Claude', 'GPT-4', 'Gemini Pro') - be just specific enough, so that a user can identify you")
         },
-        async ({ url, token, client_id, node }) => {
+        async ({ url, token, client_id, node, name }) => {
             try {
                 // Validate the new config by making a test request
-                const testHeaders = {
+                const testHeaders: any = {
                     "Content-type": "application/json",
                     "X-Client-ID": client_id,
                     "X-Token": token
                 };
+                if (name) {
+                    testHeaders["X-Client-Name"] = name;
+                }
 
                 console.error(`Testing new configuration...`);
                 const testResponse = await fetch(url, {
@@ -129,7 +134,7 @@ async function main() {
                 }
 
                 // Save the new config
-                const newConfig: ShimConfig = { url, token, client_id, node };
+                const newConfig: ShimConfig = { url, token, client_id, node, ...(name && { name }) };
                 const savedPath = await saveConfig(newConfig);
                 currentConfig = newConfig;
 
@@ -138,7 +143,7 @@ async function main() {
                 return {
                     content: [{
                         type: "text",
-                        text: `✅ Successfully authorized! Configuration saved to ${savedPath}.\n\nThe MCP server is now configured and ready to use with:\n- Node: ${node}\n- Client ID: ${client_id}\n- URL: ${url}\n\nYou can now use the search-registry and call-provider tools.`
+                        text: `✅ Successfully authorized! Configuration saved to ${savedPath}.\n\nThe MCP server is now configured and ready to use with:\n- Node: ${node}\n- Client ID: ${client_id}${name ? `\n- Name: ${name}` : ''}\n- URL: ${url}\n\nYou can now use the search-registry and call-provider tools.`
                     }]
                 };
             } catch (error: any) {
@@ -166,11 +171,14 @@ async function main() {
 
         const body = { SearchRegistry: query };
         console.error(`search-registry: Forwarding to ${currentConfig.url}`);
-        const headers = {
+        const headers: any = {
             "Content-type": "application/json",
             "X-Client-ID": currentConfig.client_id,
             "X-Token": currentConfig.token
         };
+        if (currentConfig.name) {
+            headers["X-Client-Name"] = currentConfig.name;
+        }
 
         try {
             const res = await fetch(currentConfig.url, {
@@ -211,11 +219,14 @@ async function main() {
                 CallProvider: { providerId, providerName, arguments: callArgs },
             };
             console.error(`call-provider: Forwarding to ${currentConfig.url}`);
-            const headers = {
+            const headers: any = {
                 "Content-type": "application/json",
                 "X-Client-ID": currentConfig.client_id,
                 "X-Token": currentConfig.token
             };
+            if (currentConfig.name) {
+                headers["X-Client-Name"] = currentConfig.name;
+            }
 
             try {
                 const res = await fetch(currentConfig.url, {

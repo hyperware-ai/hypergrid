@@ -214,8 +214,12 @@ fn handle_shim_mcp_route(
         .and_then(|v| v.to_str().ok())
         .map(String::from);
 
+    let client_name = req.headers().get("X-Client-Name")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
     // Authenticate shim client
-    match authenticate_shim_with_headers(state, client_id, token) {
+    match authenticate_shim_with_headers(state, client_id.clone(), token) {
         Ok(client_config) => {
             info!(
                 "Shim Client Auth: Validated successfully for Client ID: {}. Associated Hot Wallet: {}", 
@@ -223,7 +227,25 @@ fn handle_shim_mcp_route(
                 client_config.associated_hot_wallet_address
             );
 
-            handle_post(our, state, db, Some(client_config.clone()))
+            // Update client name if provided and different from current
+            if let Some(new_name) = client_name {
+                if let Some(client_id_str) = &client_id {
+                    if let Some(mut_client) = state.authorized_clients.get_mut(client_id_str) {
+                        if mut_client.name != new_name {
+                            info!("Updating client name from {} to {}", mut_client.name, new_name);
+                            mut_client.name = new_name;
+                            state.save();
+                        }
+                    }
+                }
+            }
+
+            // Get fresh reference after potential mutation
+            let updated_client_config = state.authorized_clients.get(client_id.as_ref().unwrap())
+                .cloned()
+                .unwrap();
+
+            handle_post(our, state, db, Some(updated_client_config))
         }
         Err(auth_error) => {
             handle_shim_auth_error(auth_error)
@@ -657,7 +679,8 @@ fn handle_provider_call_request(
                     reason: format!("DB Lookup Failed: Key '{}' not found", returned_lookup_key)
                 },
                 wallet_id_for_failure,
-                Some(provider_name.clone())
+                Some(provider_name.clone()),
+                client_config_opt.as_ref()
             );
             send_json_response(StatusCode::NOT_FOUND, &json!({ 
                 "error": format!("Provider '{}' not found", returned_lookup_key) 
@@ -697,7 +720,8 @@ fn execute_provider_flow(
                     reason: format!("Provider health check failed: {}", health_error)
                 },
                 wallet_id_for_failure,
-                Some(provider_name.clone())
+                Some(provider_name.clone()),
+                client_config_opt.as_ref()
             );
             return send_json_response(StatusCode::SERVICE_UNAVAILABLE, &json!({ 
                 "error": "Provider is not responding", 
@@ -731,7 +755,8 @@ fn execute_provider_flow(
                 call_args_json, 
                 payment_result.clone(),
                 wallet_id_for_failure,
-                Some(provider_name.clone())
+                Some(provider_name.clone()),
+                client_config_opt.as_ref()
             );
             send_json_response(StatusCode::PAYMENT_REQUIRED, &json!({ 
                 "error": "Pre-payment failed or was skipped.", 
@@ -1616,9 +1641,19 @@ pub fn handle_configure_authorized_client(
         let new_client_id = format!("hypergrid-beta-mcp-shim-{}", Uuid::new_v4().to_string());
         info!("Configure Client: Creating new client {}", new_client_id);
         
+        let default_name = if request_data.hot_wallet_address_to_associate.len() >= 10 {
+            format!(
+                "Shim for {}...{}", 
+                &request_data.hot_wallet_address_to_associate[..6],
+                &request_data.hot_wallet_address_to_associate[request_data.hot_wallet_address_to_associate.len()-4..]
+            )
+        } else {
+            format!("Shim Client {}", new_client_id.chars().take(8).collect::<String>())
+        };
+        
         let new_client = HotWalletAuthorizedClient {
             id: new_client_id.clone(),
-            name: request_data.client_name.unwrap_or_else(|| format!("Shim Client {}", new_client_id.chars().take(8).collect::<String>())),
+            name: request_data.client_name.unwrap_or(default_name),
             associated_hot_wallet_address: request_data.hot_wallet_address_to_associate,
             authentication_token: hashed_token_hex,
             capabilities: ServiceCapabilities::All,
@@ -1659,6 +1694,7 @@ fn record_call_failure(
     payment_result: PaymentAttemptResult,
     operator_wallet_id: Option<String>,
     provider_name_opt: Option<String>,
+    client_config_opt: Option<&HotWalletAuthorizedClient>,
 ) {
     let record = CallRecord {
         timestamp_start_ms,
@@ -1671,7 +1707,7 @@ fn record_call_failure(
         payment_result: Some(payment_result),
         duration_ms: Utc::now().timestamp_millis() as u128 - timestamp_start_ms,
         operator_wallet_id, // Use passed-in operator_wallet_id
-        client_id: None,
+        client_id: client_config_opt.map(|c| c.id.clone()),
         provider_name: provider_name_opt,
     };
     state.call_history.push(record);
