@@ -106,6 +106,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [connectedMcpServers, setConnectedMcpServers] = useState<string[]>([]);
   const [selectedToolCall, setSelectedToolCall] = useState<{call: ToolCall, result?: ToolResult} | null>(null);
+  const [spiderUnavailable, setSpiderUnavailable] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messageHandlerRef = useRef<((message: WsServerMessage) => void) | null>(null);
@@ -342,6 +343,17 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     } catch (error: any) {
       console.error('Failed to connect WebSocket:', error);
 
+      // Check if it's a timeout or connection error (Spider not installed)
+      if (error.message?.includes('timeout') ||
+          (error.name === 'TypeError' && error.message?.includes('Failed to fetch'))) {
+        console.error('Cannot reach Spider service - may not be installed');
+        setWsConnected(false);
+        setUseWebSocket(false);
+        setError('Cannot reach Spider service. Is Spider installed?');
+        setSpiderUnavailable(true);
+        return;
+      }
+
       // Check if it's an auth error (invalid API key)
       if (error.message && (error.message.includes('Invalid API key') || error.message.includes('lacks write permission'))) {
         console.log('API key is invalid, requesting a new one...');
@@ -364,6 +376,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
               'Content-Type': 'application/json',
             },
             body: JSON.stringify({ force_new: true }), // Force creation of a new key
+            signal: AbortSignal.timeout(5000) // 5 second timeout
           });
           const data = await response.json();
 
@@ -386,9 +399,17 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           }
         } catch (refreshError: any) {
           console.error('Failed to refresh API key:', refreshError);
+
+          // Check if the refresh failed due to timeout (Spider not available)
+          if (refreshError.name === 'AbortError' || refreshError.message?.includes('timeout')) {
+            setSpiderUnavailable(true);
+            setError('Cannot reach Spider service. Is Spider installed?');
+          } else {
+            setError('Failed to refresh API key. Falling back to HTTP.');
+          }
+
           setWsConnected(false);
           setUseWebSocket(false);
-          setError('Failed to refresh API key. Falling back to HTTP.');
         }
       } else {
         // Other errors - just fall back to HTTP
@@ -537,36 +558,64 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     setMessage('');
   };
 
-  const toggleWebSocket = () => {
-    const newState = !useWebSocket;
-    setUseWebSocket(newState);
-
-    if (newState) {
-      connectWebSocket();
-    } else {
-      webSocketService.disconnect();
-      setWsConnected(false);
-    }
-  };
 
   const getToolEmoji = () => '🔧';
 
-  // Inactive state - show connect button
-  if (!isActive) {
+  // Check Spider availability when attempting to connect
+  const handleConnectWithTimeout = async () => {
+    try {
+      // Set a timeout for the connection attempt
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
+
+      const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/api/spider-status`, {
+        signal: controller.signal
+      });
+
+      clearTimeout(timeout);
+
+      if (response.ok) {
+        setSpiderUnavailable(false);
+        onConnectClick();
+      } else {
+        setSpiderUnavailable(true);
+      }
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error.message?.includes('timeout')) {
+        setSpiderUnavailable(true);
+      } else {
+        console.error('Error checking Spider status:', error);
+        setSpiderUnavailable(true);
+      }
+    }
+  };
+
+  // Inactive state - show connect button or unavailable message
+  if (!isActive || spiderUnavailable) {
     return (
       <div className="flex flex-col h-full p-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800">Spider Chat</h2>
+          <h2 className="text-lg font-semibold text-gray-400">Spider Chat</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
-            <p className="text-gray-500 mb-4">Connect to Spider to enable chat</p>
-            <button
-              onClick={onConnectClick}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-            >
-              Connect to Spider
-            </button>
+            {spiderUnavailable ? (
+              <>
+                <p className="text-gray-500 mb-2">Could not contact Spider</p>
+                <p className="text-gray-400 text-sm">Is Spider installed?</p>
+              </>
+            ) : (
+              <>
+                <p className="text-gray-500 mb-4">Connect to Spider to enable chat</p>
+                <button
+                  onClick={handleConnectWithTimeout}
+                  className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+                >
+                  Connect to Spider
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -579,14 +628,13 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="text-lg font-semibold text-gray-800">Spider Chat</h2>
         <div className="flex items-center gap-2">
-          <button
-            onClick={toggleWebSocket}
-            className={`p-2 rounded-lg transition-colors ${
+          <div
+            className={`p-2 rounded-lg cursor-default ${
               useWebSocket
                 ? wsConnected
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
-                  : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
-                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                  ? 'bg-green-100 text-green-700'
+                  : 'bg-yellow-100 text-yellow-700'
+                : 'bg-gray-100 text-gray-700'
             }`}
             title={useWebSocket ? (wsConnected ? 'WebSocket Connected' : 'Connecting...') : 'Using HTTP'}
           >
@@ -599,7 +647,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
                 <path d="M21 12H3 M21 6H3 M21 18H3"/>
               )}
             </svg>
-          </button>
+          </div>
           <button
             onClick={handleNewConversation}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"

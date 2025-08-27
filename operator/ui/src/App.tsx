@@ -28,7 +28,7 @@ function App() {
 
   // State for Onboarding Data
   const [onboardingData, setOnboardingData] = useState<OnboardingStatusResponse | null>(null);
-  
+
   // Spider chat state
   const [spiderApiKey, setSpiderApiKey] = useState<string | null>(null);
 
@@ -68,23 +68,43 @@ function App() {
 
   // Check spider connection status on mount
   useEffect(() => {
-    const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
-    fetch(`${apiBase}/api/spider-status`)
-      .then(res => res.json())
-      .then(data => {
-        if (data.has_api_key) {
-          // If already connected, get the key
-          fetch(`${apiBase}/api/spider-connect`, { method: 'POST' })
-            .then(res => res.json())
-            .then(data => {
-              if (data.api_key) {
-                setSpiderApiKey(data.api_key);
-              }
-            })
-            .catch(console.error);
+    const checkSpiderStatus = async () => {
+      try {
+        const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 3000); // 3 second timeout
+
+        const response = await fetch(`${apiBase}/api/spider-status`, {
+          signal: controller.signal
+        });
+
+        clearTimeout(timeout);
+
+        if (response.ok) {
+          const data = await response.json();
+          if (data.has_api_key) {
+            // If already connected, get the key
+            const connectResponse = await fetch(`${apiBase}/api/spider-connect`, {
+              method: 'POST',
+              signal: AbortSignal.timeout(3000) // 3 second timeout
+            });
+            const connectData = await connectResponse.json();
+            if (connectData.api_key) {
+              setSpiderApiKey(connectData.api_key);
+            }
+          }
         }
-      })
-      .catch(console.error);
+      } catch (error: any) {
+        // Silently fail if Spider is not available
+        if (error.name === 'AbortError') {
+          console.log('Spider service not available (timeout)');
+        } else {
+          console.error('Error checking Spider status:', error);
+        }
+      }
+    };
+
+    checkSpiderStatus();
   }, []);
 
   const handleSpiderConnect = async () => {
@@ -95,6 +115,7 @@ function App() {
         headers: {
           'Content-Type': 'application/json',
         },
+        signal: AbortSignal.timeout(5000) // 5 second timeout
       });
       const data = await response.json();
       if (data.api_key) {
@@ -102,8 +123,12 @@ function App() {
       } else if (data.error) {
         console.error('Failed to connect to Spider:', data.error);
       }
-    } catch (error) {
-      console.error('Error connecting to Spider:', error);
+    } catch (error: any) {
+      if (error.name === 'AbortError') {
+        console.error('Spider connection timeout - service may not be installed');
+      } else {
+        console.error('Error connecting to Spider:', error);
+      }
     }
   };
 
@@ -131,8 +156,8 @@ function App() {
         <HeaderSearch />
         <AppSwitcher currentApp="operator" />
         <div className="flex-1 w-full overflow-hidden">
-          <SpiderChat 
-            spiderApiKey={spiderApiKey} 
+          <SpiderChat
+            spiderApiKey={spiderApiKey}
             onConnectClick={handleSpiderConnect}
             onApiKeyRefreshed={(newKey) => setSpiderApiKey(newKey)}
           />

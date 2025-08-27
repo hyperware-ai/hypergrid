@@ -2290,10 +2290,34 @@ fn handle_spider_connect(our: &Address, state: &mut State) -> anyhow::Result<()>
     // Send request to spider to create an API key
     let body = json!({"CreateSpiderKey": request});
     let body = serde_json::to_vec(&body).unwrap();
-    let response = ProcessRequest::to(spider_address)
+    let response_result = ProcessRequest::to(spider_address)
         .body(body)
-        .send_and_await_response(5)
-        .map_err(|e| anyhow::anyhow!("Failed to connect to spider: {:?}", e))??;
+        .send_and_await_response(5);
+    
+    // Handle timeout or connection failure gracefully
+    let response = match response_result {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            warn!("Spider process returned error: {:?}", e);
+            return send_json_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &json!({
+                    "error": "Spider service is not available",
+                    "details": "Cannot contact Spider process"
+                }),
+            );
+        }
+        Err(e) => {
+            warn!("Failed to contact Spider (timeout or not installed): {:?}", e);
+            return send_json_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &json!({
+                    "error": "Spider service is not available",
+                    "details": "Cannot contact Spider process - it may not be installed"
+                }),
+            );
+        }
+    };
 
     // Parse the response
     let response_body = response.body();
@@ -2351,10 +2375,34 @@ fn handle_spider_chat(our: &Address, state: &mut State) -> anyhow::Result<()> {
         });
 
         let body = serde_json::to_vec(&chat_request).unwrap();
-        let response = ProcessRequest::to(spider_address.clone())
+        let response_result = ProcessRequest::to(spider_address.clone())
             .body(body)
-            .send_and_await_response(30)
-            .map_err(|e| anyhow::anyhow!("Failed to call spider chat: {:?}", e))??;
+            .send_and_await_response(30);
+        
+        // Handle timeout or connection failure gracefully
+        let response = match response_result {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => {
+                warn!("Spider chat returned error: {:?}", e);
+                return send_json_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    &json!({
+                        "error": "Spider service error",
+                        "details": format!("Spider process error: {:?}", e)
+                    }),
+                );
+            }
+            Err(e) => {
+                warn!("Failed to contact Spider for chat (timeout): {:?}", e);
+                return send_json_response(
+                    StatusCode::SERVICE_UNAVAILABLE,
+                    &json!({
+                        "error": "Spider service is not available",
+                        "details": "Cannot contact Spider - it may not be installed or is unresponsive"
+                    }),
+                );
+            }
+        };
 
         // Parse and forward the response
         let response_body = response.body();
@@ -2375,10 +2423,36 @@ fn handle_spider_chat(our: &Address, state: &mut State) -> anyhow::Result<()> {
                 
                 let key_body = json!({"CreateSpiderKey": key_request});
                 let key_body = serde_json::to_vec(&key_body).unwrap();
-                let key_response = ProcessRequest::to(spider_address.clone())
+                let key_response_result = ProcessRequest::to(spider_address.clone())
                     .body(key_body)
-                    .send_and_await_response(5)
-                    .map_err(|e| anyhow::anyhow!("Failed to get new spider key: {:?}", e))??;
+                    .send_and_await_response(5);
+                
+                // Handle timeout gracefully when refreshing key
+                let key_response = match key_response_result {
+                    Ok(Ok(resp)) => resp,
+                    Ok(Err(e)) => {
+                        warn!("Failed to refresh Spider API key (SendError): {:?}", e);
+                        return send_json_response(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            &json!({
+                                "error": "Failed to refresh API key",
+                                "details": "Spider service returned an error",
+                                "needs_reconnect": true
+                            }),
+                        );
+                    }
+                    Err(e) => {
+                        warn!("Failed to refresh Spider API key (BuildError): {:?}", e);
+                        return send_json_response(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            &json!({
+                                "error": "Failed to refresh API key",
+                                "details": "Spider service is unavailable",
+                                "needs_reconnect": true
+                            }),
+                        );
+                    }
+                };
                 
                 let key_response_body = key_response.body();
                 let key_result: Result<crate::structs::SpiderApiKey, String> = 
@@ -2457,12 +2531,33 @@ fn handle_spider_chat(our: &Address, state: &mut State) -> anyhow::Result<()> {
 
 fn handle_spider_status(state: &State) -> anyhow::Result<()> {
     info!("Handling spider status request");
+    
+    // Try to ping spider to see if it's actually available
+    let spider_address = Address::new("our", SPIDER_PROCESS_ID);
+    let ping_body = json!({"Ping": null});
+    let ping_body = serde_json::to_vec(&ping_body).unwrap();
+    
+    let spider_available = match ProcessRequest::to(spider_address)
+        .body(ping_body)
+        .send_and_await_response(2) // Short timeout for status check
+    {
+        Ok(Ok(_)) => true,
+        Ok(Err(e)) => {
+            warn!("Spider returned error on ping: {:?}", e);
+            false
+        }
+        Err(e) => {
+            warn!("Spider not responding to ping: {:?}", e);
+            false
+        }
+    };
 
     send_json_response(
         StatusCode::OK,
         &json!({
-            "connected": state.spider_api_key.is_some(),
+            "connected": state.spider_api_key.is_some() && spider_available,
             "has_api_key": state.spider_api_key.is_some(),
+            "spider_available": spider_available,
         }),
     )
 }
@@ -2489,10 +2584,34 @@ fn handle_spider_mcp_servers(our: &Address) -> anyhow::Result<()> {
     // Send request to spider
     let body = json!({"ListMcpServers": list_request});
     let body = serde_json::to_vec(&body).unwrap();
-    let response = ProcessRequest::to(spider_address)
+    let response_result = ProcessRequest::to(spider_address)
         .body(body)
-        .send_and_await_response(5)
-        .map_err(|e| anyhow::anyhow!("Failed to get MCP servers from spider: {:?}", e))??;
+        .send_and_await_response(5);
+    
+    // Handle timeout or connection failure gracefully
+    let response = match response_result {
+        Ok(Ok(resp)) => resp,
+        Ok(Err(e)) => {
+            warn!("Spider returned error for MCP servers: {:?}", e);
+            return send_json_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &json!({
+                    "error": "Spider service error",
+                    "servers": []
+                }),
+            );
+        }
+        Err(e) => {
+            warn!("Failed to contact Spider for MCP servers (timeout): {:?}", e);
+            return send_json_response(
+                StatusCode::SERVICE_UNAVAILABLE,
+                &json!({
+                    "error": "Spider service is not available",
+                    "servers": []
+                }),
+            );
+        }
+    };
     
     // Parse the response
     let response_body = response.body();
