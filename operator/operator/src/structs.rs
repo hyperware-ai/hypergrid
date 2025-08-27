@@ -1,16 +1,16 @@
-use hyperware_process_lib::{eth, get_state, set_state, hypermap};
-use hyperware_process_lib::signer::LocalSigner;
-use hyperware_process_lib::logging::{info, error};
+use crate::authorized_services::HotWalletAuthorizedClient;
+use anyhow::Result;
 use hyperware_process_lib::hyperwallet_client::SessionInfo;
+use hyperware_process_lib::logging::{error, info};
+use hyperware_process_lib::signer::LocalSigner;
+use hyperware_process_lib::sqlite::Sqlite;
+use hyperware_process_lib::wallet::KeyStorage;
+use hyperware_process_lib::{eth, get_state, hypermap, set_state};
+use rmp_serde;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::{SystemTime, UNIX_EPOCH};
-use hyperware_process_lib::wallet::KeyStorage;
-use hyperware_process_lib::sqlite::Sqlite;
-use anyhow::Result;
-use rmp_serde;
-use crate::authorized_services::HotWalletAuthorizedClient;
 
 wit_bindgen::generate!({
     path: "../target/wit",
@@ -19,12 +19,11 @@ wit_bindgen::generate!({
     additional_derives: [serde::Deserialize, serde::Serialize, process_macros::SerdeJsonInto],
 });
 
-
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ManagedWallet {
-    pub id: String, // Typically the wallet address
-    pub name: Option<String>, // User-defined alias
-    pub storage: KeyStorage, // Encrypted or Decrypted storage (ensure type matches)
+    pub id: String,                      // Typically the wallet address
+    pub name: Option<String>,            // User-defined alias
+    pub storage: KeyStorage,             // Encrypted or Decrypted storage (ensure type matches)
     pub spending_limits: SpendingLimits, // Per-wallet limits
 }
 
@@ -33,8 +32,8 @@ pub struct ManagedWallet {
 pub struct SpendingLimits {
     pub max_per_call: Option<String>,
     pub max_total: Option<String>,
-    pub currency: Option<String>,      // Currency (e.g., "USDC") - Default to USDC
-    pub total_spent: Option<String>,   // Total amount spent so far (from hyperwallet)
+    pub currency: Option<String>, // Currency (e.g., "USDC") - Default to USDC
+    pub total_spent: Option<String>, // Total amount spent so far (from hyperwallet)
 }
 
 // Struct to return combined details for the active account
@@ -94,7 +93,7 @@ pub enum PaymentAttemptResult {
         currency: String,
     },
     Skipped {
-        reason: String // e.g., "Wallet Locked", "Zero Price", "Limit Exceeded"
+        reason: String, // e.g., "Wallet Locked", "Zero Price", "Limit Exceeded"
     },
     LimitExceeded {
         limit: String,
@@ -105,21 +104,21 @@ pub enum PaymentAttemptResult {
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CallRecord {
-   pub timestamp_start_ms: u128, // Use milliseconds for potentially higher resolution
-   pub provider_lookup_key: String, // What was used to find the provider (name or id)
-   pub target_provider_id: String, // The actual process ID called
-   pub call_args_json: String, // Arguments sent (as JSON string)
-   #[serde(default)]
-   pub response_json: Option<String>, // Provider response body (JSON or preview)
-   pub call_success: bool, // Did the provider respond without communication error?
-   pub response_timestamp_ms: u128,
-   pub payment_result: Option<PaymentAttemptResult>, // Payment outcome
-   pub duration_ms: u128, // Calculated duration
-   pub operator_wallet_id: Option<String>, // Added field
-   #[serde(default)]
-   pub client_id: Option<String>,
-   #[serde(default)]
-   pub provider_name: Option<String>, // Human tool name (e.g., haiku-message-answering-machine)
+    pub timestamp_start_ms: u128, // Use milliseconds for potentially higher resolution
+    pub provider_lookup_key: String, // What was used to find the provider (name or id)
+    pub target_provider_id: String, // The actual process ID called
+    pub call_args_json: String,   // Arguments sent (as JSON string)
+    #[serde(default)]
+    pub response_json: Option<String>, // Provider response body (JSON or preview)
+    pub call_success: bool,       // Did the provider respond without communication error?
+    pub response_timestamp_ms: u128,
+    pub payment_result: Option<PaymentAttemptResult>, // Payment outcome
+    pub duration_ms: u128,                            // Calculated duration
+    pub operator_wallet_id: Option<String>,           // Added field
+    #[serde(default)]
+    pub client_id: Option<String>,
+    #[serde(default)]
+    pub provider_name: Option<String>, // Human tool name (e.g., haiku-message-answering-machine)
 }
 // --- End Call History Structs ---
 
@@ -135,7 +134,7 @@ const HYPERMAP_ADDRESS: &str = hypermap::HYPERMAP_ADDRESS;
 pub const DELAY_MS: u64 = 30_000;
 pub const CHECKPOINT_MS: u64 = 300_000;
 pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
-pub const HYPERMAP_FIRST_BLOCK: u64 = hypermap::HYPERMAP_FIRST_BLOCK; 
+pub const HYPERMAP_FIRST_BLOCK: u64 = hypermap::HYPERMAP_FIRST_BLOCK;
 
 // Copied Provider struct definition from indexer
 #[derive(Clone, Debug, Deserialize, Serialize)]
@@ -183,7 +182,7 @@ pub struct State {
     pub hashed_shim_api_key: Option<String>,
     #[serde(default)]
     pub authorized_clients: HashMap<String, HotWalletAuthorizedClient>,
-    
+
     // ERC-4337 configuration
     #[serde(default)]
     pub gasless_enabled: Option<bool>,
@@ -192,9 +191,12 @@ pub struct State {
     #[serde(skip)]
     pub hyperwallet_session: Option<SessionInfo>,
 
+    // Spider API key for chat functionality
+    pub spider_api_key: Option<String>,
+
     #[serde(skip)]
     pub db_conn: Option<hyperware_process_lib::sqlite::Sqlite>,
-    
+
     #[serde(skip)]
     pub timers_initialized: bool,
 }
@@ -203,7 +205,10 @@ impl State {
     pub fn new() -> Self {
         // Initialize indexer fields
         let hypermap = hypermap::Hypermap::default(60); // don't touch, k!?
-        let logging_started = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let logging_started = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
 
         // authorized_clients will be empty initially
         let default_clients = HashMap::new();
@@ -218,10 +223,10 @@ impl State {
             names: HashMap::from([(String::new(), hypermap::HYPERMAP_ROOT_HASH.to_string())]),
             last_checkpoint_block: HYPERMAP_FIRST_BLOCK,
             logging_started,
-            providers_cache: HashMap::new(), 
+            providers_cache: HashMap::new(),
             // db: None, // Removed
             // pending_logs: Vec::new(), // Removed
-            
+
             // Client fields
             managed_wallets: HashMap::new(),
             selected_wallet_id: None,
@@ -232,10 +237,11 @@ impl State {
             active_signer_cache: None,
             cached_active_details: None,
             call_history: Vec::new(),
-            hashed_shim_api_key: None, // Will be phased out
+            hashed_shim_api_key: None,           // Will be phased out
             authorized_clients: default_clients, // Initialize as empty HashMap
-            gasless_enabled: None, // Initialize gasless_enabled
-            hyperwallet_session: None, // Initialize hyperwallet session
+            gasless_enabled: None,               // Initialize gasless_enabled
+            hyperwallet_session: None,           // Initialize hyperwallet session
+            spider_api_key: None,                // Initialize spider API key
             db_conn: None,
             timers_initialized: false,
         }
@@ -245,24 +251,27 @@ impl State {
             None => {
                 info!("No existing state found, creating new state.");
                 Self::new()
-            },
+            }
             Some(state_bytes) => match rmp_serde::from_slice(&state_bytes) {
-                Ok::<State, _>(mut state) => { 
-                    info!("Loaded existing state."); 
+                Ok::<State, _>(mut state) => {
+                    info!("Loaded existing state.");
                     state.active_signer_cache = None;
                     state.cached_active_details = None;
-                    state.providers_cache = HashMap::new(); 
+                    state.providers_cache = HashMap::new();
                     state.db_conn = None; // Ensure db_conn is initialized after load
                     state.timers_initialized = false; // Reset timer initialization flag
                     state.hyperwallet_session = None; // Reset hyperwallet session on load
-                    // Re-initialize hypermap to ensure a fresh eth::Provider instance
+                                                      // Re-initialize hypermap to ensure a fresh eth::Provider instance
                     state.hypermap = hypermap::Hypermap::default(60);
                     // The contract_address field in state should still be respected by hypermap logic if it differs from default.
                     // However, Hypermap::default() already uses the HYPERMAP_ADDRESS constant.
                     // If state.contract_address could differ and needs to override, that'd be a separate adjustment in how Hypermap is constructed or used.
                     // For now, this ensures the provider part of hypermap is fresh.
 
-                    info!("Loaded state, last checkpoint block: {}", state.last_checkpoint_block);
+                    info!(
+                        "Loaded state, last checkpoint block: {}",
+                        state.last_checkpoint_block
+                    );
                     state
                 }
                 Err(e) => {
@@ -282,7 +291,7 @@ impl State {
             Ok(state_bytes) => {
                 set_state(&state_bytes);
                 info!("state set");
-            },
+            }
             Err(e) => {
                 error!("Failed to serialize state for saving: {:?}", e);
             }
@@ -293,14 +302,19 @@ impl State {
 
     /// Refresh per-client total spend from the on-disk USDC ledger.
     /// Counts total_cost (provider payout + gas/fees) toward the client limit.
-    pub fn refresh_client_totals_from_ledger(&mut self, db: &Sqlite, tba_address: &str) -> Result<()> {
+    pub fn refresh_client_totals_from_ledger(
+        &mut self,
+        db: &Sqlite,
+        tba_address: &str,
+    ) -> Result<()> {
         // Sum totals per client from the ledger in base units (6 decimals)
         let q = r#"
             SELECT client_id, SUM(CAST(total_cost_units AS INTEGER)) AS total_units
             FROM usdc_call_ledger
             WHERE tba_address = ?1 AND client_id IS NOT NULL
             GROUP BY client_id
-        "#.to_string();
+        "#
+        .to_string();
         let params = vec![serde_json::Value::String(tba_address.to_lowercase())];
         let rows = db.read(q, params)?;
 
@@ -366,13 +380,20 @@ pub enum ApiRequest {
     GetCallHistory {},
 
     // Wallet Summary/Selection Actions
-    GetWalletSummaryList {}, 
-    SelectWallet { wallet_id: String },
-    RenameWallet { wallet_id: String, new_name: String },
-    DeleteWallet { wallet_id: String },
+    GetWalletSummaryList {},
+    SelectWallet {
+        wallet_id: String,
+    },
+    RenameWallet {
+        wallet_id: String,
+        new_name: String,
+    },
+    DeleteWallet {
+        wallet_id: String,
+    },
 
     // Wallet Creation/Import
-    GenerateWallet {}, 
+    GenerateWallet {},
     ImportWallet {
         private_key: String,
         password: Option<String>,
@@ -380,14 +401,28 @@ pub enum ApiRequest {
     },
 
     // Wallet State & Config (operate on SELECTED implicitly)
-    ActivateWallet { password: Option<String> },
-    DeactivateWallet {}, 
-    SetWalletLimits { limits: SpendingLimits }, // Use SpendingLimits struct defined above
-    SetClientLimits { client_id: String, limits: SpendingLimits },
-    ExportSelectedPrivateKey { password: Option<String> }, 
-    SetSelectedWalletPassword { new_password: String, old_password: Option<String> }, 
-    RemoveSelectedWalletPassword { current_password: String }, 
-    
+    ActivateWallet {
+        password: Option<String>,
+    },
+    DeactivateWallet {},
+    SetWalletLimits {
+        limits: SpendingLimits,
+    }, // Use SpendingLimits struct defined above
+    SetClientLimits {
+        client_id: String,
+        limits: SpendingLimits,
+    },
+    ExportSelectedPrivateKey {
+        password: Option<String>,
+    },
+    SetSelectedWalletPassword {
+        new_password: String,
+        old_password: Option<String>,
+    },
+    RemoveSelectedWalletPassword {
+        current_password: String,
+    },
+
     // Get details for the active/ready account
     GetActiveAccountDetails {},
 
@@ -400,13 +435,20 @@ pub enum ApiRequest {
         to_address: String,
         amount_usdc_units_str: String, // Amount in smallest USDC units (e.g., if 6 decimals, 1 USDC = "1000000")
     },
-    
+
     // Authorized client management
-    RenameAuthorizedClient { client_id: String, new_name: String },
-    DeleteAuthorizedClient { client_id: String },
-    
+    RenameAuthorizedClient {
+        client_id: String,
+        new_name: String,
+    },
+    DeleteAuthorizedClient {
+        client_id: String,
+    },
+
     // ERC-4337 configuration
-    SetGaslessEnabled { enabled: bool },
+    SetGaslessEnabled {
+        enabled: bool,
+    },
 }
 
 // DEPRECATED: This enum is being phased out. Use McpRequest or ApiRequest instead.
@@ -427,13 +469,20 @@ pub enum HttpMcpRequest {
     GetCallHistory {},
 
     // Wallet Summary/Selection Actions (from UI)
-    GetWalletSummaryList {}, 
-    SelectWallet { wallet_id: String },
-    RenameWallet { wallet_id: String, new_name: String },
-    DeleteWallet { wallet_id: String },
+    GetWalletSummaryList {},
+    SelectWallet {
+        wallet_id: String,
+    },
+    RenameWallet {
+        wallet_id: String,
+        new_name: String,
+    },
+    DeleteWallet {
+        wallet_id: String,
+    },
 
     // Wallet Creation/Import (from UI)
-    GenerateWallet {}, 
+    GenerateWallet {},
     ImportWallet {
         private_key: String,
         password: Option<String>,
@@ -441,13 +490,24 @@ pub enum HttpMcpRequest {
     },
 
     // Wallet State & Config (from UI - operate on SELECTED implicitly)
-    ActivateWallet { password: Option<String> },
-    DeactivateWallet {}, 
-    SetWalletLimits { limits: SpendingLimits }, // Use SpendingLimits struct defined above
-    ExportSelectedPrivateKey { password: Option<String> }, 
-    SetSelectedWalletPassword { new_password: String, old_password: Option<String> }, 
-    RemoveSelectedWalletPassword { current_password: String }, 
-    
+    ActivateWallet {
+        password: Option<String>,
+    },
+    DeactivateWallet {},
+    SetWalletLimits {
+        limits: SpendingLimits,
+    }, // Use SpendingLimits struct defined above
+    ExportSelectedPrivateKey {
+        password: Option<String>,
+    },
+    SetSelectedWalletPassword {
+        new_password: String,
+        old_password: Option<String>,
+    },
+    RemoveSelectedWalletPassword {
+        current_password: String,
+    },
+
     // New action to get details for the active/ready account
     GetActiveAccountDetails {},
 
@@ -502,6 +562,76 @@ pub struct ConfigureAuthorizedClientRequest {
     pub hot_wallet_address_to_associate: String,
 }
 
+// Spider-related structs for chat functionality
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CreateSpiderKeyRequest {
+    pub name: String,
+    pub permissions: Vec<String>,
+    #[serde(rename = "adminKey")]
+    pub admin_key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderApiKey {
+    pub key: String,
+    pub name: String,
+    pub permissions: Vec<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConnectSpiderRequest {
+    // Empty for now, but can be extended with configuration options
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConnectSpiderResponse {
+    pub api_key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderChatRequest {
+    #[serde(rename = "apiKey")]
+    pub api_key: String,
+    pub messages: Vec<SpiderMessage>,
+    #[serde(rename = "llmProvider")]
+    pub llm_provider: Option<String>,
+    pub model: Option<String>,
+    #[serde(rename = "mcpServers")]
+    pub mcp_servers: Option<Vec<String>>,
+    pub metadata: Option<SpiderConversationMetadata>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderMessage {
+    pub role: String,
+    pub content: String,
+    #[serde(rename = "toolCallsJson")]
+    pub tool_calls_json: Option<String>,
+    #[serde(rename = "toolResultsJson")]
+    pub tool_results_json: Option<String>,
+    pub timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderConversationMetadata {
+    #[serde(rename = "startTime")]
+    pub start_time: String,
+    pub client: String,
+    #[serde(rename = "fromStt")]
+    pub from_stt: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderChatResponse {
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
+    pub response: SpiderMessage,
+    #[serde(rename = "allMessages")]
+    pub all_messages: Option<Vec<SpiderMessage>>,
+}
+
 // New Response struct for configuring an authorized client
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ConfigureAuthorizedClientResponse {
@@ -514,12 +644,12 @@ pub struct ConfigureAuthorizedClientResponse {
 // Enum defining the possible stages of operator onboarding
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub enum OnboardingStatus {
-    Loading,                // Added for initial/fetch state
-    NeedsHotWallet,         
-    NeedsOnChainSetup,      
-    NeedsFunding,           
-    Ready,                  
-    Error                   // Keep Error state for actual fetch errors
+    Loading, // Added for initial/fetch state
+    NeedsHotWallet,
+    NeedsOnChainSetup,
+    NeedsFunding,
+    Ready,
+    Error, // Keep Error state for actual fetch errors
 }
 
 // Response structure for the onboarding status endpoint
@@ -527,7 +657,7 @@ pub enum OnboardingStatus {
 pub struct OnboardingStatusResponse {
     pub status: OnboardingStatus,
     pub checks: OnboardingCheckDetails, // Detailed check results
-    pub errors: Vec<String>, // List of specific errors encountered during checks
+    pub errors: Vec<String>,            // List of specific errors encountered during checks
 }
 
 // Detailed breakdown of individual checks for UI display
@@ -558,31 +688,31 @@ pub struct OnboardingCheckDetails {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum IdentityStatus {
-    Verified { 
-        entry_name: String, 
-        tba_address: String, 
-        owner_address: String 
+    Verified {
+        entry_name: String,
+        tba_address: String,
+        owner_address: String,
     },
     NotFound,
-    ImplementationCheckFailed(String), 
-    IncorrectImplementation { 
-        found: String, 
-        expected: String 
+    ImplementationCheckFailed(String),
+    IncorrectImplementation {
+        found: String,
+        expected: String,
     },
-    CheckError(String), 
+    CheckError(String),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub enum DelegationStatus {
     Verified,
-    NeedsIdentity, // Operator identity itself isn't configured
+    NeedsIdentity,  // Operator identity itself isn't configured
     NeedsHotWallet, // No hot wallet selected/active/unlocked
     AccessListNoteMissing,
     AccessListNoteInvalidData(String), // Include reason, e.g., "Invalid length"
-    SignersNoteLookupError(String), // Error fetching note pointed to by hash
-    SignersNoteMissing, // Note exists but no data
-    SignersNoteInvalidData(String), // e.g., ABI decode error
+    SignersNoteLookupError(String),    // Error fetching note pointed to by hash
+    SignersNoteMissing,                // Note exists but no data
+    SignersNoteInvalidData(String),    // e.g., ABI decode error
     HotWalletNotInList,
     CheckError(String), // Catch-all for RPC errors etc.
 }
@@ -653,7 +783,7 @@ pub struct NoteInfo {
 
 // Graph building structs for visualizer
 #[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged, rename_all = "camelCase")]  // Untagged removes variant wrapper, rename_all converts to camelCase
+#[serde(untagged, rename_all = "camelCase")] // Untagged removes variant wrapper, rename_all converts to camelCase
 pub enum GraphNodeData {
     OwnerNode {
         name: String,
@@ -702,7 +832,8 @@ pub enum GraphNodeData {
         #[serde(rename = "associatedHotWalletAddress")]
         associated_hot_wallet_address: String,
     },
-    AddHotWalletActionNode { // For triggering management/linking of hot wallets
+    AddHotWalletActionNode {
+        // For triggering management/linking of hot wallets
         label: String,
         #[serde(rename = "operatorTbaAddress")]
         operator_tba_address: Option<String>, // Operator TBA this action is related to
@@ -725,7 +856,7 @@ pub enum GraphNodeData {
 pub struct MintOperatorWalletActionNodeData {
     pub label: String,
     pub owner_node_name: String, // To construct the grid-wallet name
-    pub action_id: String, // e.g., "trigger_mint_operator_wallet"
+    pub action_id: String,       // e.g., "trigger_mint_operator_wallet"
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -742,8 +873,8 @@ pub struct GraphNode {
 #[serde(rename_all = "camelCase")]
 pub struct GraphEdge {
     pub id: String,
-    pub source: String, // Source node ID
-    pub target: String, // Target node ID
+    pub source: String,             // Source node ID
+    pub target: String,             // Target node ID
     pub style_type: Option<String>, // e.g., "dashed"
     pub animated: Option<bool>,
 }

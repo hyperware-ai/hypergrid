@@ -59,6 +59,11 @@ fn init_http() -> anyhow::Result<HttpServer> {
     // MCP Shim endpoints (X-API-Key validation)
     http_server.bind_http_path("/shim/mcp", http_config_unauthenticated.clone())?;
     
+    // Spider integration endpoints
+    http_server.bind_http_path("/api/spider-connect", http_config_authenticated.clone())?;
+    http_server.bind_http_path("/api/spider-chat", http_config_authenticated.clone())?;
+    http_server.bind_http_path("/api/spider-status", http_config_authenticated.clone())?;
+    
     // UI
     add_to_homepage("Hypergrid", Some(ICON), Some("/"), None);
     // this changes depending on you are only building operator, or both

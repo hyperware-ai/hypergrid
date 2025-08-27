@@ -3,6 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import OperatorConsole from "./components/console/OperatorConsole";
 import HeaderSearch from "./components/HeaderSearch.tsx";
 import AppSwitcher from "./components/AppSwitcher.tsx";
+import SpiderChat from "./components/SpiderChat.tsx";
 
 // Import required types
 import { ActiveAccountDetails, OnboardingStatusResponse } from "./logic/types.ts";
@@ -17,7 +18,7 @@ import { HYPERMAP_ADDRESS } from './constants';
 import { ToastContainer } from "react-toastify";
 import NotificationBell from './components/NotificationBell';
 
-const BASE_URL = import.meta.env.VITE_BASE_URL;
+const BASE_URL = import.meta.env.VITE_BASE_URL || '';
 
 
 function App() {
@@ -27,6 +28,9 @@ function App() {
 
   // State for Onboarding Data
   const [onboardingData, setOnboardingData] = useState<OnboardingStatusResponse | null>(null);
+  
+  // Spider chat state
+  const [spiderApiKey, setSpiderApiKey] = useState<string | null>(null);
 
   // Renamed derived variable
   const derivedNodeName = useMemo(() => {
@@ -62,6 +66,47 @@ function App() {
     }
   });
 
+  // Check spider connection status on mount
+  useEffect(() => {
+    const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
+    fetch(`${apiBase}/api/spider-status`)
+      .then(res => res.json())
+      .then(data => {
+        if (data.has_api_key) {
+          // If already connected, get the key
+          fetch(`${apiBase}/api/spider-connect`, { method: 'POST' })
+            .then(res => res.json())
+            .then(data => {
+              if (data.api_key) {
+                setSpiderApiKey(data.api_key);
+              }
+            })
+            .catch(console.error);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleSpiderConnect = async () => {
+    try {
+      const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/api/spider-connect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      const data = await response.json();
+      if (data.api_key) {
+        setSpiderApiKey(data.api_key);
+      } else if (data.error) {
+        console.error('Failed to connect to Spider:', data.error);
+      }
+    } catch (error) {
+      console.error('Error connecting to Spider:', error);
+    }
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -85,6 +130,13 @@ function App() {
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <HeaderSearch />
         <AppSwitcher currentApp="operator" />
+        <div className="flex-1 w-full overflow-hidden">
+          <SpiderChat 
+            spiderApiKey={spiderApiKey} 
+            onConnectClick={handleSpiderConnect}
+            onApiKeyRefreshed={(newKey) => setSpiderApiKey(newKey)}
+          />
+        </div>
       </header>
 
       <div className="flex flex-col flex-grow overflow-hidden relative bg-gray-50">
