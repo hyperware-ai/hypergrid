@@ -9,7 +9,6 @@ interface Conversation {
   messages: SpiderMessage[];
   metadata: ConversationMetadata;
   llmProvider: string;
-  model?: string;
   mcpServers: string[];
   mcpServersDetails?: McpServerDetails[] | null;
 }
@@ -39,6 +38,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const [useWebSocket, setUseWebSocket] = useState(true);
   const [wsConnected, setWsConnected] = useState(false);
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
+  const [connectedMcpServers, setConnectedMcpServers] = useState<string[]>([]);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messageHandlerRef = useRef<((message: WsServerMessage) => void) | null>(null);
@@ -70,15 +70,48 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     }
   }, [isLoading, isActive]);
 
+  // Fetch MCP servers when API key is available
+  const fetchMcpServers = async (apiKey: string) => {
+    try {
+      const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
+      const response = await fetch(`${apiBase}/api/spider-mcp-servers`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ apiKey }),
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.servers) {
+          // Filter for connected servers and get their IDs
+          const connectedServerIds = data.servers
+            .filter((server: any) => server.connected)
+            .map((server: any) => server.id);
+          setConnectedMcpServers(connectedServerIds);
+          console.log('Connected MCP servers:', connectedServerIds);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to fetch MCP servers:', error);
+    }
+  };
+
   // Connect to WebSocket when API key is available
   useEffect(() => {
     let timer: number | undefined;
     
-    if (spiderApiKey && useWebSocket) {
-      // Add a small delay to ensure the component is ready
-      timer = window.setTimeout(() => {
-        connectWebSocket();
-      }, 100);
+    if (spiderApiKey) {
+      // Fetch MCP servers
+      fetchMcpServers(spiderApiKey);
+      
+      if (useWebSocket) {
+        // Add a small delay to ensure the component is ready
+        timer = window.setTimeout(() => {
+          connectWebSocket();
+        }, 100);
+      }
     }
     
     return () => {
@@ -164,12 +197,25 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
                 const updated = { ...prev };
                 updated.id = message.payload.conversationId;
                 
-                // If we have allMessages, replace the conversation messages
+                // If we have allMessages, they represent the new messages from this interaction
                 if (message.payload.allMessages && message.payload.allMessages.length > 0) {
-                  // Keep user messages and replace assistant responses
-                  const userMessageCount = updated.messages.filter(m => m.role === 'user').length;
-                  const baseMessages = updated.messages.slice(0, userMessageCount);
-                  updated.messages = [...baseMessages, ...message.payload.allMessages];
+                  // Find the last user message index to know where to append new messages
+                  let lastUserMessageIndex = -1;
+                  for (let i = updated.messages.length - 1; i >= 0; i--) {
+                    if (updated.messages[i].role === 'user') {
+                      lastUserMessageIndex = i;
+                      break;
+                    }
+                  }
+                  
+                  // Keep all messages up to and including the last user message,
+                  // then append the new assistant messages
+                  if (lastUserMessageIndex >= 0) {
+                    updated.messages = [
+                      ...updated.messages.slice(0, lastUserMessageIndex + 1),
+                      ...message.payload.allMessages
+                    ];
+                  }
                 } else if (message.payload.response) {
                   // Just add the final response if not already present
                   const lastMsg = updated.messages[updated.messages.length - 1];
@@ -197,6 +243,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             break;
             
           case 'status':
+            // Only log, don't show "Processing iteration" messages in UI
             console.log('Status:', message.status, message.message);
             break;
         }
@@ -292,9 +339,13 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           fromStt: false,
         },
         llmProvider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
-        mcpServers: [],
+        mcpServers: connectedMcpServers, // Use connected MCP servers
+        // mcpServersDetails is intentionally omitted - it will be undefined
+        // which matches Rust's skip_serializing_if = "Option::is_none"
       };
+      
+      // Model is sent separately in the chat payload, not part of Conversation
+      const model = 'claude-sonnet-4-20250514';
 
       // Add user message
       const userMessage: SpiderMessage = {
@@ -315,7 +366,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         webSocketService.sendChatMessage(
           updatedConversation.messages,
           updatedConversation.llmProvider,
-          updatedConversation.model,
+          model,  // Pass model separately
           updatedConversation.mcpServers,
           updatedConversation.metadata
         );
@@ -335,8 +386,9 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           apiKey: spiderApiKey,
           messages: updatedConversation.messages,
           llmProvider: updatedConversation.llmProvider,
-          model: updatedConversation.model,
+          model: model,  // Pass model separately
           metadata: updatedConversation.metadata,
+          mcpServers: updatedConversation.mcpServers,
         }),
       });
 

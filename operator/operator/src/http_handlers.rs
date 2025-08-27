@@ -129,6 +129,7 @@ fn route_http_request(
         (Method::POST, "/api/spider-connect") => handle_spider_connect(our, state),
         (Method::POST, "/api/spider-chat") => handle_spider_chat(our, state),
         (Method::GET, "/api/spider-status") => handle_spider_status(state),
+        (Method::POST, "/api/spider-mcp-servers") => handle_spider_mcp_servers(our),
 
         // GET endpoints
         (Method::GET, path) => handle_get(our, path, req.query_params(), state, db),
@@ -2464,4 +2465,58 @@ fn handle_spider_status(state: &State) -> anyhow::Result<()> {
             "has_api_key": state.spider_api_key.is_some(),
         }),
     )
+}
+
+fn handle_spider_mcp_servers(our: &Address) -> anyhow::Result<()> {
+    info!("Handling spider MCP servers request");
+    
+    let blob = last_blob().ok_or(anyhow::anyhow!("Request body is missing"))?;
+    let request: serde_json::Value = serde_json::from_slice(blob.bytes())
+        .map_err(|e| anyhow::anyhow!("Failed to parse request body: {:?}", e))?;
+    
+    let api_key = request.get("apiKey")
+        .and_then(|v| v.as_str())
+        .ok_or(anyhow::anyhow!("API key is missing"))?;
+    
+    // Find the spider process
+    let spider_address = Address::new("our", SPIDER_PROCESS_ID);
+    
+    // Create the request to list MCP servers
+    let list_request = json!({
+        "authKey": api_key,
+    });
+    
+    // Send request to spider
+    let body = json!({"ListMcpServers": list_request});
+    let body = serde_json::to_vec(&body).unwrap();
+    let response = ProcessRequest::to(spider_address)
+        .body(body)
+        .send_and_await_response(5)
+        .map_err(|e| anyhow::anyhow!("Failed to get MCP servers from spider: {:?}", e))??;
+    
+    // Parse the response
+    let response_body = response.body();
+    let result: Result<Vec<serde_json::Value>, String> = 
+        serde_json::from_slice(response_body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse spider response: {:?}", e))?;
+    
+    match result {
+        Ok(servers) => {
+            send_json_response(
+                StatusCode::OK,
+                &json!({
+                    "servers": servers
+                }),
+            )
+        }
+        Err(e) => {
+            error!("Failed to get MCP servers: {}", e);
+            send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({
+                    "error": format!("Failed to get MCP servers: {}", e)
+                }),
+            )
+        }
+    }
 }
