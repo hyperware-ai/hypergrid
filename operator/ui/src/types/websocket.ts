@@ -20,6 +20,7 @@ export interface ChatMessage {
     model?: string;
     mcpServers?: string[];
     metadata?: ConversationMetadata;
+    conversationId?: string;
   };
 }
 

@@ -118,7 +118,8 @@ class WebSocketService {
     llmProvider?: string, 
     model?: string, 
     mcpServers?: string[], 
-    metadata?: ConversationMetadata
+    metadata?: ConversationMetadata,
+    conversationId?: string
   ): void {
     if (!this.isAuthenticated) {
       throw new Error('Not authenticated');
@@ -131,7 +132,8 @@ class WebSocketService {
         llmProvider,
         model,
         mcpServers,
-        metadata
+        metadata,
+        conversationId
       }
     };
     this.send(chatMsg);

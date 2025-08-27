@@ -24,6 +24,72 @@ interface ToolResult {
   result: string;
 }
 
+// Tool Call Modal Component
+function ToolCallModal({ toolCall, toolResult, onClose }: {
+  toolCall: ToolCall;
+  toolResult?: ToolResult;
+  onClose: () => void;
+}) {
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => {
+      // Could add a toast notification here
+    }).catch(err => {
+      console.error('Failed to copy:', err);
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50" onClick={onClose}>
+      <div className="bg-white rounded-lg shadow-xl max-w-4xl w-full mx-4 max-h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="p-4 border-b flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Tool Call Details: {toolCall.tool_name}</h3>
+          <button className="text-gray-500 hover:text-gray-700 text-2xl leading-none" onClick={onClose}>×</button>
+        </div>
+        <div className="p-4 overflow-y-auto flex-1">
+          <div className="mb-6">
+            <div className="flex justify-between items-center mb-2">
+              <h4 className="text-md font-medium">Tool Call</h4>
+              <button
+                className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                onClick={() => copyToClipboard(JSON.stringify(toolCall, null, 2))}
+                title="Copy to clipboard"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                </svg>
+              </button>
+            </div>
+            <pre className="bg-gray-50 p-3 rounded overflow-x-auto text-sm">
+              {JSON.stringify(toolCall, null, 2)}
+            </pre>
+          </div>
+          {toolResult && (
+            <div>
+              <div className="flex justify-between items-center mb-2">
+                <h4 className="text-md font-medium">Tool Result</h4>
+                <button
+                  className="p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded"
+                  onClick={() => copyToClipboard(JSON.stringify(toolResult, null, 2))}
+                  title="Copy to clipboard"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                  </svg>
+                </button>
+              </div>
+              <pre className="bg-gray-50 p-3 rounded overflow-x-auto text-sm">
+                {JSON.stringify(toolResult, null, 2)}
+              </pre>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 interface SpiderChatProps {
   spiderApiKey: string | null;
   onConnectClick: () => void;
@@ -39,6 +105,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const [wsConnected, setWsConnected] = useState(false);
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [connectedMcpServers, setConnectedMcpServers] = useState<string[]>([]);
+  const [selectedToolCall, setSelectedToolCall] = useState<{call: ToolCall, result?: ToolResult} | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const messageHandlerRef = useRef<((message: WsServerMessage) => void) | null>(null);
@@ -48,9 +115,9 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = (smooth: boolean = true) => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ 
-        behavior: smooth ? 'smooth' : 'auto', 
-        block: 'end' 
+      messagesEndRef.current.scrollIntoView({
+        behavior: smooth ? 'smooth' : 'auto',
+        block: 'end'
       });
     }
   };
@@ -81,7 +148,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         },
         body: JSON.stringify({ apiKey }),
       });
-      
+
       if (response.ok) {
         const data = await response.json();
         if (data.servers) {
@@ -101,11 +168,11 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   // Connect to WebSocket when API key is available
   useEffect(() => {
     let timer: number | undefined;
-    
+
     if (spiderApiKey) {
       // Fetch MCP servers
       fetchMcpServers(spiderApiKey);
-      
+
       if (useWebSocket) {
         // Add a small delay to ensure the component is ready
         timer = window.setTimeout(() => {
@@ -113,7 +180,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         }, 100);
       }
     }
-    
+
     return () => {
       if (timer) {
         clearTimeout(timer);
@@ -132,16 +199,16 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const connectWebSocket = async (apiKey?: string) => {
     const keyToUse = apiKey || spiderApiKey;
     if (!keyToUse) return;
-    
+
     try {
       // Determine WebSocket URL - connect to spider service endpoint
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const wsUrl = `${protocol}//${host}/spider:spider:ware.hypr/ws`;
-      
+
       console.log('Connecting to WebSocket at:', wsUrl);
       await webSocketService.connect(wsUrl);
-      
+
       // Set up message handler for progressive updates
       const messageHandler = (message: WsServerMessage) => {
         switch (message.type) {
@@ -151,22 +218,27 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
               if (!prev) return prev;
               const updated = { ...prev };
               updated.messages = [...updated.messages];
-              // Check if we already have this message (by timestamp or content)
-              const lastMsg = updated.messages[updated.messages.length - 1];
-              if (!lastMsg || lastMsg.timestamp !== message.message.timestamp) {
+
+              // Add the new message if we don't have it yet
+              const messageExists = updated.messages.some(m =>
+                m.timestamp === message.message.timestamp &&
+                m.role === message.message.role
+              );
+
+              if (!messageExists) {
                 updated.messages.push(message.message);
               }
               return updated;
             });
             break;
-            
+
           case 'stream':
             // Handle streaming updates (partial message content)
             setConversation(prev => {
               if (!prev) return prev;
               const updated = { ...prev };
               updated.messages = [...updated.messages];
-              
+
               // Find or create assistant message for streaming
               let assistantMsgIndex = updated.messages.length - 1;
               if (assistantMsgIndex < 0 || updated.messages[assistantMsgIndex].role !== 'assistant') {
@@ -188,18 +260,19 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
               return updated;
             });
             break;
-            
+
           case 'chat_complete':
             // Final response received
             if (message.payload) {
               setConversation(prev => {
                 if (!prev) return prev;
                 const updated = { ...prev };
-                updated.id = message.payload.conversationId;
-                
-                // If we have allMessages, they represent the new messages from this interaction
+                // Keep the same conversation ID if it exists
+                updated.id = message.payload.conversationId || updated.id;
+
+                // If we have allMessages, they contain all the assistant's messages including tool calls
                 if (message.payload.allMessages && message.payload.allMessages.length > 0) {
-                  // Find the last user message index to know where to append new messages
+                  // Find the last user message index
                   let lastUserMessageIndex = -1;
                   for (let i = updated.messages.length - 1; i >= 0; i--) {
                     if (updated.messages[i].role === 'user') {
@@ -207,26 +280,31 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
                       break;
                     }
                   }
-                  
-                  // Keep all messages up to and including the last user message,
-                  // then append the new assistant messages
+
+                  // Replace everything after the last user message with the complete response
                   if (lastUserMessageIndex >= 0) {
                     updated.messages = [
                       ...updated.messages.slice(0, lastUserMessageIndex + 1),
                       ...message.payload.allMessages
                     ];
+                  } else {
+                    // If no user message found, append all messages
+                    updated.messages.push(...message.payload.allMessages);
                   }
                 } else if (message.payload.response) {
                   // Just add the final response if not already present
                   const lastMsg = updated.messages[updated.messages.length - 1];
-                  if (!lastMsg || lastMsg.role !== 'assistant') {
+                  if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.content) {
                     updated.messages.push(message.payload.response);
+                  } else {
+                    // Update the last assistant message with final content
+                    updated.messages[updated.messages.length - 1] = message.payload.response;
                   }
                 }
-                
+
                 return updated;
               });
-              
+
               // Handle refreshed API key
               if (message.payload.refreshedApiKey && onApiKeyRefreshed) {
                 onApiKeyRefreshed(message.payload.refreshedApiKey);
@@ -235,37 +313,39 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             setIsLoading(false);
             setCurrentRequestId(null);
             break;
-            
+
           case 'error':
             setError(message.error || 'WebSocket error occurred');
             setIsLoading(false);
             setCurrentRequestId(null);
             break;
-            
+
           case 'status':
             // Only log, don't show "Processing iteration" messages in UI
-            console.log('Status:', message.status, message.message);
+            if (message.message && !message.message.includes('Processing iteration')) {
+              console.log('Status:', message.status, message.message);
+            }
             break;
         }
       };
-      
+
       messageHandlerRef.current = messageHandler;
       webSocketService.addMessageHandler(messageHandler);
-      
+
       // Authenticate with spider API key
       console.log('Authenticating with API key:', keyToUse);
       await webSocketService.authenticate(keyToUse);
       console.log('Authentication successful');
-      
+
       setWsConnected(true);
       setError(null);
     } catch (error: any) {
       console.error('Failed to connect WebSocket:', error);
-      
+
       // Check if it's an auth error (invalid API key)
       if (error.message && (error.message.includes('Invalid API key') || error.message.includes('lacks write permission'))) {
         console.log('API key is invalid, requesting a new one...');
-        
+
         // Don't retry if we already tried with a fresh key (to prevent infinite loop)
         if (apiKey) {
           console.error('Already tried with a fresh API key, giving up');
@@ -274,7 +354,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           setError('Unable to authenticate with Spider. Falling back to HTTP.');
           return;
         }
-        
+
         // Request a new API key
         try {
           const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
@@ -286,14 +366,14 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             body: JSON.stringify({ force_new: true }), // Force creation of a new key
           });
           const data = await response.json();
-          
+
           if (data.api_key) {
             console.log('Got new API key:', data.api_key, 'retrying WebSocket connection...');
             // Update the API key in parent component
             if (onApiKeyRefreshed) {
               onApiKeyRefreshed(data.api_key);
             }
-            
+
             // Disconnect current connection
             webSocketService.disconnect();
             // Small delay to ensure disconnect completes
@@ -329,8 +409,11 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     setIsLoading(true);
 
     try {
-      // Create or update conversation
-      let updatedConversation = conversation || {
+      // Continue existing conversation or create new one
+      let updatedConversation = conversation ? {
+        ...conversation,
+        mcpServers: connectedMcpServers, // Update MCP servers in case they changed
+      } : {
         id: '',
         messages: [],
         metadata: {
@@ -339,11 +422,9 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           fromStt: false,
         },
         llmProvider: 'anthropic',
-        mcpServers: connectedMcpServers, // Use connected MCP servers
-        // mcpServersDetails is intentionally omitted - it will be undefined
-        // which matches Rust's skip_serializing_if = "Option::is_none"
+        mcpServers: connectedMcpServers,
       };
-      
+
       // Model is sent separately in the chat payload, not part of Conversation
       const model = 'claude-sonnet-4-20250514';
 
@@ -353,7 +434,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         content: message,
         timestamp: Date.now(),
       };
-      
+
       updatedConversation.messages.push(userMessage);
       setConversation({ ...updatedConversation });
       setMessage('');
@@ -368,7 +449,8 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           updatedConversation.llmProvider,
           model,  // Pass model separately
           updatedConversation.mcpServers,
-          updatedConversation.metadata
+          updatedConversation.metadata,
+          updatedConversation.id // Pass conversation ID to continue existing conversation
         );
         // WebSocket responses will be handled by the message handler
         return;
@@ -397,14 +479,14 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
       }
 
       const data = await response.json();
-      
+
       // Only update if this request hasn't been cancelled
       if (currentRequestId === requestId) {
         // Update conversation with response
         if (data.conversationId) {
           updatedConversation.id = data.conversationId;
         }
-        
+
         if (data.allMessages && data.allMessages.length > 0) {
           updatedConversation.messages.push(...data.allMessages);
         } else if (data.response) {
@@ -412,7 +494,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         }
 
         setConversation({ ...updatedConversation });
-        
+
         // If the API key was refreshed, update it in the parent component
         if (data.refreshedApiKey && onApiKeyRefreshed) {
           onApiKeyRefreshed(data.refreshedApiKey);
@@ -458,7 +540,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const toggleWebSocket = () => {
     const newState = !useWebSocket;
     setUseWebSocket(newState);
-    
+
     if (newState) {
       connectWebSocket();
     } else {
@@ -500,9 +582,9 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           <button
             onClick={toggleWebSocket}
             className={`p-2 rounded-lg transition-colors ${
-              useWebSocket 
-                ? wsConnected 
-                  ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+              useWebSocket
+                ? wsConnected
+                  ? 'bg-green-100 text-green-700 hover:bg-green-200'
                   : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
@@ -542,22 +624,33 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         {conversation?.messages.map((msg, index) => {
           const toolCalls = msg.toolCallsJson ? JSON.parse(msg.toolCallsJson) as ToolCall[] : null;
           const nextMsg = conversation.messages[index + 1];
+          const toolResults = nextMsg?.role === 'tool' && nextMsg.toolResultsJson
+            ? JSON.parse(nextMsg.toolResultsJson) as ToolResult[]
+            : null;
 
           return (
             <React.Fragment key={index}>
-              {msg.role !== 'tool' && msg.content && msg.content.trim() && (
+              {msg.role !== 'tool' && msg.content && msg.content.trim() &&
+               !msg.content.includes('Processing iteration') &&
+               !msg.content.includes('[Tool calls pending]') &&
+               !msg.content.includes('Executing tool calls') && (
                 <div className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                  <div 
+                  <div
                     className={`inline-block max-w-[80%] px-4 py-2 rounded-lg ${
-                      msg.role === 'user' 
-                        ? 'bg-blue-600 text-white' 
+                      msg.role === 'user'
+                        ? 'bg-blue-600 text-white text-left'
                         : 'bg-gray-100 text-gray-800'
                     }`}
+                    style={{
+                      wordWrap: 'break-word',
+                      overflowWrap: 'break-word',
+                      wordBreak: 'break-word'
+                    }}
                   >
                     {msg.role === 'user' ? (
-                      <p className="whitespace-pre-wrap">{msg.content}</p>
+                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                     ) : (
-                      <div className="prose prose-sm max-w-none">
+                      <div className="prose prose-sm max-w-none break-words">
                         <ReactMarkdown>
                           {msg.content}
                         </ReactMarkdown>
@@ -569,15 +662,25 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
 
               {toolCalls && toolCalls.map((toolCall, toolIndex) => {
                 const isLastMessage = index === conversation.messages.length - 1;
-                const isWaitingForResult = isLastMessage && isLoading;
+                const toolResult = toolResults?.find(r => r.tool_call_id === toolCall.id);
+                const isWaitingForResult = isLastMessage && isLoading && !toolResult;
 
                 return (
                   <div key={`tool-${index}-${toolIndex}`} className="mb-2 text-left">
                     <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-50 rounded-lg text-sm text-gray-600">
                       <span>{getToolEmoji()}</span>
-                      <span>{toolCall.tool_name}</span>
-                      {isWaitingForResult && (
-                        <span className="animate-pulse">...</span>
+                      {isWaitingForResult ? (
+                        <>
+                          <span>{toolCall.tool_name}</span>
+                          <span className="animate-pulse">...</span>
+                        </>
+                      ) : (
+                        <button
+                          className="hover:underline cursor-pointer"
+                          onClick={() => setSelectedToolCall({ call: toolCall, result: toolResult })}
+                        >
+                          {toolCall.tool_name}
+                        </button>
                       )}
                     </div>
                   </div>
@@ -590,8 +693,10 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             <p>Start a conversation by typing a message below</p>
           </div>
         )}
-        
-        {isLoading && conversation && (
+
+        {isLoading && conversation && !conversation.messages.some(m =>
+          m.role === 'assistant' && m.toolCallsJson
+        ) && (
           <div className="mb-4 text-left">
             <div className="inline-block px-4 py-2 bg-gray-100 rounded-lg">
               <div className="flex items-center gap-2 text-gray-600">
@@ -601,9 +706,17 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             </div>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
+
+      {selectedToolCall && (
+        <ToolCallModal
+          toolCall={selectedToolCall.call}
+          toolResult={selectedToolCall.result}
+          onClose={() => setSelectedToolCall(null)}
+        />
+      )}
 
       <form onSubmit={handleSubmit} className="p-4 border-t">
         <div className="flex gap-2">
