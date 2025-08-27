@@ -694,9 +694,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           </div>
         )}
 
-        {isLoading && conversation && !conversation.messages.some(m =>
-          m.role === 'assistant' && m.toolCallsJson
-        ) && (
+        {isLoading && conversation && (
           <div className="mb-4 text-left">
             <div className="inline-block px-4 py-2 bg-gray-100 rounded-lg">
               <div className="flex items-center gap-2 text-gray-600">
