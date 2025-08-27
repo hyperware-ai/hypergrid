@@ -1,8 +1,9 @@
 use crate::{EndpointDefinition, ProviderRequest};
 use crate::constants::{USDC_BASE_ADDRESS, WALLET_PREFIX};
-use hyperware_app_common::hyperware_process_lib::{
+use hyperware_process_lib::{
     eth::{Address as EthAddress, EthError, TransactionReceipt, TxHash, U256},
     get_blob,
+    hyperapp::{send, sleep},
     http::{
         client::{HttpClientAction, HttpClientError, HttpClientResponse, OutgoingHttpRequest},
         HeaderName, HeaderValue, Method as HyperwareHttpMethod, Response as HyperwareHttpResponse,
@@ -11,7 +12,6 @@ use hyperware_app_common::hyperware_process_lib::{
     hypermap, Request,
     logging::{debug, error, warn, info},
 };
-use hyperware_app_common::{send, sleep};
 use serde_json;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -32,7 +32,7 @@ pub async fn send_async_http_request(
     let body_size = body.len();
     let method_str = method.to_string();
     let url_str = url.to_string();
-    
+
     let req = Request::to(("our", "http-client", "distro", "sys"))
         .expects_response(timeout)
         .body(
@@ -117,7 +117,7 @@ pub async fn get_logs_for_tx(
     // 3. Retry mechanism for get_transaction_receipt
     const MAX_RETRIES: u32 = 3;
     const INITIAL_DELAY_MS: u64 = 500; // Start with 500ms
-    
+
     for attempt in 1..=MAX_RETRIES {
         match provider.get_transaction_receipt(tx_hash) {
             Ok(Some(receipt)) => {
@@ -161,7 +161,7 @@ pub async fn get_logs_for_tx(
             }
         }
     }
-    
+
     // This should never be reached, but just in case
     Err(EthError::RpcTimeout)
 }
@@ -387,18 +387,18 @@ pub async fn call_provider(
                     error!("Failed to parse response body as UTF-8: {}", e);
                     format!("Failed to parse response body as UTF-8: {}", e)
                 })?;
-            
+
             // Try to parse the body as JSON to avoid double-encoding
             let body_json = match serde_json::from_str::<serde_json::Value>(&body_result) {
                 Ok(json_value) => json_value,
                 Err(_) => serde_json::Value::String(body_result), // If not JSON, wrap as string
             };
-            
+
             let response_wrapper = serde_json::json!({
                 "status": status,
                 "body": body_json
             });
-            
+
             Ok(response_wrapper.to_string())
         }
         Err(e) => {
@@ -429,10 +429,10 @@ pub async fn call_provider(
 
     // Start with original headers from the curl template
     let mut http_headers = endpoint_def.get_original_headers_map();
-    
+
     // Construct URL from template
     let mut final_url = endpoint_def.url_template.clone();
-    
+
     // Parse original curl to extract original query parameters
     let mut original_query_params: HashMap<String, String> = HashMap::new();
     // Extract URL from curl command (handle quoted and unquoted URLs)
@@ -447,12 +447,12 @@ pub async fn call_provider(
             }
         }
     }
-    
+
     debug!(
         "Original query params extracted from curl: {:?}",
         original_query_params
     );
-    
+
     // Start with original query parameters, then override with dynamic ones
     let mut query_params: Vec<(String, String)> = original_query_params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut body_json = endpoint_def.get_original_body_json();
@@ -473,7 +473,7 @@ pub async fn call_provider(
                 let original_param_name = param_def.json_pointer
                     .strip_prefix("/queryParams/")
                     .ok_or_else(|| format!("Invalid query JSON pointer: {}", param_def.json_pointer))?;
-                
+
                 // Override existing query parameter or add new one
                 // Remove any existing parameter with the original name first
                 query_params.retain(|(k, _)| k != original_param_name);
@@ -494,7 +494,7 @@ pub async fn call_provider(
                     let body_relative_pointer = param_def.json_pointer
                         .strip_prefix("/body")
                         .unwrap_or(&param_def.json_pointer);
-                    
+
                     // If the pointer is just "/body", we replace the entire body
                     if body_relative_pointer.is_empty() {
                         // Parse the new value as JSON if possible, otherwise treat as string
@@ -525,7 +525,7 @@ pub async fn call_provider(
             .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
             .collect::<Vec<_>>()
             .join("&");
-        
+
         final_url = if final_url.contains('?') {
             format!("{}&{}", final_url, query_string)
         } else {
@@ -565,7 +565,7 @@ pub async fn call_provider(
     // Make the HTTP request
     let timeout: u64 = 30;
     let start_time = std::time::Instant::now();
-    
+
     match send_async_http_request(http_method, url, Some(http_headers), timeout, body_bytes).await {
         Ok(response) => {
             let elapsed = start_time.elapsed();
@@ -609,7 +609,7 @@ fn update_json_value_by_pointer(
 ) -> Result<(), String> {
     // Handle JSON pointers like "/body/field_name" or "/body/messages/0/content"
     let parts: Vec<&str> = pointer.split('/').filter(|s| !s.is_empty()).collect();
-    
+
     if parts.is_empty() {
         return Err("Invalid JSON pointer".to_string());
     }
@@ -618,12 +618,12 @@ fn update_json_value_by_pointer(
     let mut current = json;
     for i in 0..parts.len() - 1 {
         let part = parts[i];
-        
+
         // Check if this part is an array index (all digits)
         if part.chars().all(|c| c.is_ascii_digit()) {
             let index: usize = part.parse()
                 .map_err(|_| format!("Invalid array index: {}", part))?;
-            
+
             match current {
                 serde_json::Value::Array(arr) => {
                     current = arr.get_mut(index)
@@ -645,15 +645,15 @@ fn update_json_value_by_pointer(
 
     // Update the final field
     let final_part = parts.last().unwrap();
-    
+
     // Parse the new value as JSON if possible, otherwise treat as string
     let parsed_value = parse_parameter_value(new_value);
-    
+
     // Check if the final part is an array index
     if final_part.chars().all(|c| c.is_ascii_digit()) {
         let index: usize = final_part.parse()
             .map_err(|_| format!("Invalid array index: {}", final_part))?;
-        
+
         match current {
             serde_json::Value::Array(arr) => {
                 if index >= arr.len() {
@@ -682,7 +682,7 @@ fn parse_parameter_value(value: &str) -> serde_json::Value {
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
         // Successfully parsed as JSON, return the parsed value
         // This handles cases like:
-        // - "hello world" → JSON string "hello world" 
+        // - "hello world" → JSON string "hello world"
         // - 42 → JSON number 42
         // - true → JSON boolean true
         // - [1,2,3] → JSON array [1,2,3]
@@ -953,7 +953,7 @@ pub async fn validate_transaction_payment(
     let expected_namehash_for_requester = hypermap::namehash(&full_name_for_tba_lookup);
 
     if namehash_from_claimed_sender_tba != expected_namehash_for_requester {
-        return Err(format!("Namehash mismatch for TBA: sender identified from log as {} (namehash: {}), but request came from {} (expected namehash: {}). Sender identity could not be verified.", 
+        return Err(format!("Namehash mismatch for TBA: sender identified from log as {} (namehash: {}), but request came from {} (expected namehash: {}). Sender identity could not be verified.",
                           final_claimed_sender_address, namehash_from_claimed_sender_tba,
                           source_node_id, expected_namehash_for_requester));
     }
@@ -968,7 +968,7 @@ pub async fn validate_transaction_payment(
     // This must be the last step after all validations pass.
 
     state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
-    
+
     debug!(
         "Successfully validated payment and marked tx {} as spent.",
         tx_hash_str_ref
@@ -977,9 +977,9 @@ pub async fn validate_transaction_payment(
     Ok(())
 }
 
-pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::Provider {
+pub fn default_provider() -> hyperware_process_lib::eth::Provider {
     let hypermap_timeout = 60;
-    hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+    hyperware_process_lib::eth::Provider::new(
         hypermap::HYPERMAP_CHAIN_ID,
         hypermap_timeout,
     )
@@ -987,7 +987,7 @@ pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::P
 
 pub fn default_hypermap() -> hypermap::Hypermap {
     let hypermap_timeout = 60;
-    let provider = hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+    let provider = hyperware_process_lib::eth::Provider::new(
         hypermap::HYPERMAP_CHAIN_ID,
         hypermap_timeout,
     );
@@ -998,13 +998,13 @@ pub fn default_hypermap() -> hypermap::Hypermap {
 
 pub fn validate_response_status(response: &str) -> Result<(), String> {
     // At this point, if we have a response, it means the HTTP call was successful
-    // (status.is_success() was true in call_provider), so we just need to check 
+    // (status.is_success() was true in call_provider), so we just need to check
     // that we have a valid response body
-    
+
     if response.trim().is_empty() {
         return Err("Empty response body".to_string());
     }
-    
+
     // Try to parse as JSON to ensure it's a valid response
     // If it's not JSON, that's also fine for some APIs
     match serde_json::from_str::<serde_json::Value>(response) {
