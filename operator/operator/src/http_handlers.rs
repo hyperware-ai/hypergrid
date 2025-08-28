@@ -701,7 +701,7 @@ fn execute_provider_flow(
     client_config_opt: Option<HotWalletAuthorizedClient>
 ) -> anyhow::Result<()> {
     // First, do a health check ping to see if the provider is responsive
-    match perform_provider_health_check(&provider_details) {
+    match perform_provider_health_check(&provider_details, Some(&provider_name)) {
         Ok(()) => {
             info!("Provider {} health check passed", provider_details.provider_id);
         }
@@ -1342,7 +1342,7 @@ fn execute_provider_call(
 //}
 
 /// Perform a lightweight health check on a provider before payment
-fn perform_provider_health_check(provider_details: &ProviderDetails) -> anyhow::Result<()> {
+fn perform_provider_health_check(provider_details: &ProviderDetails, provider_name: Option<&str>) -> anyhow::Result<()> {
     info!("Performing health check for provider {}", provider_details.provider_id);
     
     let target_address = Address::new(
@@ -1350,12 +1350,12 @@ fn perform_provider_health_check(provider_details: &ProviderDetails) -> anyhow::
         ("provider", "hypergrid", PUBLISHER)
     );
     
-    let dummy_argument = serde_json::json!({
-        "argument": "swag"
+    let health_check_request = serde_json::json!({
+        "provider_name": provider_name.unwrap_or(&provider_details.provider_id)
     });
     
     let wrapped_request = serde_json::json!({
-        "HealthPing": dummy_argument
+        "HealthPing": health_check_request
     });
     
     let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
