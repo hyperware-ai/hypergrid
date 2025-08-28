@@ -382,12 +382,12 @@ fn check_provider_availability(provider_id: &str) -> Result<(), String> {
     //    "CallProvider": provider_request_data 
     //});
 
-    let DummyArgument = serde_json::json!({
-        "argument": "swag"
+    let health_check_request = serde_json::json!({
+        "provider_name": provider_id  // Basic health check without specific provider
     });
 
     let wrapped_request = serde_json::json!({
-        "HealthPing": DummyArgument
+        "HealthPing": health_check_request
     });
 
     let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
