@@ -419,7 +419,7 @@ pub async fn call_provider(
     dynamic_args: &Vec<(String, String)>,
     source: String,
 ) -> Result<String, String> {
-    info!(
+    debug!(
         "Calling provider via curl template: {}, method: {}",
         provider_id_for_log,
         endpoint_def.method
@@ -566,6 +566,16 @@ pub async fn call_provider(
     let timeout: u64 = 30;
     let start_time = std::time::Instant::now();
     
+    // Log HTTP request details (no sensitive data)
+    debug!(
+        "http_request_started: provider={}, method={}, url_domain={}, timeout_s={}, body_size_bytes={}",
+        provider_id_for_log,
+        endpoint_def.method,
+        url.host_str().unwrap_or("unknown"),
+        timeout,
+        body_bytes.len()
+    );
+    
     match send_async_http_request(http_method, url, Some(http_headers), timeout, body_bytes).await {
         Ok(response) => {
             let elapsed = start_time.elapsed();
@@ -574,16 +584,25 @@ pub async fn call_provider(
             let body_string = String::from_utf8(body_bytes.clone())
                 .unwrap_or_else(|_| format!("[Binary data, {} bytes]", body_bytes.len()));
 
-            info!(
-                "Provider response: status={}, elapsed={:?}, body_length={}",
+            // Log HTTP response details (no sensitive response data)
+            debug!(
+                "http_response_received: provider={}, status={}, duration_ms={}, response_size_bytes={}",
+                provider_id_for_log,
                 status,
-                elapsed,
+                elapsed.as_millis(),
                 body_string.len()
             );
 
             if status.is_success() {
                 Ok(body_string)
             } else {
+                // Error tracking log - HTTP error status
+                error!(
+                    "http_request_failed: provider={}, status={}, duration_ms={}, error_type=http_error_status",
+                    provider_id_for_log,
+                    status,
+                    elapsed.as_millis()
+                );
                 Err(format!(
                     "Provider returned error status {}: {}",
                     status, body_string
@@ -592,9 +611,11 @@ pub async fn call_provider(
         }
         Err(e) => {
             let elapsed = start_time.elapsed();
+            // Error tracking log - network/timeout error
             error!(
-                "HTTP request failed: provider={}, elapsed={:?}, error={:?}",
-                provider_id_for_log, elapsed, e
+                "http_request_failed: provider={}, duration_ms={}, error_type=network_timeout",
+                provider_id_for_log,
+                elapsed.as_millis()
             );
             Err(format!("Failed to call provider: {:?}", e))
         }
@@ -702,6 +723,13 @@ pub async fn validate_transaction_payment(
     state: &mut super::HypergridProviderState, // Now mutable
     source_node_id: String,                    // Pass source node string directly
 ) -> Result<(), String> {
+    // Usage tracking log - payment validation started
+    debug!(
+        "payment_validation_started: provider={}, source_node={}, has_tx_hash={}",
+        mcp_request.provider_name,
+        source_node_id,
+        mcp_request.payment_tx_hash.is_some()
+    );
     // --- 0. Check if provider exists at all ---
     if !state
         .registered_providers
@@ -801,6 +829,7 @@ pub async fn validate_transaction_payment(
     let mut payment_validated = false;
     let mut claimed_sender_address_from_log: Option<EthAddress> = None;
     let mut usdc_transfer_count = 0;
+    let mut actual_transferred_amount = U256::from(0);
 
     // Access logs via transaction_receipt.inner (which is ReceiptEnvelope)
     for log in transaction_receipt.inner.logs() {
@@ -908,6 +937,7 @@ pub async fn validate_transaction_payment(
                     // Now store the sender for Hypermap check and mark payment as potentially valid.
                     claimed_sender_address_from_log = Some(tx_sender_address);
                     payment_validated = true; // Provisional validation, Hypermap check still pending
+                    actual_transferred_amount = transferred_amount; // Store actual amount for logging
                     break; // Found the second valid transfer, no need to check other logs
                 } else {
                     debug!(
@@ -969,9 +999,23 @@ pub async fn validate_transaction_payment(
 
     state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
     
-    debug!(
-        "Successfully validated payment and marked tx {} as spent.",
-        tx_hash_str_ref
+    // Get provider price for revenue tracking
+    let provider_price = state
+        .registered_providers
+        .iter()
+        .find(|p| p.provider_name == mcp_request.provider_name)
+        .map(|p| p.price)
+        .unwrap_or(0.0);
+
+    // Success tracking log - payment validation successful
+    info!(
+        "payment_validation_success: provider={}, provider_node={}, source_node={}, tx_hash={}, price_usdc={}, transferred_usdc={}",
+        mcp_request.provider_name,
+        hyperware_app_common::hyperware_process_lib::our().node,
+        source_node_id,
+        tx_hash_str_ref, // Full transaction hash for complete audit trail
+        provider_price,
+        actual_transferred_amount
     );
 
     Ok(())

@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use hyperware_app_common::hyperware_process_lib::{
-    logging::info,
+    logging::debug,
     sqlite::{self, Sqlite},
     our,
 };
@@ -23,7 +23,7 @@ pub fn load_provider_db() -> anyhow::Result<sqlite::Sqlite> {
     let db = open_provider_db()?;
     let good = check_provider_schema(&db);
     if !good {
-        info!("Provider database schema not found or incomplete - this is expected if operator hasn't indexed providers yet");
+        debug!("Provider database schema not found or incomplete - this is expected if operator hasn't indexed providers yet");
     }
     Ok(db)
 }
