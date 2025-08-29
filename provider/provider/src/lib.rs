@@ -37,8 +37,8 @@ pub struct ProviderRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DummyArgument {
-    pub argument: String,
+pub struct HealthCheckRequest {
+    pub provider_name: String, // Provider name for availability checking
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -390,9 +390,42 @@ impl HypergridProviderState {
 
     #[local]
     #[remote]
-    async fn health_ping(&self, arg: DummyArgument) -> Result<String, String> {
-        info!("Health ping received: {:?}", arg);
-        Ok("Ack".to_string())
+    async fn health_ping(&self, request: HealthCheckRequest) -> Result<String, String> {
+        info!("Health ping received: {:?}", request);
+        
+        info!("Checking availability for provider: {}", request.provider_name);
+        
+        // Check if provider exists in registry
+        let provider_exists = self
+            .registered_providers
+            .iter()
+            .find(|p| p.provider_name == request.provider_name);
+            
+        match provider_exists {
+            Some(provider) => {
+                // Check if provider has a valid endpoint configuration
+                if provider.endpoint.is_empty() {
+                    let error_msg = format!(
+                        "Provider '{}' exists but needs endpoint configuration", 
+                        request.provider_name
+                    );
+                    warn!("{}", error_msg);
+                    return Err(error_msg);
+                }
+                
+                debug!(
+                    "Provider '{}' is available and configured (price: {} USDC)", 
+                    request.provider_name, 
+                    provider.price
+                );
+                Ok("Ack".to_string())
+            }
+            None => {
+                let error_msg = format!("Provider '{}' not found in registry", request.provider_name);
+                warn!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
     }
 
     #[http]
