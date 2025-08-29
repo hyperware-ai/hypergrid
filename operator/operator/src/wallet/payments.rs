@@ -202,7 +202,7 @@ fn check_payment_prerequisites(
     }
 
     // Check 7: Provider Availability
-    check_provider_availability(&provider_id, None).map_err(|e|
+    check_provider_availability(&provider_id).map_err(|e|
         PaymentAttemptResult::Skipped { reason: format!("Provider Availability Check Error for {}: {}", provider_id, e) }
     )?;
 
@@ -360,7 +360,7 @@ fn perform_tba_payment_execution(
 }
 
 /// Checks the availability of a provider by sending a test request.
-fn check_provider_availability(provider_id: &str, provider_name: Option<&str>) -> Result<(), String> {
+fn check_provider_availability(provider_id: &str) -> Result<(), String> {
     info!("Checking provider availability for ID: {}", provider_id);
 
     let target_address = HyperwareAddress::new(
@@ -382,12 +382,12 @@ fn check_provider_availability(provider_id: &str, provider_name: Option<&str>) -
     //    "CallProvider": provider_request_data 
     //});
 
-    let health_check_request = serde_json::json!({
-        "provider_name": provider_name.unwrap_or(provider_id)
+    let DummyArgument = serde_json::json!({
+        "argument": "swag"
     });
 
     let wrapped_request = serde_json::json!({
-        "HealthPing": health_check_request
+        "HealthPing": DummyArgument
     });
 
     let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
