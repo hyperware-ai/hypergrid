@@ -59,7 +59,7 @@ enum ProviderCallResult {
     Failed(anyhow::Error),
 }
 
-const SPIDER_PROCESS_ID: (&str, &str, &str) = ("spider", "spider", "ware.hypr");
+const SPIDER_PROCESS_ID: (&str, &str, &str) = ("spider", "spider", "sys");
 
 // ===========================================================================================
 // MAIN ENTRY POINT - Routes all HTTP requests from http-server

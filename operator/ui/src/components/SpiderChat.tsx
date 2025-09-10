@@ -205,7 +205,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
       // Determine WebSocket URL - connect to spider service endpoint
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
-      const wsUrl = `${protocol}//${host}/spider:spider:ware.hypr/ws`;
+      const wsUrl = `${protocol}//${host}/spider:spider:sys/ws`;
 
       console.log('Connecting to WebSocket at:', wsUrl);
       await webSocketService.connect(wsUrl);
@@ -607,7 +607,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
               </>
             ) : (
               <>
-                <p className="text-gray-500 mb-4">Connect to Spider to enable chat</p>
+                <p className="text-gray-500 mb-4">Connect to Spider to enable chat and test out the Hypergrid tools</p>
                 <button
                   onClick={handleConnectWithTimeout}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -738,7 +738,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           );
         }) || (
           <div className="text-center text-gray-500">
-            <p>Start a conversation by typing a message below</p>
+            <p>Use this chat window to test out searching for and calling Hypergrid providers!</p>
           </div>
         )}
 

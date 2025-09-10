@@ -16,12 +16,13 @@
       "http-client:distro:sys",
       "hns-indexer:hns-indexer:sys",
       "hyperwallet:hyperwallet:hallman.hypr",
-      "spider:spider:ware.hypr"
+      "spider:spider:sys"
     ],
     "grant_capabilities": [
       "http-server:distro:sys",
       "http-client:distro:sys",
-      "terminal:terminal:sys"
+      "terminal:terminal:sys",
+      "spider:spider:sys"
     ],
     "public": true
   }

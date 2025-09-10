@@ -154,7 +154,6 @@ function App() {
       <header className="flex flex-col py-8 px-6 dark:bg-black bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <HeaderSearch />
-        <AppSwitcher currentApp="operator" />
         <div className="flex-1 w-full overflow-hidden">
           <SpiderChat
             spiderApiKey={spiderApiKey}
@@ -162,6 +161,7 @@ function App() {
             onApiKeyRefreshed={(newKey) => setSpiderApiKey(newKey)}
           />
         </div>
+        <AppSwitcher currentApp="operator" />
       </header>
 
       <div className="flex flex-col flex-grow overflow-hidden relative bg-gray-50">
