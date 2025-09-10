@@ -1,15 +1,15 @@
-use hyperprocess_macro::hyperprocess;
+use hyperprocess_macro::*;
 
 use hyperware_process_lib::logging::RemoteLogSettings;
 use hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
     get_state,
-    hyperapp::{get_server, source, SaveOptions, sleep},
     hypermap,
     logging::{debug, error, info, warn, init_logging, Level},
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
+    hyperapp::{source, SaveOptions, sleep, get_server},
 };
 use crate::constants::HYPR_SUFFIX;
 use rmp_serde;
@@ -24,7 +24,7 @@ mod util; // Declare the util module
 use util::*; // Use its public items
 pub use util::call_provider;
 
-mod db; // Declare the db module
+mod db; // Declare the db module  
 use db::*; // Use its public items
 
 pub mod constants; // Declare the constants module
