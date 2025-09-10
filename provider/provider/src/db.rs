@@ -1,8 +1,8 @@
 use anyhow::{Error, Result};
 use hyperware_process_lib::{
     logging::info,
-    our,
     sqlite::{self, Sqlite},
+    our,
 };
 use serde_json::Value;
 use std::collections::HashMap;
@@ -14,8 +14,8 @@ pub async fn open_provider_db() -> Result<sqlite::Sqlite, Error> {
     // This should be the same database the operator uses if they're in the same package context
     let our_address = our();
     let package_id = our_address.package_id();
-    let db = sqlite::open(package_id, "hypergrid", None).await;
-    db
+    let db = sqlite::open(package_id, "hypergrid", None).await?;
+    Ok(db)
 }
 
 /// Load and initialize the provider database with proper schema
@@ -70,28 +70,29 @@ pub async fn get_all_indexed_providers(db: &Sqlite) -> Result<Vec<HashMap<String
 /// Search for providers in the indexed database
 pub async fn search_indexed_providers(db: &Sqlite, query: String) -> Result<Vec<HashMap<String, Value>>> {
     let like_param = format!("%{}%", query);
-    let exact_param = query;
+    let exact_param = query; 
 
     let s = r#"
         SELECT * FROM providers
         WHERE (name LIKE ?1 COLLATE NOCASE)
         OR (site LIKE ?1 COLLATE NOCASE)
         OR (description LIKE ?1 COLLATE NOCASE)
-        OR (provider_id = ?2)
+        OR (provider_id = ?2) 
         "#
     .to_string();
 
-    let params = vec![Value::String(like_param), Value::String(exact_param)];
+    let params = vec![
+        Value::String(like_param),  
+        Value::String(exact_param), 
+    ];
 
     let data = db.read(s, params).await?;
     Ok(data)
 }
 
+
 /// Get provider by exact name from indexed database
-pub async fn get_indexed_provider_by_name(
-    db: &Sqlite,
-    name: &str,
-) -> Result<Option<HashMap<String, Value>>> {
+pub async fn get_indexed_provider_by_name(db: &Sqlite, name: &str) -> Result<Option<HashMap<String, Value>>> {
     let s = "SELECT * FROM providers WHERE name = ?1 LIMIT 1".to_string();
     let p = vec![serde_json::Value::String(name.to_string())];
     let data = db.read(s, p).await?;
@@ -101,8 +102,8 @@ pub async fn get_indexed_provider_by_name(
 /// Compare local provider state with indexed state to detect inconsistencies
 /// Only checks if local providers are properly synchronized with the index
 pub async fn compare_with_indexed_state(
-    local_providers: &[crate::RegisteredProvider],
-    db: &Sqlite,
+    local_providers: &[crate::RegisteredProvider], 
+    db: &Sqlite
 ) -> Result<ComparisonResult> {
     let mut missing_from_index = Vec::new();
     let mut mismatched = Vec::new();
@@ -116,18 +117,22 @@ pub async fn compare_with_indexed_state(
                     if indexed_id != &local_provider.provider_id {
                         mismatched.push(format!(
                             "Provider '{}': ID mismatch (local: {}, indexed: {})",
-                            local_provider.provider_name, local_provider.provider_id, indexed_id
+                            local_provider.provider_name,
+                            local_provider.provider_id,
+                            indexed_id
                         ));
                     }
                 }
-
+                
                 // Check price mismatch if available
                 if let Some(Value::String(indexed_price)) = indexed.get("price") {
                     let local_price_str = local_provider.price.to_string();
                     if indexed_price != &local_price_str {
                         mismatched.push(format!(
                             "Provider '{}': Price mismatch (local: {}, indexed: {})",
-                            local_provider.provider_name, local_price_str, indexed_price
+                            local_provider.provider_name,
+                            local_price_str,
+                            indexed_price
                         ));
                     }
                 }
@@ -161,13 +166,10 @@ impl ComparisonResult {
 
     pub fn summary(&self) -> String {
         if self.is_synchronized() {
-            format!(
-                "✓ All {} local providers are synchronized with index",
-                self.total_local
-            )
+            format!("✓ All {} local providers are synchronized with index", self.total_local)
         } else {
             format!(
-                "⚠ Local provider sync issues: {} missing from index, {} mismatched",
+                "⚠ Local provider sync issues: {} missing from index, {} mismatched", 
                 self.missing_from_index.len(),
                 self.mismatched.len()
             )
