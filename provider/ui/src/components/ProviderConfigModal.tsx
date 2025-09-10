@@ -21,15 +21,11 @@ interface ProviderConfigModalProps {
   providerRegistration: {
     isRegistering: boolean;
     step: ProviderRegistrationStep;
-    currentNoteIndex: number;
     mintedProviderAddress: Address | null;
     isMinting: boolean;
-    isSettingNotes: boolean;
     isMintTxLoading: boolean;
-    isNotesTxLoading: boolean;
     mintError: Error | null;
-    notesError: Error | null;
-    startRegistration: (curlTemplateData: any) => void; // Accepts cURL template + metadata
+    MintHypergridProvider: (curlTemplateData: any) => void; // Accepts cURL template + metadata
   };
   providerUpdate: {
     isUpdating: boolean;
@@ -475,14 +471,10 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
             <ProviderRegistrationOverlay
               isVisible={providerRegistration.isRegistering}
               step={providerRegistration.step}
-              currentNoteIndex={providerRegistration.currentNoteIndex}
               mintedProviderAddress={providerRegistration.mintedProviderAddress}
               isMinting={providerRegistration.isMinting}
-              isSettingNotes={providerRegistration.isSettingNotes}
               isMintTxLoading={providerRegistration.isMintTxLoading}
-              isNotesTxLoading={providerRegistration.isNotesTxLoading}
               mintError={providerRegistration.mintError}
-              notesError={providerRegistration.notesError}
               onClose={handleRegistrationOverlayClose}
             />
 

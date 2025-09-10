@@ -292,7 +292,7 @@ function AppContent() {
     console.log("Starting registration for provider:", provider);
 
     if (isWalletConnected) {
-      providerRegistration.startRegistration(provider);
+      providerRegistration.MintHypergridProvider(provider);
     } else {
       alert('Please connect your wallet to complete provider registration on the hypergrid.');
     }

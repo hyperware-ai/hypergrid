@@ -1,6 +1,6 @@
 use crate::{EndpointDefinition, ProviderRequest};
 use crate::constants::{USDC_BASE_ADDRESS, WALLET_PREFIX};
-use hyperware_app_common::hyperware_process_lib::{
+use hyperware_process_lib::{
     eth::{Address as EthAddress, EthError, TransactionReceipt, TxHash, U256},
     get_blob,
     http::{
@@ -10,8 +10,8 @@ use hyperware_app_common::hyperware_process_lib::{
     },
     hypermap, Request,
     logging::{debug, error, warn, info},
+    hyperapp::{send, sleep},
 };
-use hyperware_app_common::{send, sleep};
 use serde_json;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -977,9 +977,9 @@ pub async fn validate_transaction_payment(
     Ok(())
 }
 
-pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::Provider {
+pub fn default_provider() -> hyperware_process_lib::eth::Provider {
     let hypermap_timeout = 60;
-    hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+    hyperware_process_lib::eth::Provider::new(
         hypermap::HYPERMAP_CHAIN_ID,
         hypermap_timeout,
     )
@@ -987,7 +987,7 @@ pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::P
 
 pub fn default_hypermap() -> hypermap::Hypermap {
     let hypermap_timeout = 60;
-    let provider = hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+    let provider = hyperware_process_lib::eth::Provider::new(
         hypermap::HYPERMAP_CHAIN_ID,
         hypermap_timeout,
     );

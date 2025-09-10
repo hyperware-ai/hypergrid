@@ -1,20 +1,22 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useAccount, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { useAccount, useWriteContract, useWaitForTransactionReceipt, useSimulateContract } from 'wagmi';
 import { encodePacked, stringToHex, decodeEventLog, encodeFunctionData, type Address } from 'viem';
 import { 
   HYPERGRID_ADDRESS, 
   hyperGridNamespaceMinterAbi,
-  generateProviderNotesCallsArray,
+  generateProviderNotes,
   generateNoteCall,
   tbaExecuteAbi,
   HYPERMAP_ADDRESS, 
   MULTICALL_ADDRESS,
-  multicallAbi
+  multicallAbi,
+  tbaMintAbi,
+  HYPERGRID_IMPLEMENTATION
 } from './hypermap';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 import React from 'react';
 
-export type ProviderRegistrationStep = 'idle' | 'minting' | 'notes' | 'complete';
+export type ProviderRegistrationStep = 'idle' | 'registering' | 'complete';
 
 export interface ProviderRegistrationState {
   isRegistering: boolean;
@@ -91,29 +93,6 @@ function extractTbaAddressFromLogs(logs: any[], providerName: string): Address |
   return null;
 }
 
-export function getRegistrationStepText(
-  step: ProviderRegistrationStep,
-  currentNoteIndex: number,
-  isMinting: boolean,
-  isSettingNotes: boolean,
-  isMintTxLoading: boolean,
-  isNotesTxLoading: boolean,
-): string {
-  switch (step) {
-    case 'minting':
-      if (isMinting) return 'Creating provider entry on blockchain...';
-      if (isMintTxLoading) return 'Waiting for transaction confirmation...';
-      return 'Preparing to mint...';
-    case 'notes':
-      if (isSettingNotes) return 'Setting provider metadata notes...';
-      if (isNotesTxLoading) return 'Waiting for notes transaction confirmation...';
-      return 'Preparing to set notes...';
-    case 'complete':
-      return 'Provider successfully registered on-chain!';
-    default:
-      return 'Initializing...';
-  }
-}
 
 export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks) {
   const { address: walletAddress, isConnected: isWalletConnected } = useAccount();
@@ -139,13 +118,7 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     reset: resetMint
   } = useWriteContract();
 
-  const { 
-    writeContract: setNote,
-    data: notesTxHash,
-    error: notesError,
-    isPending: isSettingNotes,
-    reset: resetNote
-  } = useWriteContract();
+  // Removed simulation - sending transaction directly
 
   // Transaction receipts with callbacks
   const { 
@@ -159,19 +132,9 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     }
   });
 
-  const { 
-    isLoading: isNotesTxLoading, 
-    isSuccess: isNotesTxSuccess 
-  } = useWaitForTransactionReceipt({
-    hash: notesTxHash,
-    query: {
-      enabled: !!notesTxHash,
-    }
-  });
-
-  // Handle mint transaction success
-  const handleMintSuccess = useCallback((txReceipt: any, providerData: RegisteredProvider) => {
-    console.log('Mint transaction confirmed:', txReceipt.transactionHash);
+  // Handle registration transaction success
+  const handleRegistrationSuccess = useCallback((txReceipt: any, providerData: RegisteredProvider) => {
+    console.log('Registration transaction confirmed:', txReceipt.transactionHash);
     
     // Extract TBA from transaction logs
     const extractedTbaAddress = extractTbaAddressFromLogs(
@@ -184,12 +147,11 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
       setState(prev => ({
         ...prev,
         mintedProviderAddress: extractedTbaAddress,
-        step: 'notes',
-        currentNoteIndex: 0,
+        step: 'complete',
+        isRegistering: false,
       }));
       resetMint();
-      // Start notes transaction immediately
-      setProviderNotes(extractedTbaAddress, providerData);
+      callbacks.onRegistrationComplete(extractedTbaAddress);
     } else {
       const errorMessage = 'Could not extract TBA address from transaction logs.';
       setState(prev => ({ 
@@ -205,77 +167,25 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     }
   }, [resetMint, callbacks]);
 
-  // Function to set notes
-  const setProviderNotes = useCallback(async (tbaAddress: Address, providerData: RegisteredProvider) => {
-    console.log('Setting notes via multicall with DELEGATECALL');
-    
-    try {
-      const { tbaAddress: returnedTbaAddress, executeArgs } = generateProviderNotesCallsArray({
-        tbaAddress,
-        providerId: providerData.provider_id,
-        wallet: providerData.registered_provider_wallet,
-        description: providerData.description,
-        instructions: providerData.instructions,
-        price: providerData.price.toString(),
-      });
 
-      console.log('TBA execute args for multicall:', {
-        tbaAddress: returnedTbaAddress,
-        target: executeArgs[0],
-        value: executeArgs[1].toString(),
-        operation: executeArgs[3], // Should be 1 for DELEGATECALL
-      });
-
-      // Call TBA.execute(MULTICALL, multicallData, 0, 1)
-      await setNote({
-        address: returnedTbaAddress,
-        abi: tbaExecuteAbi,
-        functionName: 'execute',
-        args: executeArgs,
-        gas: 1000000n,
-      } as any);
-    } catch (error) {
-      console.error('Failed to create notes multicall:', error);
-      const errorMessage = `Failed to set notes: ${(error as Error).message}`;
-      setState(prev => ({ 
-        ...prev, 
-        isRegistering: false, 
-        step: 'idle',
-        error: errorMessage,
-        processedTxHashes: new Set(),
-      }));
-      callbacks.onRegistrationError(errorMessage);
-    }
-  }, [setNote, callbacks]);
-
-  // Handle notes transaction success
-  const handleNotesSuccess = useCallback((tbaAddress: Address) => {
-    console.log('All notes set successfully via multicall');
-    
-    setState(prev => ({
-      ...prev,
-      step: 'complete',
-      isRegistering: false,
-    }));
-    
-    callbacks.onRegistrationComplete(tbaAddress);
-  }, [callbacks]);
-
-  // Watch for mint transaction success
+  // Watch for registration transaction success
   useEffect(() => {
-    if (isMintTxSuccess && mintTxReceipt && state.pendingProviderData && state.step === 'minting') {
-      handleMintSuccess(mintTxReceipt, state.pendingProviderData);
+    console.log('Transaction status check:', {
+      isMintTxSuccess,
+      hasReceipt: !!mintTxReceipt,
+      hasPendingData: !!state.pendingProviderData,
+      currentStep: state.step,
+      txHash: mintTxHash
+    });
+    
+    if (isMintTxSuccess && mintTxReceipt && state.pendingProviderData && state.step === 'registering') {
+      console.log('Transaction confirmed, processing success...');
+      handleRegistrationSuccess(mintTxReceipt, state.pendingProviderData);
     }
-  }, [isMintTxSuccess, mintTxReceipt, state.pendingProviderData, state.step, handleMintSuccess]);
+  }, [isMintTxSuccess, mintTxReceipt, state.pendingProviderData, state.step, handleRegistrationSuccess, mintTxHash]);
 
 
 
-  // Watch for notes transaction success
-  useEffect(() => {
-    if (isNotesTxSuccess && state.step === 'notes' && state.mintedProviderAddress) {
-      handleNotesSuccess(state.mintedProviderAddress);
-    }
-  }, [isNotesTxSuccess, state.step, state.mintedProviderAddress, handleNotesSuccess]);
 
   // Handle errors
   useEffect(() => {
@@ -295,74 +205,72 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
     }
   }, [mintError, callbacks, resetMint]);
 
-  useEffect(() => {
-    if (notesError) {
-      console.error('Notes error:', notesError);
-      const errorMessage = `Setting notes failed: ${notesError.message}`;
-      setState(prev => ({ 
-        ...prev, 
-        isRegistering: false, 
-        step: 'idle',
-        error: errorMessage,
-        processedTxHashes: new Set(),
-        isProcessingNote: false,
-      }));
-      callbacks.onRegistrationError(errorMessage);
-      resetNote();
-    }
-  }, [notesError, callbacks, resetNote]);
 
   // Start blockchain registration
-  const startRegistration = useCallback(async (provider: RegisteredProvider) => {
+  const MintHypergridProvider = useCallback(async (provider: RegisteredProvider) => {
     if (!isWalletConnected || !walletAddress) {
       callbacks.onRegistrationError('Wallet not connected');
       return;
     }
 
-          setState(prev => ({
-        ...prev,
-        isRegistering: true,
-        step: 'minting',
-        pendingProviderData: provider,
-        error: null,
-        processedTxHashes: new Set(),
-        isProcessingNote: false,
-      }));
-    
+    setState(prev => ({
+      ...prev,
+      isRegistering: true,
+      step: 'registering',
+      pendingProviderData: provider,
+      error: null,
+      processedTxHashes: new Set(),
+      isProcessingNote: false,
+    }));
+
+    const initCall = generateProviderNotes({
+      providerId: provider.provider_id,
+      wallet: provider.registered_provider_wallet,
+      description: provider.description,
+      instructions: provider.instructions,
+      price: provider.price.toString(),
+    });
+
     try {
-      await mintProvider({
+      // First simulate the transaction to check if it will work
+      const args = [
+        walletAddress,
+        encodePacked(["bytes"], [stringToHex(provider.provider_name)]),
+        initCall,
+        HYPERGRID_IMPLEMENTATION,
+      ];
+      
+      console.log('Sending transaction directly with args:', args);
+      console.log('initCall data:', initCall);
+      console.log('initCall length:', initCall.length);
+      
+      // Send transaction directly without simulation
+      mintProvider({
         address: HYPERGRID_ADDRESS,
-        abi: hyperGridNamespaceMinterAbi,
+        abi: tbaMintAbi,
         functionName: 'mint',
-        args: [
-          walletAddress,
-          encodePacked(["bytes"], [stringToHex(provider.provider_name)]),
-        ],
+        args: args,
       } as any);
-    } catch (error) {
-      console.error('Failed to initiate blockchain minting:', error);
-      const errorMessage = `Failed to start minting: ${(error as Error).message}`;
-      setState(prev => ({ 
-        ...prev, 
-        isRegistering: false, 
+      console.log('Transaction sent successfully');
+    } catch (execError) {
+      console.error('Failed to prepare transaction:', execError);
+      setState(prev => ({
+        ...prev,
+        isRegistering: false,
         step: 'idle',
-        error: errorMessage,
-        processedTxHashes: new Set(),
-        isProcessingNote: false,
+        error: null,
       }));
-      callbacks.onRegistrationError(errorMessage);
     }
   }, [isWalletConnected, walletAddress, mintProvider, callbacks]);
+
+  // Removed simulation handling - transactions are sent directly now
 
   return {
     ...state,
     isMinting,
-    isSettingNotes,
     isMintTxLoading,
-    isNotesTxLoading,
     mintError,
-    notesError,
-    startRegistration,
+    MintHypergridProvider,
   };
 }
 

@@ -10,15 +10,20 @@ uuid = "1.4.1"
 wit-bindgen = "0.36.0"
 
 [dependencies.caller-utils]
+optional = true
 path = "../target/caller-utils"
 
 [dependencies.hyperprocess_macro]
+branch = "develop"
 git = "https://github.com/hyperware-ai/hyperprocess-macro"
-rev = "c0d0bb9"
 
-[dependencies.hyperware_app_common]
-git = "https://github.com/hyperware-ai/hyperprocess-macro"
-rev = "c0d0bb9"
+[dependencies.hyperware_process_lib]
+features = [
+    "hyperapp",
+    "logging",
+]
+git = "https://github.com/hyperware-ai/process_lib"
+rev = "b9f1ead"
 
 [dependencies.serde]
 features = ["derive"]

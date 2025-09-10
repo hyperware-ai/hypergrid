@@ -48,22 +48,11 @@ export const tbaExecuteAbi = parseAbi([
     'function execute(address to, uint256 value, bytes calldata data, uint8 operation) returns (bytes memory returnData)',
 ]);
 
-/**
- * Calculates the namehash for a provider name under the grid.hypr namespace
- */
-export function calculateProviderNamehash(providerName: string, parentNamehash: `0x${string}` = DEFAULT_PARENT_NAMEHASH): `0x${string}` {
-  // Convert provider name to bytes
-  const labelBytes = stringToHex(providerName);
-  
-  // Calculate labelhash = keccak256(label)
-  const labelHash = keccak256(labelBytes);
-  
-  // Calculate namehash = keccak256(parenthash + labelhash)
-  const namehash = keccak256(encodePacked(['bytes32', 'bytes32'], [parentNamehash, labelHash]));
-  
-  return namehash;
-}
+export const tbaMintAbi = parseAbi([
+    "function mint(address who, bytes calldata name, bytes calldata initialization, address implementation) external returns (address)"
+]);
 
+export const HYPERGRID_IMPLEMENTATION : Address = '0x44a8Bd4f9370b248c91d54773Ac4a457B3454b50';
 /**
  * Simplified TBA lookup that gets namehash from backend:
  * This ensures consistency and enforces that provider exists in both systems
@@ -103,39 +92,8 @@ export async function lookupProviderTbaAddressFromBackend(
     return null;
   }
 }
-
-/**
- * Verifies if a provider has been registered on-chain by checking if their TBA exists
- */
-export async function verifyProviderOnChain(
-  providerName: string,
-  publicClient: any
-): Promise<boolean> {
-  const tbaAddress = await lookupProviderTbaAddressFromBackend(providerName, publicClient);
-  return tbaAddress !== null;
-}
-
 // Helper functions
 
-/**
- * Generates the calldata for minting a new provider entry
- */
-export function generateProviderMintCall({
-    owner,
-    providerName,
-}: {
-    owner: Address;
-    providerName: string;
-}): Hex {
-    return encodeFunctionData({
-        abi: hyperGridNamespaceMinterAbi,
-        functionName: 'mint',
-        args: [
-            owner,
-            encodePacked(["bytes"], [stringToHex(providerName)]),
-        ]
-    });
-}
 
 /**
  * Generates the calldata for setting a note on a provider entry
@@ -158,102 +116,16 @@ export function generateNoteCall({
 }
 
 /**
- * Prepares all note calls for provider metadata
- */
-export function prepareProviderNoteCalls({
-    providerId,
-    wallet,
-    description,
-    instructions,
-    price,
-}: {
-    providerId: string;
-    wallet: string;
-    description: string;
-    instructions: string;
-    price: string;
-}): Array<{ key: string; value: string; calldata: Hex }> {
-    return [
-        {
-            key: PROVIDER_NOTE_KEYS.PROVIDER_ID,
-            value: providerId,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PROVIDER_ID, noteValue: providerId }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.WALLET,
-            value: wallet,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.WALLET, noteValue: wallet }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.DESCRIPTION,
-            value: description,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.DESCRIPTION, noteValue: description }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.INSTRUCTIONS,
-            value: instructions,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.INSTRUCTIONS, noteValue: instructions }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.PRICE,
-            value: price,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PRICE, noteValue: price }),
-        },
-    ];
-}
-
-/**
- * Generates a multicall for setting all provider notes in a single transaction
- */
-export function generateProviderNotesMulticall({
-    tbaAddress,
-    providerId,
-    wallet,
-    description,
-    instructions,
-    price,
-}: {
-    tbaAddress: Address;
-    providerId: string;
-    wallet: string;
-    description: string;
-    instructions: string;
-    price: string;
-}): Hex {
-    const noteCalls = [
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PROVIDER_ID, noteValue: providerId }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.WALLET, noteValue: wallet }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.DESCRIPTION, noteValue: description }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.INSTRUCTIONS, noteValue: instructions }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PRICE, noteValue: price }),
-    ];
-
-    // Each call targets HYPERMAP_ADDRESS directly (not through TBA.execute)
-    const calls = noteCalls.map(calldata => ({
-        target: HYPERMAP_ADDRESS,
-        callData: calldata,
-    }));
-
-    return encodeFunctionData({
-        abi: multicallAbi,
-        functionName: 'aggregate',
-        args: [calls]
-    });
-}
-
-/**
  * Generates TBA execute arguments for setting provider notes via multicall
  * Uses DELEGATECALL pattern from the example code
  */
-export function generateProviderNotesCallsArray({
-    tbaAddress,
+export function generateProviderNotes({
     providerId,
     wallet,
     description,
     instructions,
     price,
 }: {
-    tbaAddress: Address;
     providerId: string;
     wallet: string;
     description: string;
@@ -262,57 +134,36 @@ export function generateProviderNotesCallsArray({
 }) {
     // 1. Generate individual note calls
     const noteCalls = [
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PROVIDER_ID, noteValue: providerId }),
         generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.WALLET, noteValue: wallet }),
         generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.DESCRIPTION, noteValue: description }),
         generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.INSTRUCTIONS, noteValue: instructions }),
         generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PRICE, noteValue: price }),
     ];
 
-    // 2. Create multicall data
-    const calls = noteCalls.map(calldata => ({
-        target: HYPERMAP_ADDRESS,
-        callData: calldata,
-    }));
+    let calls = [
+        { target: HYPERMAP_ADDRESS, callData: noteCalls[0] },
+        { target: HYPERMAP_ADDRESS, callData: noteCalls[1] },
+        { target: HYPERMAP_ADDRESS, callData: noteCalls[2] },
+        { target: HYPERMAP_ADDRESS, callData: noteCalls[3] },
+    ];
 
-    const multicallData = encodeFunctionData({
+
+    const multicalls = encodeFunctionData({
         abi: multicallAbi,
         functionName: 'aggregate',
         args: [calls]
     });
+    
+    const initCall = encodeFunctionData({
+        abi: tbaExecuteAbi,
+        functionName: 'execute',
+        args: [
+            MULTICALL_ADDRESS,
+            BigInt(0),
+            multicalls,
+            1
+        ]
+    });
 
-    // 3. Return TBA execute arguments (not encoded)
-    return {
-        tbaAddress,
-        executeArgs: [
-            MULTICALL_ADDRESS, // target: Multicall contract
-            0n,               // value: 0 ETH
-            multicallData,    // data: the multicall
-            1,                // operation: 1 for DELEGATECALL (critical!)
-        ] as const
-    };
+    return initCall;
 }
-
-/**
- * Validates a provider name
- */
-export function validateProviderName(name: string): { valid: boolean; error?: string } {
-    if (!name) {
-        return { valid: false, error: 'Provider name is required' };
-    }
-    
-    if (name.length < 3) {
-        return { valid: false, error: 'Provider name must be at least 3 characters' };
-    }
-    
-    if (name.length > 32) {
-        return { valid: false, error: 'Provider name must be 32 characters or less' };
-    }
-    
-    // Check for valid characters (alphanumeric and hyphens)
-    if (!/^[a-zA-Z0-9-]+$/.test(name)) {
-        return { valid: false, error: 'Provider name can only contain letters, numbers, and hyphens' };
-    }
-    
-    return { valid: true };
-} 

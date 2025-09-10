@@ -1,8 +1,7 @@
-use hyperprocess_macro::hyperprocess;
-use hyperware_app_common::get_server;
+use hyperprocess_macro::*;
 
-use hyperware_app_common::hyperware_process_lib::logging::RemoteLogSettings;
-use hyperware_app_common::hyperware_process_lib::{
+use hyperware_process_lib::logging::RemoteLogSettings;
+use hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
     get_state,
     hypermap,
@@ -10,9 +9,9 @@ use hyperware_app_common::hyperware_process_lib::{
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
+    hyperapp::{source, SaveOptions, sleep, get_server},
 };
 use crate::constants::HYPR_SUFFIX;
-use hyperware_app_common::{source, SaveOptions, sleep};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -777,11 +776,11 @@ impl HypergridProviderState {
     async fn get_indexed_providers(&self) -> Result<String, String> {
         debug!("Fetching indexed providers");
         
-        let db = load_provider_db().map_err(|e| {
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
         
-        let providers = get_all_indexed_providers(&db).map_err(|e| {
+        let providers = get_all_indexed_providers(&db).await.map_err(|e| {
             format!("Failed to fetch indexed providers: {}", e)
         })?;
         
@@ -802,11 +801,11 @@ impl HypergridProviderState {
     async fn search_indexed_providers(&self, query: String) -> Result<String, String> {
         debug!("Searching indexed providers with query: {}", query);
         
-        let db = load_provider_db().map_err(|e| {
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
         
-        let providers = search_indexed_providers(&db, query.clone()).map_err(|e| {
+        let providers = search_indexed_providers(&db, query.clone()).await.map_err(|e| {
             format!("Failed to search indexed providers: {}", e)
         })?;
         
@@ -827,11 +826,11 @@ impl HypergridProviderState {
     async fn get_indexed_provider_details(&self, name: String) -> Result<String, String> {
         debug!("Getting indexed provider details for name: {}", name);
         
-        let db = load_provider_db().map_err(|e| {
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
         
-        let provider = get_indexed_provider_by_name(&db, &name).map_err(|e| {
+        let provider = get_indexed_provider_by_name(&db, &name).await.map_err(|e| {
             format!("Failed to get provider details: {}", e)
         })?;
         
@@ -852,11 +851,11 @@ impl HypergridProviderState {
     async fn get_provider_sync_status(&self) -> Result<String, String> {
         debug!("Checking provider sync status");
         
-        let db = load_provider_db().map_err(|e| {
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
         
-        let comparison = compare_with_indexed_state(&self.registered_providers, &db).map_err(|e| {
+        let comparison = compare_with_indexed_state(&self.registered_providers, &db).await.map_err(|e| {
             format!("Failed to compare provider states: {}", e)
         })?;
         
@@ -999,11 +998,11 @@ impl HypergridProviderState {
             TerminalCommand::ViewDatabase => {
                 debug!("Viewing database");
 
-                let db = load_provider_db().map_err(|e| {
+                let db = load_provider_db().await.map_err(|e| {
                     format!("Failed to load provider database: {}", e)
                 })?;
 
-                let providers = get_all_indexed_providers(&db).map_err(|e| {
+                let providers = get_all_indexed_providers(&db).await.map_err(|e| {
                     format!("Failed to fetch indexed providers: {}", e)
                 })?;
 
