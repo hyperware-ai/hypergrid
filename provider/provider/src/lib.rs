@@ -1,8 +1,7 @@
-use hyperprocess_macro::hyperprocess;
-use hyperware_app_common::get_server;
+use hyperprocess_macro::*;
 
-use hyperware_app_common::hyperware_process_lib::logging::RemoteLogSettings;
-use hyperware_app_common::hyperware_process_lib::{
+use hyperware_process_lib::logging::RemoteLogSettings;
+use hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
     get_state,
     hypermap,
@@ -10,9 +9,9 @@ use hyperware_app_common::hyperware_process_lib::{
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
+    hyperapp::{source, SaveOptions, sleep, get_server},
 };
 use crate::constants::HYPR_SUFFIX;
-use hyperware_app_common::{source, SaveOptions, sleep};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -37,8 +36,8 @@ pub struct ProviderRequest {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DummyArgument {
-    pub argument: String,
+pub struct HealthCheckRequest {
+    pub provider_name: String, // Provider name for availability checking
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -105,7 +104,7 @@ pub struct EndpointDefinition {
     pub url_template: String,
     pub original_headers: Vec<(String, String)>,
     pub original_body: Option<String>,
-    
+
     // Parameter definitions for substitution
     pub parameters: Vec<ParameterDefinition>,
     pub parameter_names: Vec<String>,
@@ -124,7 +123,7 @@ impl<'de> Deserialize<'de> for EndpointDefinition {
             New(NewEndpointDefinition),
             Old(OldEndpointDefinition),
         }
-        
+
         match EndpointDefinitionVariant::deserialize(deserializer) {
             Ok(EndpointDefinitionVariant::New(new_endpoint)) => {
                 Ok(EndpointDefinition {
@@ -375,7 +374,7 @@ impl HypergridProviderState {
         // Initialize tracing-based logging for the provider process
         init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).expect("Failed to initialize logging");
         info!("Initializing Hypergrid Provider");
-        
+
         *self = HypergridProviderState::load();
         let server = get_server().expect("HTTP server should be initialized");
 
@@ -390,9 +389,42 @@ impl HypergridProviderState {
 
     #[local]
     #[remote]
-    async fn health_ping(&self, arg: DummyArgument) -> Result<String, String> {
-        info!("Health ping received: {:?}", arg);
-        Ok("Ack".to_string())
+    async fn health_ping(&self, request: HealthCheckRequest) -> Result<String, String> {
+        info!("Health ping received: {:?}", request);
+        
+        info!("Checking availability for provider: {}", request.provider_name);
+        
+        // Check if provider exists in registry
+        let provider_exists = self
+            .registered_providers
+            .iter()
+            .find(|p| p.provider_name == request.provider_name);
+            
+        match provider_exists {
+            Some(provider) => {
+                // Check if provider has a valid endpoint configuration
+                if provider.endpoint.is_empty() {
+                    let error_msg = format!(
+                        "Provider '{}' exists but needs endpoint configuration", 
+                        request.provider_name
+                    );
+                    warn!("{}", error_msg);
+                    return Err(error_msg);
+                }
+                
+                debug!(
+                    "Provider '{}' is available and configured (price: {} USDC)", 
+                    request.provider_name, 
+                    provider.price
+                );
+                Ok("Ack".to_string())
+            }
+            None => {
+                let error_msg = format!("Provider '{}' not found in registry", request.provider_name);
+                warn!("{}", error_msg);
+                Err(error_msg)
+            }
+        }
     }
 
     #[http]
@@ -449,7 +481,7 @@ impl HypergridProviderState {
         arguments: Vec<(String, String)>,
     ) -> Result<String, String> {
         info!("Validating provider: {:?}", provider);
-        
+
         // Check if already registered
         if self
             .registered_providers
@@ -463,7 +495,7 @@ impl HypergridProviderState {
             warn!("{}", error_msg);
             return Err(error_msg);
         }
-        
+
         // Use the new curl-based validation
         let validation_result = call_provider(
             provider.provider_name.clone(),
@@ -472,19 +504,19 @@ impl HypergridProviderState {
             our().node.to_string(),
         )
         .await?;
-        
+
         info!("Validation result: {}", validation_result);
         validate_response_status(&validation_result)
             .map_err(|e| format!("Validation failed: {}", e))?;
 
         info!("Provider validation successful: {}", provider.provider_name);
-        
+
         // Return the validated provider object as JSON for frontend consistency
         let response = serde_json::json!({
             "validation_result": validation_result,
             "provider": provider
         });
-        
+
         serde_json::to_string(&response)
             .map_err(|e| format!("Failed to serialize validation response: {}", e))
     }
@@ -499,7 +531,7 @@ impl HypergridProviderState {
         arguments: Vec<(String, String)>,
     ) -> Result<String, String> {
         info!("Validating provider update: {}", provider_name);
-        
+
         // Check if the original provider exists
         if !self
             .registered_providers
@@ -513,7 +545,7 @@ impl HypergridProviderState {
             warn!("{}", error_msg);
             return Err(error_msg);
         }
-        
+
         // If the name is changing, check if new name already exists
         if provider_name != updated_provider.provider_name {
             if self
@@ -529,7 +561,7 @@ impl HypergridProviderState {
                 return Err(error_msg);
             }
         }
-        
+
         // Use the new curl-based validation
         let validation_result = call_provider(
             updated_provider.provider_name.clone(),
@@ -538,19 +570,19 @@ impl HypergridProviderState {
             our().node.to_string(),
         )
         .await?;
-        
+
         info!("Validation result: {}", validation_result);
         validate_response_status(&validation_result)
             .map_err(|e| format!("Validation failed: {}", e))?;
 
         info!("Provider update validation successful: {}", updated_provider.provider_name);
-        
+
         // Return the validated provider object as JSON for frontend consistency
         let response = serde_json::json!({
             "validation_result": validation_result,
             "provider": updated_provider
         });
-        
+
         serde_json::to_string(&response)
             .map_err(|e| format!("Failed to serialize validation response: {}", e))
     }
@@ -687,10 +719,10 @@ impl HypergridProviderState {
         // --- 2. Call the provider with retry mechanism ---
         const MAX_RETRIES: usize = 3;
         let mut last_error = String::new();
-        
+
         for attempt in 1..=MAX_RETRIES {
             debug!("Attempting provider call {} of {}", attempt, MAX_RETRIES);
-            
+
             let api_call_result = call_provider(
                 // This is the HTTP call_provider
                 registered_provider.provider_name.clone(),
@@ -710,7 +742,7 @@ impl HypergridProviderState {
                 Err(e) => {
                     last_error = e.clone();
                     warn!("Provider call failed on attempt {} of {}: {}", attempt, MAX_RETRIES, e);
-                    
+
                     // Don't sleep after the last attempt
                     if attempt < MAX_RETRIES {
                         // Add a small delay between retries to handle rate limiting and temporary issues
@@ -719,7 +751,7 @@ impl HypergridProviderState {
                 }
             }
         }
-        
+
         // If we get here, all retries failed
         error!("All {} provider call attempts failed. Last error: {}", MAX_RETRIES, last_error);
         Err(last_error)
@@ -740,7 +772,7 @@ impl HypergridProviderState {
             .filter(|provider| provider.endpoint.is_empty())
             .cloned()
             .collect();
-        
+
         info!("Found {} providers needing endpoint configuration", providers_needing_config.len());
         Ok(providers_needing_config)
     }
@@ -754,7 +786,7 @@ impl HypergridProviderState {
     #[http]
     async fn get_provider_namehash(&self, provider_name: String) -> Result<String, String> {
         debug!("Getting namehash for provider: {}", provider_name);
-        
+
         // Verify provider exists in our registry
         let provider = self
             .registered_providers
@@ -767,7 +799,7 @@ impl HypergridProviderState {
         let namespace = &HYPR_SUFFIX[1..]; // Remove the leading dot from ".grid.hypr" to get "grid.hypr"
         let full_name = format!("{}.{}", provider.provider_name, namespace);
         let namehash = hypermap::namehash(&full_name);
-        
+
         debug!("Calculated namehash for '{}': {}", full_name, namehash);
         Ok(namehash)
     }
@@ -776,22 +808,22 @@ impl HypergridProviderState {
     #[http]
     async fn get_indexed_providers(&self) -> Result<String, String> {
         debug!("Fetching indexed providers");
-        
-        let db = load_provider_db().map_err(|e| {
+
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
-        
-        let providers = get_all_indexed_providers(&db).map_err(|e| {
+
+        let providers = get_all_indexed_providers(&db).await.map_err(|e| {
             format!("Failed to fetch indexed providers: {}", e)
         })?;
-        
+
         let json_providers: Vec<serde_json::Value> = providers
             .into_iter()
             .map(|provider| serde_json::to_value(provider).unwrap_or_default())
             .collect();
-            
+
         debug!("Retrieved {} indexed providers", json_providers.len());
-        
+
         serde_json::to_string(&json_providers).map_err(|e| {
             format!("Failed to serialize providers to JSON: {}", e)
         })
@@ -801,22 +833,22 @@ impl HypergridProviderState {
     #[http]
     async fn search_indexed_providers(&self, query: String) -> Result<String, String> {
         debug!("Searching indexed providers with query: {}", query);
-        
-        let db = load_provider_db().map_err(|e| {
+
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
-        
-        let providers = search_indexed_providers(&db, query.clone()).map_err(|e| {
+
+        let providers = search_indexed_providers(&db, query.clone()).await.map_err(|e| {
             format!("Failed to search indexed providers: {}", e)
         })?;
-        
+
         let json_providers: Vec<serde_json::Value> = providers
             .into_iter()
             .map(|provider| serde_json::to_value(provider).unwrap_or_default())
             .collect();
-            
+
         debug!("Found {} providers matching query '{}'", json_providers.len(), query);
-        
+
         serde_json::to_string(&json_providers).map_err(|e| {
             format!("Failed to serialize providers to JSON: {}", e)
         })
@@ -826,22 +858,22 @@ impl HypergridProviderState {
     #[http]
     async fn get_indexed_provider_details(&self, name: String) -> Result<String, String> {
         debug!("Getting indexed provider details for name: {}", name);
-        
-        let db = load_provider_db().map_err(|e| {
+
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
-        
-        let provider = get_indexed_provider_by_name(&db, &name).map_err(|e| {
+
+        let provider = get_indexed_provider_by_name(&db, &name).await.map_err(|e| {
             format!("Failed to get provider details: {}", e)
         })?;
-        
+
         let result = provider.map(|p| serde_json::to_value(p).unwrap_or_default());
-        
+
         match &result {
             Some(_) => info!("Found indexed provider details for '{}'", name),
             None => info!("No indexed provider found for '{}'", name),
         }
-        
+
         serde_json::to_string(&result).map_err(|e| {
             format!("Failed to serialize provider details to JSON: {}", e)
         })
@@ -851,15 +883,15 @@ impl HypergridProviderState {
     #[http]
     async fn get_provider_sync_status(&self) -> Result<String, String> {
         debug!("Checking provider sync status");
-        
-        let db = load_provider_db().map_err(|e| {
+
+        let db = load_provider_db().await.map_err(|e| {
             format!("Failed to load provider database: {}", e)
         })?;
-        
-        let comparison = compare_with_indexed_state(&self.registered_providers, &db).map_err(|e| {
+
+        let comparison = compare_with_indexed_state(&self.registered_providers, &db).await.map_err(|e| {
             format!("Failed to compare provider states: {}", e)
         })?;
-        
+
         let status = serde_json::json!({
             "is_synchronized": comparison.is_synchronized(),
             "summary": comparison.summary(),
@@ -868,7 +900,7 @@ impl HypergridProviderState {
             "mismatched": comparison.mismatched,
             "has_issues": !comparison.is_synchronized()
         });
-        
+
         serde_json::to_string(&status).map_err(|e| {
             format!("Failed to serialize sync status to JSON: {}", e)
         })
@@ -999,11 +1031,11 @@ impl HypergridProviderState {
             TerminalCommand::ViewDatabase => {
                 debug!("Viewing database");
 
-                let db = load_provider_db().map_err(|e| {
+                let db = load_provider_db().await.map_err(|e| {
                     format!("Failed to load provider database: {}", e)
                 })?;
 
-                let providers = get_all_indexed_providers(&db).map_err(|e| {
+                let providers = get_all_indexed_providers(&db).await.map_err(|e| {
                     format!("Failed to fetch indexed providers: {}", e)
                 })?;
 
@@ -1036,8 +1068,8 @@ impl EndpointDefinition {
 
     /// Check if this endpoint definition is empty (needs configuration)
     pub fn is_empty(&self) -> bool {
-        self.original_curl.is_empty() && 
-        self.base_url.is_empty() && 
+        self.original_curl.is_empty() &&
+        self.base_url.is_empty() &&
         self.url_template.is_empty()
     }
 

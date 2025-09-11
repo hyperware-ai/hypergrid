@@ -178,7 +178,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
             onClose={handleClose}
             preventAccidentalClose={true}
         >
-            <div className="grow self-stretch flex flex-col gap-6 max-w-2xl mx-auto w-full overflow-hidden">
+            <div className="grow self-stretch flex flex-col gap-6 max-w-2xl mx-auto w-full overflow-y-auto">
                 {/* Step Indicator */}
                 <div className="flex items-center justify-between">
                     {steps.map((step, index) => (
@@ -215,7 +215,7 @@ const ShimApiConfigModal: React.FC<ShimApiConfigModalProps> = ({
                 </div>
 
                 {/* Step Content */}
-                <div className="min-h-[400px] w-full transition-all duration-300 overflow-hidden">
+                <div className="w-full transition-all duration-300">
                     {/* Step 1: Add MCP Server */}
                     {currentStep === 1 && (
                         <div className="p-6 bg-dark-gray/5 border border-gray-200 rounded-xl flex flex-col gap-4 transition-all duration-300 ease-out">
