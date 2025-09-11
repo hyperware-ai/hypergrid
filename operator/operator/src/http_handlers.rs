@@ -1626,6 +1626,7 @@ fn perform_provider_health_check(provider_details: &ProviderDetails, provider_na
 
     let health_check_request = serde_json::json!({
         "provider_name": provider_name.unwrap_or(&provider_details.provider_id)
+    });
 
     let dummy_argument = serde_json::json!({
         "argument": "swag"
