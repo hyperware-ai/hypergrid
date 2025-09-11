@@ -303,7 +303,7 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
           ) : (
             <>
               {/* Top-center: grid-wallet.node.os name */}
-              <div className="absolute left-1/2 transform -translate-x-1/2 top-3 text-sm text-gray-900 font-medium">
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-3 text-sm text-gray-900 font-medium whitespace-nowrap">
                 {nodeName ? `grid-wallet.${nodeName}` : '—'}
               </div>
               {/* Center: balance */}
