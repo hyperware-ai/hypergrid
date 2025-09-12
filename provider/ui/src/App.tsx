@@ -222,6 +222,7 @@ function AppContent() {
     setProvidersError(null);
     try {
       const providers = await fetchRegisteredProvidersApi();
+      
       setRegisteredProviders(providers);
       console.log("Fetched registered providers:", providers);
     } catch (error) {
@@ -287,6 +288,52 @@ function AppContent() {
     setIsEditMode(true);
     setShowForm(true);
   }, []);
+
+  const handleToggleProviderLive = useCallback(async (provider: RegisteredProvider) => {
+    if (!isWalletConnected) {
+      alert('Please connect your wallet to update provider status on the hypergrid.');
+      return;
+    }
+
+    // Determine the new live status
+    const newLiveStatus = provider.is_live === false ? true : false;
+    
+    try {
+      // Look up the actual TBA address for this provider from backend
+      const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
+
+      if (!tbaAddress) {
+        alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
+        return;
+      }
+
+      console.log(`Toggling provider ${provider.provider_name} to ${newLiveStatus ? 'live' : 'offline'}`);
+
+      // Create a simple update plan for just the is_live toggle
+      const toggleUpdatePlan = {
+        needsOnChainUpdate: true,
+        needsOffChainUpdate: true,
+        onChainNotes: [{ key: '~is-live', value: newLiveStatus.toString() }],
+        updatedProvider: {
+          ...provider,
+          is_live: newLiveStatus
+        }
+      };
+
+      // Store the update plan for the callback
+      (window as any).pendingUpdatePlan = toggleUpdatePlan;
+
+      // Update just the ~is-live note using the existing update flow
+      await providerUpdate.updateProviderNotes(tbaAddress, [
+        { key: '~is-live', value: newLiveStatus.toString() }
+      ]);
+
+      // The success will be handled by the providerUpdate.onUpdateComplete callback
+    } catch (error) {
+      console.error('Error toggling provider live status:', error);
+      alert(`Failed to update provider status: ${(error as Error).message}`);
+    }
+  }, [isWalletConnected, publicClient, providerUpdate]);
 
   const handleProviderRegistration = useCallback(async (provider: RegisteredProvider) => {
     console.log("Starting registration for provider:", provider);
@@ -462,9 +509,10 @@ function AppContent() {
             <div className="flex flex-col gap-2">
               {registeredProviders.map((provider) => (
                 <RegisteredProviderView
-                  key={provider.provider_id || provider.provider_name}
+                  key={`${provider.provider_name}-${provider.provider_id}`}
                   provider={provider}
                   onEdit={handleEditProvider}
+                  onToggleLive={handleToggleProviderLive}
                 />
               ))}
             </div>

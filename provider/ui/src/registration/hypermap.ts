@@ -12,6 +12,7 @@ export const PROVIDER_NOTE_KEYS = {
     DESCRIPTION: '~description',
     INSTRUCTIONS: '~instructions',
     PRICE: '~price',
+    IS_LIVE: '~is-live',
 } as const;
 
 // Default parent namehash - can be overridden when calling functions
@@ -47,22 +48,6 @@ export const multicallAbi = parseAbi([
 export const tbaExecuteAbi = parseAbi([
     'function execute(address to, uint256 value, bytes calldata data, uint8 operation) returns (bytes memory returnData)',
 ]);
-
-/**
- * Calculates the namehash for a provider name under the grid.hypr namespace
- */
-export function calculateProviderNamehash(providerName: string, parentNamehash: `0x${string}` = DEFAULT_PARENT_NAMEHASH): `0x${string}` {
-  // Convert provider name to bytes
-  const labelBytes = stringToHex(providerName);
-  
-  // Calculate labelhash = keccak256(label)
-  const labelHash = keccak256(labelBytes);
-  
-  // Calculate namehash = keccak256(parenthash + labelhash)
-  const namehash = keccak256(encodePacked(['bytes32', 'bytes32'], [parentNamehash, labelHash]));
-  
-  return namehash;
-}
 
 /**
  * Simplified TBA lookup that gets namehash from backend:
@@ -105,39 +90,6 @@ export async function lookupProviderTbaAddressFromBackend(
 }
 
 /**
- * Verifies if a provider has been registered on-chain by checking if their TBA exists
- */
-export async function verifyProviderOnChain(
-  providerName: string,
-  publicClient: any
-): Promise<boolean> {
-  const tbaAddress = await lookupProviderTbaAddressFromBackend(providerName, publicClient);
-  return tbaAddress !== null;
-}
-
-// Helper functions
-
-/**
- * Generates the calldata for minting a new provider entry
- */
-export function generateProviderMintCall({
-    owner,
-    providerName,
-}: {
-    owner: Address;
-    providerName: string;
-}): Hex {
-    return encodeFunctionData({
-        abi: hyperGridNamespaceMinterAbi,
-        functionName: 'mint',
-        args: [
-            owner,
-            encodePacked(["bytes"], [stringToHex(providerName)]),
-        ]
-    });
-}
-
-/**
  * Generates the calldata for setting a note on a provider entry
  */
 export function generateNoteCall({
@@ -158,90 +110,6 @@ export function generateNoteCall({
 }
 
 /**
- * Prepares all note calls for provider metadata
- */
-export function prepareProviderNoteCalls({
-    providerId,
-    wallet,
-    description,
-    instructions,
-    price,
-}: {
-    providerId: string;
-    wallet: string;
-    description: string;
-    instructions: string;
-    price: string;
-}): Array<{ key: string; value: string; calldata: Hex }> {
-    return [
-        {
-            key: PROVIDER_NOTE_KEYS.PROVIDER_ID,
-            value: providerId,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PROVIDER_ID, noteValue: providerId }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.WALLET,
-            value: wallet,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.WALLET, noteValue: wallet }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.DESCRIPTION,
-            value: description,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.DESCRIPTION, noteValue: description }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.INSTRUCTIONS,
-            value: instructions,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.INSTRUCTIONS, noteValue: instructions }),
-        },
-        {
-            key: PROVIDER_NOTE_KEYS.PRICE,
-            value: price,
-            calldata: generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PRICE, noteValue: price }),
-        },
-    ];
-}
-
-/**
- * Generates a multicall for setting all provider notes in a single transaction
- */
-export function generateProviderNotesMulticall({
-    tbaAddress,
-    providerId,
-    wallet,
-    description,
-    instructions,
-    price,
-}: {
-    tbaAddress: Address;
-    providerId: string;
-    wallet: string;
-    description: string;
-    instructions: string;
-    price: string;
-}): Hex {
-    const noteCalls = [
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PROVIDER_ID, noteValue: providerId }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.WALLET, noteValue: wallet }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.DESCRIPTION, noteValue: description }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.INSTRUCTIONS, noteValue: instructions }),
-        generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PRICE, noteValue: price }),
-    ];
-
-    // Each call targets HYPERMAP_ADDRESS directly (not through TBA.execute)
-    const calls = noteCalls.map(calldata => ({
-        target: HYPERMAP_ADDRESS,
-        callData: calldata,
-    }));
-
-    return encodeFunctionData({
-        abi: multicallAbi,
-        functionName: 'aggregate',
-        args: [calls]
-    });
-}
-
-/**
  * Generates TBA execute arguments for setting provider notes via multicall
  * Uses DELEGATECALL pattern from the example code
  */
@@ -252,6 +120,7 @@ export function generateProviderNotesCallsArray({
     description,
     instructions,
     price,
+    isLive,
 }: {
     tbaAddress: Address;
     providerId: string;
@@ -259,6 +128,7 @@ export function generateProviderNotesCallsArray({
     description: string;
     instructions: string;
     price: string;
+    isLive?: string; // Optional - only include if explicitly set
 }) {
     // 1. Generate individual note calls
     const noteCalls = [
@@ -268,6 +138,11 @@ export function generateProviderNotesCallsArray({
         generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.INSTRUCTIONS, noteValue: instructions }),
         generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.PRICE, noteValue: price }),
     ];
+
+    // Only add is_live note if it's explicitly provided
+    if (isLive !== undefined) {
+        noteCalls.push(generateNoteCall({ noteKey: PROVIDER_NOTE_KEYS.IS_LIVE, noteValue: isLive }));
+    }
 
     // 2. Create multicall data
     const calls = noteCalls.map(calldata => ({
@@ -315,4 +190,4 @@ export function validateProviderName(name: string): { valid: boolean; error?: st
     }
     
     return { valid: true };
-} 
+}

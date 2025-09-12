@@ -9,6 +9,7 @@ interface ValidationPanelProps {
     instructions: string;
     registeredProviderWallet: string;
     price: number;
+    isLive?: boolean; // For preserving is_live state in edit mode
   };
   onValidationSuccess: (validatedProvider: any) => void;
   onValidationError: (error: string) => void;
@@ -108,7 +109,9 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         instructions: providerMetadata.instructions,
         registered_provider_wallet: providerMetadata.registeredProviderWallet,
         price: providerMetadata.price,
-        endpoint: curlTemplate // The curlTemplate IS the new EndpointDefinition
+        endpoint: curlTemplate, // The curlTemplate IS the new EndpointDefinition
+        // For new registrations, set is_live to true. For edits, preserve existing value
+        is_live: isEditMode ? providerMetadata.isLive : true
       };
 
       // Send provider object and arguments for validation

@@ -15,6 +15,7 @@ export const ON_CHAIN_NOTE_KEYS = {
   DESCRIPTION: '~description',
   INSTRUCTIONS: '~instructions',
   PRICE: '~price',
+  IS_LIVE: '~is-live',
 } as const;
 
 /**
@@ -51,6 +52,11 @@ export function createSmartUpdatePlan(
       key: ON_CHAIN_NOTE_KEYS.PRICE,
       originalValue: originalProvider.price?.toString(),
       updatedValue: updatedProvider.price?.toString(),
+    },
+    {
+      key: ON_CHAIN_NOTE_KEYS.IS_LIVE,
+      originalValue: originalProvider.is_live?.toString(),
+      updatedValue: updatedProvider.is_live?.toString(),
     },
   ];
 

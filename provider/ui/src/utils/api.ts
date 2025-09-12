@@ -5,11 +5,10 @@ import {
   RegisterProviderResponse,
   UpdateProviderResponse,
   IndexedProvider,
-  GetIndexedProvidersResponse,
   SearchIndexedProvidersResponse,
-  GetIndexedProviderDetailsResponse,
   ProviderSyncStatus,
   GetProviderSyncStatusResponse,
+
 } from '../types/hypergrid_provider';
 
 const BASE_URL = import.meta.env.BASE_URL; 
@@ -285,33 +284,7 @@ export const updateProviderApi = async (providerName: string, updatedProvider: R
   }
 };
 
-// --- Indexed Provider API Functions ---
 
-export const fetchAllIndexedProvidersApi = async (): Promise<IndexedProvider[]> => {
-  const requestData = { GetIndexedProviders: null };
-  try {
-    const result = await fetch(`${BASE_URL}/api`, {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-    });
-    if (!result.ok) {
-      const errorText = await result.text();
-      console.error(`HTTP request failed: ${result.status} ${result.statusText}. Response:`, errorText);
-      throw new Error(`Failed to fetch indexed providers: ${result.statusText} - ${errorText}`);
-    }
-    const responseData = await result.json() as GetIndexedProvidersResponse;
-    if (responseData.Ok) {
-      // Parse the JSON string response
-      return JSON.parse(responseData.Ok) as IndexedProvider[];
-    } else {
-      throw new Error(responseData.Err || "Unknown error fetching indexed providers");
-    }
-  } catch (error) {
-    console.error("Failed to fetch indexed providers:", error);
-    throw error;
-  }
-};
 
 export const searchIndexedProvidersApi = async (query: string): Promise<IndexedProvider[]> => {
   const requestData = { SearchIndexedProviders: query };
@@ -335,32 +308,6 @@ export const searchIndexedProvidersApi = async (query: string): Promise<IndexedP
     }
   } catch (error) {
     console.error("Failed to search indexed providers:", error);
-    throw error;
-  }
-};
-
-export const getIndexedProviderDetailsApi = async (name: string): Promise<IndexedProvider | null> => {
-  const requestData = { GetIndexedProviderDetails: name };
-  try {
-    const result = await fetch(`${BASE_URL}/api`, {
-      method: "POST",
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestData),
-    });
-    if (!result.ok) {
-      const errorText = await result.text();
-      console.error(`HTTP request failed: ${result.status} ${result.statusText}. Response:`, errorText);
-      throw new Error(`Failed to get indexed provider details: ${result.statusText} - ${errorText}`);
-    }
-    const responseData = await result.json() as GetIndexedProviderDetailsResponse;
-    if (responseData.Ok) {
-      // Parse the JSON string response (could be null if provider not found)
-      return JSON.parse(responseData.Ok) as IndexedProvider | null;
-    } else {
-      throw new Error(responseData.Err || "Unknown error getting indexed provider details");
-    }
-  } catch (error) {
-    console.error("Failed to get indexed provider details:", error);
     throw error;
   }
 };

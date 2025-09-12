@@ -190,7 +190,7 @@ pub struct ParameterDefinition {
 }
 
 // --- New Provider Struct ---
-#[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
+#[derive(PartialEq, Clone, Debug, Serialize)]
 pub struct RegisteredProvider {
     pub provider_name: String,
     // Provide Node Identity (HNS entry (Node Identity) of the the process serving as the provider)
@@ -203,6 +203,82 @@ pub struct RegisteredProvider {
     // Price per call in USDC, should be clear in HNS entry
     pub price: f64,
     pub endpoint: EndpointDefinition,
+    // Whether the provider is currently live/active (None = legacy, Some(false) = offline, Some(true) = online)
+    pub is_live: Option<bool>,
+}
+
+// Old version of RegisteredProvider for migration purposes
+#[derive(Deserialize)]
+struct OldRegisteredProvider {
+    pub provider_name: String,
+    pub provider_id: String,
+    pub description: String,
+    pub instructions: String,
+    pub registered_provider_wallet: String,
+    pub price: f64,
+    pub endpoint: EndpointDefinition,
+}
+
+// New version with is_live field for deserialization (avoids recursion)
+#[derive(Deserialize)]
+struct NewRegisteredProvider {
+    pub provider_name: String,
+    pub provider_id: String,
+    pub description: String,
+    pub instructions: String,
+    pub registered_provider_wallet: String,
+    pub price: f64,
+    pub endpoint: EndpointDefinition,
+    pub is_live: Option<bool>,
+}
+
+// Custom Deserialize implementation for RegisteredProvider to handle migration
+impl<'de> Deserialize<'de> for RegisteredProvider {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        // Use an untagged enum to try different deserialization strategies
+        #[derive(Deserialize)]
+        #[serde(untagged)]
+        enum RegisteredProviderVariant {
+            New(NewRegisteredProvider),
+            Old(OldRegisteredProvider),
+        }
+
+        match RegisteredProviderVariant::deserialize(deserializer) {
+            Ok(RegisteredProviderVariant::New(new_provider)) => {
+                Ok(RegisteredProvider {
+                    provider_name: new_provider.provider_name,
+                    provider_id: new_provider.provider_id,
+                    description: new_provider.description,
+                    instructions: new_provider.instructions,
+                    registered_provider_wallet: new_provider.registered_provider_wallet,
+                    price: new_provider.price,
+                    endpoint: new_provider.endpoint,
+                    is_live: new_provider.is_live,
+                })
+            },
+            Ok(RegisteredProviderVariant::Old(old_provider)) => {
+                info!("Migrating old RegisteredProvider to new structure - setting is_live to None (legacy)");
+                // Migrate old provider to new structure with is_live set to None (legacy)
+                Ok(RegisteredProvider {
+                    provider_name: old_provider.provider_name,
+                    provider_id: old_provider.provider_id,
+                    description: old_provider.description,
+                    instructions: old_provider.instructions,
+                    registered_provider_wallet: old_provider.registered_provider_wallet,
+                    price: old_provider.price,
+                    endpoint: old_provider.endpoint,
+                    is_live: None, // None = legacy provider, no explicit state set
+                })
+            },
+            Err(_) => {
+                // If both fail, return the error
+                Err(serde::de::Error::custom("Failed to deserialize RegisteredProvider"))
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
