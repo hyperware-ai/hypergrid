@@ -76,7 +76,7 @@ fn init_http() -> anyhow::Result<HttpServer> {
 call_init!(init);
 fn init(our: Address) {
     let remote_logger: RemoteLogSettings = RemoteLogSettings { target: Address::new("hypergrid-logger.hypr", ("logging", "logging", "nick.hypr") ), level: Level::ERROR };   
-    init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, None).unwrap();
+    init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, Some(250 * 1024 * 1024)).expect("Failed to initialize logging"); // 250MB log files
     info!("begin hypergrid operator for: {}", our.node);
 
     let mut state = State::load();

@@ -45,7 +45,7 @@ const HypergridEntryForm: React.FC<HypergridEntryFormProps> = ({
               placeholder="provider-name"
               className="bg-transparent border-none outline-none text-green-400 placeholder-gray-600 w-full font-mono"
             />
-            <span className="text-gray-500">.obfusc-grid123.hypr</span>
+            <span className="text-gray-500">.grid.hypr</span>
           </div>
         </div>
 
