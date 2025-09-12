@@ -55,7 +55,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
             <span className="text-xl mt-0.5">🔌</span>
             <div className="flex-1 min-w-0">
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 break-words">
-                {provider.provider_name}.obfusc-grid123.hypr
+                {provider.provider_name}.grid.hypr
               </h3>
               {provider.description && (
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{provider.description}</p>

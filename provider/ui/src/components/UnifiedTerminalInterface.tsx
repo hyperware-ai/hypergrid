@@ -106,7 +106,7 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
                   className="bg-transparent border-none outline-none text-yellow-600 dark:text-yellow-400 placeholder-stone-500 dark:placeholder-gray-600 font-mono text-lg font-medium"
                 />
               )}
-              <span className="text-stone-500 dark:text-gray-500">.obfusc-grid123.hypr</span>
+              <span className="text-stone-500 dark:text-gray-500">.grid.hypr</span>
               <span className="text-stone-500 dark:text-gray-600 text-xs ml-auto">provider namespace</span>
             </div>
           </div>
