@@ -11,6 +11,7 @@ use hyperware_process_lib::{
     },
     hypermap, Request,
     logging::{debug, error, warn, info},
+    our,
 };
 use serde_json;
 use std::collections::HashMap;
@@ -1008,7 +1009,7 @@ pub async fn validate_transaction_payment(
     info!(
         "payment_validation_success: provider={}, provider_node={}, source_node={}, tx_hash={}, price_usdc={}, transferred_usdc={}",
         mcp_request.provider_name,
-        hyperware_app_common::hyperware_process_lib::our().node,
+        our().node,
         source_node_id,
         tx_hash_str_ref, // Full transaction hash for complete audit trail
         provider_price,

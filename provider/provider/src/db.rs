@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
 use hyperware_process_lib::{
-    logging::info,
+    logging::debug,
     sqlite::{self, Sqlite},
     our,
 };
