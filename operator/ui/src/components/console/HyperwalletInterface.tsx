@@ -308,9 +308,28 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
               </div>
               {/* Center: balance */}
               <div className="absolute inset-0 flex items-center justify-center text-gray-900">
+                {/* Balance indicators - moved to left side */}
+                {balanceNum === 0 && (
+                  <div className="inline-flex items-center mr-3 px-3 py-1 rounded-full bg-red-100/80 backdrop-blur-sm animate-pulse">
+                    <span className="text-red-700 text-xs font-medium mr-1">
+                      Send USDC to start →
+                    </span>
+                  </div>
+                )}
+                
+                {balanceNum > 0 && balanceNum < 1 && (
+                  <div className="inline-flex items-center mr-3 px-3 py-1 rounded-full bg-amber-100/70 backdrop-blur-sm">
+                    <span className="text-amber-700 text-xs">
+                      Low balance →
+                    </span>
+                  </div>
+                )}
+                
                 <span className="font-semibold text-4xl align-middle">{balanceNum.toLocaleString()}</span>
                 <span className="ml-2 text-sm align-middle">USDC</span>
-                {isLowBalance && (
+                
+                {/* Existing warning badge - now only shows for balance between 0 and 1 */}
+                {isLowBalance && balanceNum > 0 && (
                   <div className="relative group ml-2">
                     <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-400 text-white text-sm font-bold align-middle">!</span>
                     <div className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-yellow-300 text-black text-xs px-3 py-1.5 shadow-lg z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-0">
