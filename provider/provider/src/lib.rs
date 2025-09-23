@@ -790,7 +790,15 @@ impl HypergridProviderState {
                     return Ok(response);
                 },
                 Err(e) => {
-                    last_error = e.clone();
+                    // Enhanced error handling with specific guidance for LLMs
+                    last_error = if e.contains("404") || e.contains("Not Found") {
+                        format!("{}\n\nNOTE: This is a 404 error. Since payments are made optimistically (ahead of time), please double-check that you are providing the correct arguments for this provider. Verify the argument names, values, and format according to the provider's documentation. Each time you call a provider, you will be charged the price of the provider.", e)
+                    } else if e.contains("401") || e.contains("403") || e.contains("Unauthorized") || e.contains("Forbidden") {
+                        format!("{}\n\nNOTE: This is an authorization error. The provider may no longer be valid or properly configured. The provider's API keys, permissions, or configuration may have changed.", e)
+                    } else {
+                        e
+                    };
+                    
                     error!(
                         "provider_call_attempt_failed: provider={}, source_node={}, attempt={}, error_type=api_call_failed",
                         registered_provider.provider_name,
