@@ -822,7 +822,9 @@ pub async fn validate_transaction_payment(
         )
     })?;
 
-    let service_price_u256 = U256::from(registered_provider.price);
+    // Convert USDC price to raw units (USDC has 6 decimal places)
+    let service_price_usdc = registered_provider.price * 1_000_000.0; // Convert to base units
+    let service_price_u256 = U256::from(service_price_usdc as u64);
     let hypermap_instance = &state.hypermap;
 
     let mut payment_validated = false;
@@ -1006,6 +1008,12 @@ pub async fn validate_transaction_payment(
         .unwrap_or(0.0);
 
     // Success tracking log - payment validation successful
+    // Convert raw token amount to human-readable USDC (USDC has 6 decimal places)
+    let usdc_decimals = U256::from(1_000_000); // 10^6 for USDC's 6 decimals
+    let whole_usdc = actual_transferred_amount / usdc_decimals;
+    let fractional_usdc = actual_transferred_amount % usdc_decimals;
+    let transferred_usdc_display = format!("{}.{:06}", whole_usdc, fractional_usdc);
+    
     info!(
         "payment_validation_success: provider={}, provider_node={}, source_node={}, tx_hash={}, price_usdc={}, transferred_usdc={}",
         mcp_request.provider_name,
@@ -1013,7 +1021,7 @@ pub async fn validate_transaction_payment(
         source_node_id,
         tx_hash_str_ref, // Full transaction hash for complete audit trail
         provider_price,
-        actual_transferred_amount
+        transferred_usdc_display
     );
 
     Ok(())
