@@ -734,11 +734,18 @@ fn handle_provider_call_request(
 
     let timestamp_start_ms = Utc::now().timestamp_millis() as u128;
     let call_args_json = serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string());
-    let lookup_key_for_db = if !provider_id.is_empty() {
-        provider_id.clone()
-    } else {
-        provider_name.clone()
-    };
+    // Always use provider_name for lookup since it's unique and specific
+    // If provider_name is empty, this is an invalid request
+    if provider_name.is_empty() {
+        return send_json_response(
+            StatusCode::BAD_REQUEST,
+            &json!({
+                "error": "Provider name is required",
+                "details": "Cannot route request without a specific provider name"
+            }),
+        );
+    }
+    let lookup_key_for_db = provider_name.clone();
 
     // Fetch provider details from database
     match fetch_provider_details(db, &lookup_key_for_db) {
