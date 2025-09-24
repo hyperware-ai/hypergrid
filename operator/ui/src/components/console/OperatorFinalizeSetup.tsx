@@ -16,6 +16,7 @@ import {
 } from '../../logic/hypermapHelpers';
 
 import { MULTICALL as MULTICALL_ADDRESS, multicallAbi } from '../../abis';
+import { callApiWithRouting } from '../../utils/api-endpoints';
 
 type Props = {
   operatorTbaAddress?: Address;
@@ -88,7 +89,15 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
 
   React.useEffect(() => {
     if (isConfirmed) {
-      setTimeout(() => {
+      setTimeout(async () => {
+        try {
+          // Call the recheck paymaster approval endpoint
+          await callApiWithRouting("RecheckPaymasterApproval");
+          console.log('Paymaster approval recheck triggered successfully');
+        } catch (error) {
+          console.error('Error calling recheck paymaster approval:', error);
+        }
+        
         onComplete?.();
         reset();
         if (autoReload) {
@@ -106,7 +115,7 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
         </div>
         <div style={{ padding: 16 }}>
           <div style={{ color: '#4b5563', fontSize: 13, marginBottom: 12 }}>
-            This final setup transaction will authorize Hypergrid to make USDC payments on your behalf without you needing to manually sign each transaction.
+            This final setup transaction will authorize your node running Hypergrid to make USDC payments on your behalf without you needing to manually sign each transaction.
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
             <button

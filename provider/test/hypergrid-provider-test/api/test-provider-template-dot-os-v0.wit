@@ -1,0 +1,5 @@
+world test-provider-template-dot-os-v0 {
+    import tester;
+    import hypergrid-provider;
+    include process-v1;
+}

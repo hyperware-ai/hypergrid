@@ -3,7 +3,12 @@ import type { Address } from 'viem';
 export type AsyncRes<T> = Promise<Result<T>>;
 export type Result<T> = { ok: T } | { error: string };
 
-export type ProcessState = { indexers: string[]; indexer: string };
+export type ProcessState = { 
+  indexers?: string[]; 
+  indexer?: string;
+  configured: boolean;
+  // Add other fields as needed
+};
 export type AllProviders = Record<Category, Array<Provider>>;
 export type Category = string;
 export type Provider = {
@@ -19,16 +24,17 @@ export type Provider = {
   id?: number;
 };
 export type ProviderJson = {
-  category: Category;
-  site: string;
+  category?: Category;
+  site?: string;
   description: string;
   name: string;
-  provider_name: string;
-  provider_id: string;
-  price: string;
+  provider_name?: string;
+  provider_id?: string;
+  price?: string;
   // db data
   created?: number;
-  id?: number;
+  id: string; // Changed to string to match ProviderInfo
+  hash?: string;
   arguments?: Record<string, any>;
 };
 

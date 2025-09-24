@@ -3,7 +3,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import OperatorConsole from "./components/console/OperatorConsole";
 import HeaderSearch from "./components/HeaderSearch.tsx";
 import AppSwitcher from "./components/AppSwitcher.tsx";
-import SpiderChat from "./components/SpiderChat.tsx";
 
 // Import required types
 import { ActiveAccountDetails, OnboardingStatusResponse } from "./logic/types.ts";
@@ -18,7 +17,7 @@ import { HYPERMAP_ADDRESS } from './constants';
 import { ToastContainer } from "react-toastify";
 import NotificationBell from './components/NotificationBell';
 
-const BASE_URL = import.meta.env.VITE_BASE_URL || '';
+const BASE_URL = import.meta.env.VITE_BASE_URL;
 
 
 function App() {
@@ -28,9 +27,6 @@ function App() {
 
   // State for Onboarding Data
   const [onboardingData, setOnboardingData] = useState<OnboardingStatusResponse | null>(null);
-
-  // Spider chat state
-  const [spiderApiKey, setSpiderApiKey] = useState<string | null>(null);
 
   // Renamed derived variable
   const derivedNodeName = useMemo(() => {
@@ -66,72 +62,6 @@ function App() {
     }
   });
 
-  // Check spider connection status on mount
-  useEffect(() => {
-    const checkSpiderStatus = async () => {
-      try {
-        const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-
-        const response = await fetch(`${apiBase}/api/spider-status`, {
-          signal: controller.signal
-        });
-
-        clearTimeout(timeout);
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.has_api_key) {
-            // If already connected, get the key
-            const connectResponse = await fetch(`${apiBase}/api/spider-connect`, {
-              method: 'POST',
-              signal: AbortSignal.timeout(3000) // 3 second timeout
-            });
-            const connectData = await connectResponse.json();
-            if (connectData.api_key) {
-              setSpiderApiKey(connectData.api_key);
-            }
-          }
-        }
-      } catch (error: any) {
-        // Silently fail if Spider is not available
-        if (error.name === 'AbortError') {
-          console.log('Spider service not available (timeout)');
-        } else {
-          console.error('Error checking Spider status:', error);
-        }
-      }
-    };
-
-    checkSpiderStatus();
-  }, []);
-
-  const handleSpiderConnect = async () => {
-    try {
-      const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/api/spider-connect`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
-      const data = await response.json();
-      if (data.api_key) {
-        setSpiderApiKey(data.api_key);
-      } else if (data.error) {
-        console.error('Failed to connect to Spider:', data.error);
-      }
-    } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.error('Spider connection timeout - service may not be installed');
-      } else {
-        console.error('Error connecting to Spider:', error);
-      }
-    }
-  };
-
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -154,13 +84,6 @@ function App() {
       <header className="flex flex-col py-8 px-6 dark:bg-black bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <HeaderSearch />
-        <div className="flex-1 w-full overflow-hidden">
-          <SpiderChat
-            spiderApiKey={spiderApiKey}
-            onConnectClick={handleSpiderConnect}
-            onApiKeyRefreshed={(newKey) => setSpiderApiKey(newKey)}
-          />
-        </div>
         <AppSwitcher currentApp="operator" />
       </header>
 

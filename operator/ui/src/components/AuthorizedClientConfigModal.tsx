@@ -3,14 +3,15 @@ import classNames from 'classnames';
 import Modal from './modals/Modal';
 import { useErrorLogStore } from '../store/errorLog';
 import { truncate } from '../utils/truncate';
+import { callApiWithRouting } from '../utils/api-endpoints';
 
 interface AuthorizedClientConfigModalProps {
     isOpen: boolean;
-    onClose: (shouldRefresh?: boolean) => void;
+    onClose: () => void;
     clientId: string;
     clientName: string;
     hotWalletAddress: string;
-    onClientUpdate: (clientId: string) => void;
+    //onClientUpdate: (clientId: string) => void;
 }
 
 // Helper function to generate a random API key
@@ -37,7 +38,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     clientId,
     clientName,
     hotWalletAddress,
-    onClientUpdate
+    //onClientUpdate
 }) => {
     const { showToast } = useErrorLogStore();
     const [isRegenerating, setIsRegenerating] = useState(false);
@@ -76,7 +77,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     }
 
     const handleClose = () => {
-        onClose(hasChanges);
+        onClose();
         // Reset state for next time
         setHasChanges(false);
         setNewToken(null);
@@ -96,27 +97,15 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         }
 
         try {
-            const response = await fetch(`${getApiBasePath()}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    RenameAuthorizedClient: {
-                        client_id: clientId,
-                        new_name: editedName.trim()
-                    }
-                })
+            await callApiWithRouting({
+                RenameAuthorizedClient: [clientId, editedName.trim()]
             });
-
-            if (!response.ok) {
-                throw new Error(`Failed to rename client: ${response.statusText}`);
-            }
 
             showToast('success', `Client renamed to "${editedName.trim()}".`);
             setCurrentName(editedName.trim());
             setIsEditingName(false);
             setHasChanges(true);
-            onClientUpdate(clientId);
+            //onClientUpdate(clientId);
         } catch (err: any) {
             showToast('error', err.message || 'Failed to rename client.');
             setEditedName(currentName);
@@ -154,24 +143,16 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         const newApiKey = generateApiKey(32);
 
         try {
-            const response = await fetch(`${getApiBasePath()}/configure-authorized-client`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    client_id: clientId,
-                    raw_token: newApiKey,
-                    hot_wallet_address_to_associate: hotWalletAddress
-                })
+            const { configure_authorized_client } = await import('../../../target/ui/caller-utils');
+            const responseData = await configure_authorized_client({
+                client_id: clientId,
+                client_name: editedName,
+                raw_token: newApiKey,
+                hot_wallet_address_to_associate: hotWalletAddress
             });
-
-            if (!response.ok) {
-                throw new Error(`Failed to regenerate token: ${response.statusText}`);
-            }
-
-            const responseData = await response.json();
             setNewToken(responseData.raw_token);
-            setNodeName(responseData.node_name);
+
+            setNodeName((window as any).our?.node);
             setHasChanges(true); // Mark that changes were made
         } catch (err) {
             setError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
@@ -190,21 +171,12 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
         setError(null);
 
         try {
-            const response = await fetch(`${getApiBasePath()}/actions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                credentials: 'include',
-                body: JSON.stringify({
-                    DeleteAuthorizedClient: { client_id: clientId }
-                })
+            await callApiWithRouting({
+                DeleteAuthorizedClient: clientId
             });
 
-            if (!response.ok) {
-                throw new Error(`Failed to delete client: ${response.statusText}`);
-            }
-
             // Close modal with refresh flag
-            onClose(true);
+            onClose();
         } catch (err) {
             setError(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
             setConfirmDelete(false);
@@ -224,7 +196,7 @@ const AuthorizedClientConfigModal: React.FC<AuthorizedClientConfigModalProps> = 
     };
 
     const authCommand = newToken && nodeName ?
-        `Use the authorize tool with url "${window.location.origin + window.location.pathname + 'shim/mcp'}", token "${newToken}", client_id "${clientId}", and node "${nodeName}"` : '';
+        `Use the authorize tool with url "${window.location.origin + window.location.pathname + 'mcp'}", token "${newToken}", client_id "${clientId}", and node "${nodeName}"` : '';
 
     return (
         <Modal

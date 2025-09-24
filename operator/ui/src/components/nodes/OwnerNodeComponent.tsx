@@ -1,7 +1,6 @@
 import React from 'react';
 import { NodeProps, Handle, Position } from 'reactflow';
 import { IOwnerNodeData } from '../../logic/types';
-import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
 import { truncate } from '../../utils/truncate';
 import { FaGear, FaLink } from 'react-icons/fa6';

@@ -1,0 +1,177 @@
+interface hypergrid-provider {
+    // This interface contains function signature definitions that will be used
+    // by the hyper-bindgen macro to generate async function bindings.
+    //
+    // NOTE: This is currently a hacky workaround since WIT async functions are not
+    // available until WASI Preview 3. Once Preview 3 is integrated into Hyperware,
+    // we should switch to using proper async WIT function signatures instead of
+    // this struct-based approach with hyper-bindgen generating the async stubs.
+
+    use standard.{address};
+
+    variant terminal-command {
+        list-providers,
+        register-provider(registered-provider),
+        unregister-provider(string),
+        test-provider(provider-request),
+        export-providers,
+        view-database
+    }
+
+    record provider-request {
+        provider-name: string,
+        arguments: list<tuple<string, string>>,
+        payment-tx-hash: option<string>
+    }
+
+    record registered-provider {
+        provider-name: string,
+        provider-id: string,
+        description: string,
+        instructions: string,
+        registered-provider-wallet: string,
+        price: f64,
+        endpoint: endpoint-definition
+    }
+
+    record endpoint-definition {
+        original-curl: string,
+        method: string,
+        base-url: string,
+        url-template: string,
+        original-headers: list<tuple<string, string>>,
+        original-body: option<string>,
+        parameters: list<parameter-definition>,
+        parameter-names: list<string>
+    }
+
+    record parameter-definition {
+        parameter-name: string,
+        json-pointer: string,
+        location: string,
+        example-value: string,
+        value-type: string
+    }
+
+    record dummy-argument {
+        argument: string
+    }
+
+    // Function signature for: health-ping (remote)
+    record health-ping-signature-remote {
+        target: address,
+        arg: dummy-argument,
+        returning: result
+    }
+
+    // Function signature for: health-ping (local)
+    record health-ping-signature-local {
+        target: address,
+        arg: dummy-argument,
+        returning: result
+    }
+
+    // Function signature for: register-provider (http)
+    record register-provider-signature-http {
+        target: string,
+        provider: registered-provider,
+        returning: result
+    }
+
+    // Function signature for: validate-provider (http)
+    record validate-provider-signature-http {
+        target: string,
+        provider: registered-provider,
+        arguments: list<tuple<string, string>>,
+        returning: result
+    }
+
+    // Function signature for: validate-provider-update (http)
+    record validate-provider-update-signature-http {
+        target: string,
+        provider-name: string,
+        updated-provider: registered-provider,
+        arguments: list<tuple<string, string>>,
+        returning: result
+    }
+
+    // Function signature for: update-provider (http)
+    record update-provider-signature-http {
+        target: string,
+        provider-name: string,
+        updated-provider: registered-provider,
+        returning: result
+    }
+
+    // Function signature for: call-provider (remote)
+    record call-provider-signature-remote {
+        target: address,
+        request: provider-request,
+        returning: result
+    }
+
+    // Function signature for: call-provider (local)
+    record call-provider-signature-local {
+        target: address,
+        request: provider-request,
+        returning: result
+    }
+
+    // Function signature for: get-registered-providers (http)
+    record get-registered-providers-signature-http {
+        target: string,
+        returning: result
+    }
+
+    // Function signature for: get-providers-needing-configuration (http)
+    record get-providers-needing-configuration-signature-http {
+        target: string,
+        returning: result
+    }
+
+    // Function signature for: export-providers (http)
+    record export-providers-signature-http {
+        target: string,
+        returning: result
+    }
+
+    // Function signature for: get-provider-namehash (http)
+    record get-provider-namehash-signature-http {
+        target: string,
+        provider-name: string,
+        returning: result
+    }
+
+    // Function signature for: get-indexed-providers (http)
+    record get-indexed-providers-signature-http {
+        target: string,
+        returning: result
+    }
+
+    // Function signature for: search-indexed-providers (http)
+    record search-indexed-providers-signature-http {
+        target: string,
+        query: string,
+        returning: result
+    }
+
+    // Function signature for: get-indexed-provider-details (http)
+    record get-indexed-provider-details-signature-http {
+        target: string,
+        name: string,
+        returning: result
+    }
+
+    // Function signature for: get-provider-sync-status (http)
+    record get-provider-sync-status-signature-http {
+        target: string,
+        returning: result
+    }
+
+    // Function signature for: terminal-command (local)
+    record terminal-command-signature-local {
+        target: address,
+        command: terminal-command,
+        returning: result
+    }
+}

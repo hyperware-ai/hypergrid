@@ -23,7 +23,10 @@ const WelcomeIntro: React.FC<Props> = ({ onContinue }) => {
             Hypergrid is fully decentralized p2p remote tool use protocol designed to give your AI access to anything it needs with a single MCP server.
             <br />
             <br />
-            The Hypergrid client runs on your own personal Hyperware node (you're using it right now!). This client allows you to use Hypergrid as an Operator, giving your AI access to any service on the network, or as a Provider, as which you create services that others access in exchange for micropayments.
+            The Hypergrid client runs on your own personal Hyperware node (you're using it right now), a platform which allows for performant apps that don't compromise on decentralization.
+            <br />
+            <br />
+            This client allows you to use Hypergrid as an Operator, connecting this node to your AI and giving it access to any data feed or tool on the network, or as a Provider, where you create services that allow others to access those feeds and tools in exchange for micropayments.
             <br />
             <br />
             If you're only interested in being a Provider on this node, there's no need to do this configuration.

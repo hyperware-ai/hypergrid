@@ -3,20 +3,26 @@
 
 <head>
   <meta charset="UTF-8" />
+  <!-- This sets window.our.node -->
+  <script src="/our.js"></script>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="icon" href="/public/Logo.svg" />
   <title>Hyperware Provider Network Dashboard</title>
   <style>
-    html, body, #root {
+    html,
+    body,
+    #root {
       height: 100%;
       margin: 0;
       padding: 0;
-      box-sizing: border-box; /* Recommended for easier layout */
+      box-sizing: border-box;
+      /* Recommended for easier layout */
     }
+
     /* Ensure #root also behaves as a flex container if its direct child needs to fill height */
     #root {
-        display: flex;
-        flex-direction: column;
+      display: flex;
+      flex-direction: column;
     }
   </style>
 </head>

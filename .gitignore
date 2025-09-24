@@ -24,3 +24,5 @@ provider/ui/src/constants.ts
 
 # Machine-generated WIT files (except operator)
 pkg/api/*
+# backups
+*.bak

@@ -114,7 +114,7 @@ sed -i.bak "s/\"publisher\": \"[^\"]*\"/\"publisher\": \"$PUBLISHER\"/g" provide
 # Build operator
 echo -e "${BLUE}Building operator...${NC}"
 cd operator
-kit build $EXTRA_ARGS
+kit build --hyperapp $EXTRA_ARGS
 cd ..
 
 # Build provider

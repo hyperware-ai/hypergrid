@@ -1,0 +1,4 @@
+world types-test-provider-template-dot-os-v0 {
+    import hypergrid-provider;
+    include lib;
+}
