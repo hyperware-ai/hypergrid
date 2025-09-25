@@ -69,12 +69,15 @@ function App() {
   useEffect(() => {
     callApiWithRouting({ SpiderStatus: {} })
       .then(data => {
-        if (data.has_api_key) {
+        // Handle Result<T, E> wrapper
+        const status = data.Ok || data;
+        if (status.has_api_key) {
           // If already connected, get the key
           callApiWithRouting({ SpiderConnect: null }) // null means don't force new
             .then(data => {
-              if (data.api_key) {
-                setSpiderApiKey(data.api_key);
+              // Handle Result<T, E> wrapper
+              if (data.Ok && data.Ok.api_key) {
+                setSpiderApiKey(data.Ok.api_key);
               }
             })
             .catch(console.error);
@@ -85,9 +88,18 @@ function App() {
 
   const handleSpiderConnect = async () => {
     try {
+      console.log('Calling SpiderConnect...');
       const data = await callApiWithRouting({ SpiderConnect: null }); // null means don't force new
-      if (data.api_key) {
-        setSpiderApiKey(data.api_key);
+      console.log('SpiderConnect response:', data);
+      
+      // Handle Result<T, E> wrapper from Rust
+      if (data.Ok && data.Ok.api_key) {
+        console.log('Setting spider API key:', data.Ok.api_key);
+        setSpiderApiKey(data.Ok.api_key);
+      } else if (data.Err) {
+        throw new Error(data.Err);
+      } else {
+        console.log('No API key in response');
       }
     } catch (error: any) {
       console.error('Error connecting to Spider:', error);

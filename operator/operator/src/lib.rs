@@ -35,6 +35,8 @@ use hyperware_process_lib::Request as ProcessRequest;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::spider::SPIDER_PROCESS_ID;
+
 #[derive(Debug, Serialize, Deserialize)]
 pub struct OperatorProcess {
     // Make state private to prevent WIT generation
@@ -529,7 +531,7 @@ impl OperatorProcess {
 
         // Find the spider process
         let our = hyperware_process_lib::our();
-        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+        let spider_address = hyperware_process_lib::Address::new("our", SPIDER_PROCESS_ID);
 
         // Create the request to get a spider API key
         let request = CreateSpiderKeyRequest {
@@ -546,6 +548,8 @@ impl OperatorProcess {
             .target(spider_address)
             .body(body)
             .send_and_await_response(5);
+
+        info!("Spider response:{:#?}", response_result.clone());
         
         // Handle timeout or connection failure gracefully
         let response = match response_result {
@@ -588,7 +592,7 @@ impl OperatorProcess {
 
         // Find the spider process
         let our = hyperware_process_lib::our();
-        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+        let spider_address = hyperware_process_lib::Address::new("our", SPIDER_PROCESS_ID);
 
         // Try up to 2 times (once with provided key, once with refreshed key if needed)
         for attempt in 1..=2 {
@@ -721,7 +725,7 @@ impl OperatorProcess {
         info!("Handling spider status request");
         
         // Try to ping spider to see if it's actually available
-        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+        let spider_address = hyperware_process_lib::Address::new("our", SPIDER_PROCESS_ID);
         let ping_body = serde_json::json!({"Ping": null});
         let ping_body = serde_json::to_vec(&ping_body).map_err(|e| format!("Failed to serialize ping: {}", e))?;
         
@@ -753,7 +757,7 @@ impl OperatorProcess {
         info!("Handling spider MCP servers request");
         
         // Find the spider process
-        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+        let spider_address = hyperware_process_lib::Address::new("our", SPIDER_PROCESS_ID);
         
         // Create the request to list MCP servers
         let list_request = serde_json::json!({

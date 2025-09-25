@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { webSocketService } from '../services/websocket';
 import { WsServerMessage, SpiderMessage, ConversationMetadata, McpServerDetails } from '../types/websocket';
 import { callApiWithRouting } from '../utils/api-endpoints';
 
@@ -42,9 +41,16 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const messageHandlerRef = useRef<((message: WsServerMessage) => void) | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive = !!spiderApiKey;
+  
+  // Debug logging
+  useEffect(() => {
+    console.log('SpiderChat - API key changed:', spiderApiKey ? 'Key present' : 'No key');
+  }, [spiderApiKey]);
 
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = (smooth: boolean = true) => {
@@ -86,13 +92,18 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
       if (timer) {
         clearTimeout(timer);
       }
-      if (messageHandlerRef.current) {
-        webSocketService.removeMessageHandler(messageHandlerRef.current);
-        messageHandlerRef.current = null;
-      }
-      if (wsConnected) {
-        webSocketService.disconnect();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
         setWsConnected(false);
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (authTimeoutRef.current) {
+        clearTimeout(authTimeoutRef.current);
+        authTimeoutRef.current = null;
       }
     };
   }, [spiderApiKey, useWebSocket]);
@@ -102,16 +113,44 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     if (!keyToUse) return;
     
     try {
+      // Close existing connection if any
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      
       // Determine WebSocket URL - connect to spider service endpoint
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const wsUrl = `${protocol}//${host}/spider:spider:sys/ws`;
       
-      console.log('Connecting to WebSocket at:', wsUrl);
-      await webSocketService.connect(wsUrl);
+      console.log('Connecting to Spider WebSocket at:', wsUrl);
       
-      // Set up message handler for progressive updates
-      const messageHandler = (message: WsServerMessage) => {
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      // Set up WebSocket event handlers
+      ws.onopen = () => {
+        console.log('Spider WebSocket connected, authenticating...');
+        // Send auth message
+        const authMessage = {
+          type: 'auth',
+          apiKey: keyToUse
+        };
+        ws.send(JSON.stringify(authMessage));
+        
+        // Set auth timeout
+        authTimeoutRef.current = setTimeout(() => {
+          if (!wsConnected) {
+            console.error('Spider auth timeout');
+            ws.close();
+            throw new Error('Authentication timeout - no response from server');
+          }
+        }, 5000);
+      };
+      
+      ws.onmessage = (event) => {
+        const message: WsServerMessage = JSON.parse(event.data);
         switch (message.type) {
           case 'message':
             // Progressive message update from tool loop
@@ -200,19 +239,34 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           case 'status':
             console.log('Status:', message.status, message.message);
             break;
+            
+          case 'auth_success':
+            console.log('Spider authentication successful');
+            if (authTimeoutRef.current) {
+              clearTimeout(authTimeoutRef.current);
+              authTimeoutRef.current = null;
+            }
+            setWsConnected(true);
+            setError(null);
+            break;
+            
+          case 'auth_error':
+            console.error('Spider authentication failed:', message.error);
+            ws.close();
+            throw new Error(message.error || 'Authentication failed');
         }
       };
       
-      messageHandlerRef.current = messageHandler;
-      webSocketService.addMessageHandler(messageHandler);
+      ws.onerror = (event) => {
+        console.error('Spider WebSocket error:', event);
+        setWsConnected(false);
+      };
       
-      // Authenticate with spider API key
-      console.log('Authenticating with API key:', keyToUse);
-      await webSocketService.authenticate(keyToUse);
-      console.log('Authentication successful');
-      
-      setWsConnected(true);
-      setError(null);
+      ws.onclose = () => {
+        console.log('Spider WebSocket disconnected');
+        setWsConnected(false);
+        wsRef.current = null;
+      };
     } catch (error: any) {
       console.error('Failed to connect WebSocket:', error);
       
@@ -235,20 +289,26 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             SpiderConnect: true // force_new = true
           });
           
-          if (data.api_key) {
-            console.log('Got new API key:', data.api_key, 'retrying WebSocket connection...');
+          // Handle Result<T, E> wrapper from Rust
+          if (data.Ok && data.Ok.api_key) {
+            console.log('Got new API key:', data.Ok.api_key, 'retrying WebSocket connection...');
             // Update the API key in parent component
             if (onApiKeyRefreshed) {
-              onApiKeyRefreshed(data.api_key);
+              onApiKeyRefreshed(data.Ok.api_key);
             }
             
             // Disconnect current connection
-            webSocketService.disconnect();
+            if (wsRef.current) {
+              wsRef.current.close();
+              wsRef.current = null;
+            }
             // Small delay to ensure disconnect completes
             await new Promise(resolve => setTimeout(resolve, 100));
             // CRITICAL: Explicitly pass the NEW key to prevent using stale closure value
-            await connectWebSocket(data.api_key);
+            await connectWebSocket(data.Ok.api_key);
             return;
+          } else if (data.Err) {
+            throw new Error(data.Err);
           } else {
             throw new Error('Failed to get new API key');
           }
@@ -303,24 +363,29 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
       setMessage('');
 
       // Check if we should use WebSocket
-      console.log('WebSocket check - useWebSocket:', useWebSocket, 'isReady:', webSocketService.isReady, 'isConnected:', webSocketService.isConnected);
-      if (useWebSocket && webSocketService.isReady) {
+      console.log('WebSocket check - useWebSocket:', useWebSocket, 'wsConnected:', wsConnected, 'ws ready:', wsRef.current?.readyState === WebSocket.OPEN);
+      if (useWebSocket && wsConnected && wsRef.current?.readyState === WebSocket.OPEN) {
         // Send via WebSocket for progressive updates
         console.log('Sending chat message via WebSocket');
-        webSocketService.sendChatMessage(
-          updatedConversation.messages,
-          updatedConversation.llmProvider,
-          updatedConversation.model,
-          updatedConversation.mcpServers,
-          updatedConversation.metadata
-        );
+        const chatMessage = {
+          type: 'chat',
+          payload: {
+            messages: updatedConversation.messages,
+            llmProvider: updatedConversation.llmProvider,
+            model: updatedConversation.model,
+            mcpServers: updatedConversation.mcpServers,
+            metadata: updatedConversation.metadata,
+            conversationId: updatedConversation.id || undefined
+          }
+        };
+        wsRef.current.send(JSON.stringify(chatMessage));
         // WebSocket responses will be handled by the message handler
         return;
       }
       console.log('Falling back to HTTP');
 
       // Fallback to HTTP
-      const data = await callApiWithRouting({
+      const result = await callApiWithRouting({
         SpiderChat: {
           api_key: spiderApiKey,
           messages: updatedConversation.messages,
@@ -330,6 +395,13 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           metadata: updatedConversation.metadata,
         }
       });
+      
+      // Handle Result<T, E> wrapper from Rust
+      if (result.Err) {
+        throw new Error(result.Err);
+      }
+      
+      const data = result.Ok || result;
       
       // Only update if this request hasn't been cancelled
       if (currentRequestId === requestId) {
@@ -366,9 +438,12 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   };
 
   const handleCancel = () => {
-    if (useWebSocket && webSocketService.isReady) {
+    if (useWebSocket && wsConnected && wsRef.current?.readyState === WebSocket.OPEN) {
       try {
-        webSocketService.sendCancel();
+        const cancelMessage = {
+          type: 'cancel'
+        };
+        wsRef.current.send(JSON.stringify(cancelMessage));
       } catch (error) {
         console.error('Failed to send cancel:', error);
       }
@@ -390,7 +465,10 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     if (newState) {
       connectWebSocket();
     } else {
-      webSocketService.disconnect();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
       setWsConnected(false);
     }
   };

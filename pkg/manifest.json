@@ -30,6 +30,7 @@
       "vfs:distro:sys",
       "eth:distro:sys",
       "sqlite:distro:sys",
+      "spider:spider:sys",
       "timer:distro:sys"
     ],
     "grant_capabilities": [
@@ -40,6 +41,7 @@
       "terminal:terminal:sys",
       "eth:distro:sys",
       "sqlite:distro:sys",
+      "spider:spider:sys",
       "timer:distro:sys"
     ],
     "public": false
