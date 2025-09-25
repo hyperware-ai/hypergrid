@@ -13,7 +13,7 @@ wit-bindgen = "0.42.1"
 optional = true
 path = "../target/caller-utils"
 
-dependencies.hyperware_process_lib]
+[dependencies.hyperware_process_lib]
 features = [
     "hyperapp",
     "logging",
