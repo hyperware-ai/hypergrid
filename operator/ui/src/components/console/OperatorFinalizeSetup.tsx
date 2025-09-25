@@ -115,7 +115,7 @@ const OperatorFinalizeSetup: React.FC<Props> = ({ operatorTbaAddress, hotWalletA
         </div>
         <div style={{ padding: 16 }}>
           <div style={{ color: '#4b5563', fontSize: 13, marginBottom: 12 }}>
-            This final setup transaction will authorize your node running Hypergrid to make USDC payments on your behalf without you needing to manually sign each transaction.
+            This final setup transaction will authorize Hypergrid to make USDC payments on your behalf without you needing to manually sign each transaction.
           </div>
           <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 10 }}>
             <button

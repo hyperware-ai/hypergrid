@@ -1,8 +1,9 @@
 use crate::{EndpointDefinition, ProviderRequest};
 use crate::constants::{USDC_BASE_ADDRESS, WALLET_PREFIX};
-use hyperware_app_common::hyperware_process_lib::{
+use hyperware_process_lib::{
     eth::{Address as EthAddress, EthError, TransactionReceipt, TxHash, U256},
     get_blob,
+    hyperapp::{send, sleep},
     http::{
         client::{HttpClientAction, HttpClientError, HttpClientResponse, OutgoingHttpRequest},
         HeaderName, HeaderValue, Method as HyperwareHttpMethod, Response as HyperwareHttpResponse,
@@ -10,8 +11,8 @@ use hyperware_app_common::hyperware_process_lib::{
     },
     hypermap, Request,
     logging::{debug, error, warn, info},
+    our,
 };
-use hyperware_app_common::{send, sleep};
 use serde_json;
 use std::collections::HashMap;
 use std::str::FromStr;
@@ -32,7 +33,7 @@ pub async fn send_async_http_request(
     let body_size = body.len();
     let method_str = method.to_string();
     let url_str = url.to_string();
-    
+
     let req = Request::to(("our", "http-client", "distro", "sys"))
         .expects_response(timeout)
         .body(
@@ -117,7 +118,7 @@ pub async fn get_logs_for_tx(
     // 3. Retry mechanism for get_transaction_receipt
     const MAX_RETRIES: u32 = 3;
     const INITIAL_DELAY_MS: u64 = 500; // Start with 500ms
-    
+
     for attempt in 1..=MAX_RETRIES {
         match provider.get_transaction_receipt(tx_hash) {
             Ok(Some(receipt)) => {
@@ -161,7 +162,7 @@ pub async fn get_logs_for_tx(
             }
         }
     }
-    
+
     // This should never be reached, but just in case
     Err(EthError::RpcTimeout)
 }
@@ -387,18 +388,18 @@ pub async fn call_provider(
                     error!("Failed to parse response body as UTF-8: {}", e);
                     format!("Failed to parse response body as UTF-8: {}", e)
                 })?;
-            
+
             // Try to parse the body as JSON to avoid double-encoding
             let body_json = match serde_json::from_str::<serde_json::Value>(&body_result) {
                 Ok(json_value) => json_value,
                 Err(_) => serde_json::Value::String(body_result), // If not JSON, wrap as string
             };
-            
+
             let response_wrapper = serde_json::json!({
                 "status": status,
                 "body": body_json
             });
-            
+
             Ok(response_wrapper.to_string())
         }
         Err(e) => {
@@ -419,7 +420,7 @@ pub async fn call_provider(
     dynamic_args: &Vec<(String, String)>,
     source: String,
 ) -> Result<String, String> {
-    info!(
+    debug!(
         "Calling provider via curl template: {}, method: {}",
         provider_id_for_log,
         endpoint_def.method
@@ -429,10 +430,10 @@ pub async fn call_provider(
 
     // Start with original headers from the curl template
     let mut http_headers = endpoint_def.get_original_headers_map();
-    
+
     // Construct URL from template
     let mut final_url = endpoint_def.url_template.clone();
-    
+
     // Parse original curl to extract original query parameters
     let mut original_query_params: HashMap<String, String> = HashMap::new();
     // Extract URL from curl command (handle quoted and unquoted URLs)
@@ -447,12 +448,12 @@ pub async fn call_provider(
             }
         }
     }
-    
+
     debug!(
         "Original query params extracted from curl: {:?}",
         original_query_params
     );
-    
+
     // Start with original query parameters, then override with dynamic ones
     let mut query_params: Vec<(String, String)> = original_query_params.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
     let mut body_json = endpoint_def.get_original_body_json();
@@ -473,7 +474,7 @@ pub async fn call_provider(
                 let original_param_name = param_def.json_pointer
                     .strip_prefix("/queryParams/")
                     .ok_or_else(|| format!("Invalid query JSON pointer: {}", param_def.json_pointer))?;
-                
+
                 // Override existing query parameter or add new one
                 // Remove any existing parameter with the original name first
                 query_params.retain(|(k, _)| k != original_param_name);
@@ -494,7 +495,7 @@ pub async fn call_provider(
                     let body_relative_pointer = param_def.json_pointer
                         .strip_prefix("/body")
                         .unwrap_or(&param_def.json_pointer);
-                    
+
                     // If the pointer is just "/body", we replace the entire body
                     if body_relative_pointer.is_empty() {
                         // Parse the new value as JSON if possible, otherwise treat as string
@@ -525,7 +526,7 @@ pub async fn call_provider(
             .map(|(k, v)| format!("{}={}", urlencoding::encode(k), urlencoding::encode(v)))
             .collect::<Vec<_>>()
             .join("&");
-        
+
         final_url = if final_url.contains('?') {
             format!("{}&{}", final_url, query_string)
         } else {
@@ -565,7 +566,15 @@ pub async fn call_provider(
     // Make the HTTP request
     let timeout: u64 = 30;
     let start_time = std::time::Instant::now();
-    
+    // Log HTTP request details (no sensitive data)
+    debug!(
+        "http_request_started: provider={}, method={}, url_domain={}, timeout_s={}, body_size_bytes={}",
+        provider_id_for_log,
+        endpoint_def.method,
+        url.host_str().unwrap_or("unknown"),
+        timeout,
+        body_bytes.len()
+    );
     match send_async_http_request(http_method, url, Some(http_headers), timeout, body_bytes).await {
         Ok(response) => {
             let elapsed = start_time.elapsed();
@@ -574,16 +583,25 @@ pub async fn call_provider(
             let body_string = String::from_utf8(body_bytes.clone())
                 .unwrap_or_else(|_| format!("[Binary data, {} bytes]", body_bytes.len()));
 
-            info!(
-                "Provider response: status={}, elapsed={:?}, body_length={}",
+            // Log HTTP response details (no sensitive response data)
+            debug!(
+                "http_response_received: provider={}, status={}, duration_ms={}, response_size_bytes={}",
+                provider_id_for_log,
                 status,
-                elapsed,
+                elapsed.as_millis(),
                 body_string.len()
             );
 
             if status.is_success() {
                 Ok(body_string)
             } else {
+                // Error tracking log - HTTP error status
+                error!(
+                    "http_request_failed: provider={}, status={}, duration_ms={}, error_type=http_error_status",
+                    provider_id_for_log,
+                    status,
+                    elapsed.as_millis()
+                );
                 Err(format!(
                     "Provider returned error status {}: {}",
                     status, body_string
@@ -592,9 +610,11 @@ pub async fn call_provider(
         }
         Err(e) => {
             let elapsed = start_time.elapsed();
+            // Error tracking log - network/timeout error
             error!(
-                "HTTP request failed: provider={}, elapsed={:?}, error={:?}",
-                provider_id_for_log, elapsed, e
+                "http_request_failed: provider={}, duration_ms={}, error_type=network_timeout",
+                provider_id_for_log,
+                elapsed.as_millis()
             );
             Err(format!("Failed to call provider: {:?}", e))
         }
@@ -609,7 +629,7 @@ fn update_json_value_by_pointer(
 ) -> Result<(), String> {
     // Handle JSON pointers like "/body/field_name" or "/body/messages/0/content"
     let parts: Vec<&str> = pointer.split('/').filter(|s| !s.is_empty()).collect();
-    
+
     if parts.is_empty() {
         return Err("Invalid JSON pointer".to_string());
     }
@@ -618,12 +638,12 @@ fn update_json_value_by_pointer(
     let mut current = json;
     for i in 0..parts.len() - 1 {
         let part = parts[i];
-        
+
         // Check if this part is an array index (all digits)
         if part.chars().all(|c| c.is_ascii_digit()) {
             let index: usize = part.parse()
                 .map_err(|_| format!("Invalid array index: {}", part))?;
-            
+
             match current {
                 serde_json::Value::Array(arr) => {
                     current = arr.get_mut(index)
@@ -645,15 +665,15 @@ fn update_json_value_by_pointer(
 
     // Update the final field
     let final_part = parts.last().unwrap();
-    
+
     // Parse the new value as JSON if possible, otherwise treat as string
     let parsed_value = parse_parameter_value(new_value);
-    
+
     // Check if the final part is an array index
     if final_part.chars().all(|c| c.is_ascii_digit()) {
         let index: usize = final_part.parse()
             .map_err(|_| format!("Invalid array index: {}", final_part))?;
-        
+
         match current {
             serde_json::Value::Array(arr) => {
                 if index >= arr.len() {
@@ -682,7 +702,7 @@ fn parse_parameter_value(value: &str) -> serde_json::Value {
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(value) {
         // Successfully parsed as JSON, return the parsed value
         // This handles cases like:
-        // - "hello world" → JSON string "hello world" 
+        // - "hello world" → JSON string "hello world"
         // - 42 → JSON number 42
         // - true → JSON boolean true
         // - [1,2,3] → JSON array [1,2,3]
@@ -702,6 +722,13 @@ pub async fn validate_transaction_payment(
     state: &mut super::HypergridProviderState, // Now mutable
     source_node_id: String,                    // Pass source node string directly
 ) -> Result<(), String> {
+    // Usage tracking log - payment validation started
+    debug!(
+        "payment_validation_started: provider={}, source_node={}, has_tx_hash={}",
+        mcp_request.provider_name,
+        source_node_id,
+        mcp_request.payment_tx_hash.is_some()
+    );
     // --- 0. Check if provider exists at all ---
     if !state
         .registered_providers
@@ -795,12 +822,15 @@ pub async fn validate_transaction_payment(
         )
     })?;
 
-    let service_price_u256 = U256::from(registered_provider.price);
+    // Convert USDC price to raw units (USDC has 6 decimal places)
+    let service_price_usdc = registered_provider.price * 1_000_000.0; // Convert to base units
+    let service_price_u256 = U256::from(service_price_usdc as u64);
     let hypermap_instance = &state.hypermap;
 
     let mut payment_validated = false;
     let mut claimed_sender_address_from_log: Option<EthAddress> = None;
     let mut usdc_transfer_count = 0;
+    let mut actual_transferred_amount = U256::from(0);
 
     // Access logs via transaction_receipt.inner (which is ReceiptEnvelope)
     for log in transaction_receipt.inner.logs() {
@@ -908,6 +938,7 @@ pub async fn validate_transaction_payment(
                     // Now store the sender for Hypermap check and mark payment as potentially valid.
                     claimed_sender_address_from_log = Some(tx_sender_address);
                     payment_validated = true; // Provisional validation, Hypermap check still pending
+                    actual_transferred_amount = transferred_amount; // Store actual amount for logging
                     break; // Found the second valid transfer, no need to check other logs
                 } else {
                     debug!(
@@ -953,7 +984,7 @@ pub async fn validate_transaction_payment(
     let expected_namehash_for_requester = hypermap::namehash(&full_name_for_tba_lookup);
 
     if namehash_from_claimed_sender_tba != expected_namehash_for_requester {
-        return Err(format!("Namehash mismatch for TBA: sender identified from log as {} (namehash: {}), but request came from {} (expected namehash: {}). Sender identity could not be verified.", 
+        return Err(format!("Namehash mismatch for TBA: sender identified from log as {} (namehash: {}), but request came from {} (expected namehash: {}). Sender identity could not be verified.",
                           final_claimed_sender_address, namehash_from_claimed_sender_tba,
                           source_node_id, expected_namehash_for_requester));
     }
@@ -968,18 +999,37 @@ pub async fn validate_transaction_payment(
     // This must be the last step after all validations pass.
 
     state.spent_tx_hashes.push(tx_hash_str_ref.to_string());
+    // Get provider price for revenue tracking
+    let provider_price = state
+        .registered_providers
+        .iter()
+        .find(|p| p.provider_name == mcp_request.provider_name)
+        .map(|p| p.price)
+        .unwrap_or(0.0);
+
+    // Success tracking log - payment validation successful
+    // Convert raw token amount to human-readable USDC (USDC has 6 decimal places)
+    let usdc_decimals = U256::from(1_000_000); // 10^6 for USDC's 6 decimals
+    let whole_usdc = actual_transferred_amount / usdc_decimals;
+    let fractional_usdc = actual_transferred_amount % usdc_decimals;
+    let transferred_usdc_display = format!("{}.{:06}", whole_usdc, fractional_usdc);
     
-    debug!(
-        "Successfully validated payment and marked tx {} as spent.",
-        tx_hash_str_ref
+    info!(
+        "payment_validation_success: provider={}, provider_node={}, source_node={}, tx_hash={}, price_usdc={}, transferred_usdc={}",
+        mcp_request.provider_name,
+        our().node,
+        source_node_id,
+        tx_hash_str_ref, // Full transaction hash for complete audit trail
+        provider_price,
+        transferred_usdc_display
     );
 
     Ok(())
 }
 
-pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::Provider {
+pub fn default_provider() -> hyperware_process_lib::eth::Provider {
     let hypermap_timeout = 60;
-    hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+    hyperware_process_lib::eth::Provider::new(
         hypermap::HYPERMAP_CHAIN_ID,
         hypermap_timeout,
     )
@@ -987,7 +1037,7 @@ pub fn default_provider() -> hyperware_app_common::hyperware_process_lib::eth::P
 
 pub fn default_hypermap() -> hypermap::Hypermap {
     let hypermap_timeout = 60;
-    let provider = hyperware_app_common::hyperware_process_lib::eth::Provider::new(
+    let provider = hyperware_process_lib::eth::Provider::new(
         hypermap::HYPERMAP_CHAIN_ID,
         hypermap_timeout,
     );
@@ -998,13 +1048,13 @@ pub fn default_hypermap() -> hypermap::Hypermap {
 
 pub fn validate_response_status(response: &str) -> Result<(), String> {
     // At this point, if we have a response, it means the HTTP call was successful
-    // (status.is_success() was true in call_provider), so we just need to check 
+    // (status.is_success() was true in call_provider), so we just need to check
     // that we have a valid response body
-    
+
     if response.trim().is_empty() {
         return Err("Empty response body".to_string());
     }
-    
+
     // Try to parse as JSON to ensure it's a valid response
     // If it's not JSON, that's also fine for some APIs
     match serde_json::from_str::<serde_json::Value>(response) {

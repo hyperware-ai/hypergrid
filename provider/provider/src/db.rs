@@ -1,6 +1,6 @@
 use anyhow::{Error, Result};
-use hyperware_app_common::hyperware_process_lib::{
-    logging::info,
+use hyperware_process_lib::{
+    logging::debug,
     sqlite::{self, Sqlite},
     our,
 };
@@ -9,27 +9,27 @@ use std::collections::HashMap;
 
 /// Open the provider database - this accesses the same database that the operator uses for indexing
 /// Note: This assumes the provider and operator share access to the same database through the package system
-pub fn open_provider_db() -> Result<sqlite::Sqlite, Error> {
+pub async fn open_provider_db() -> Result<sqlite::Sqlite, Error> {
     // Use the current package ID but access the "hypergrid" database
     // This should be the same database the operator uses if they're in the same package context
     let our_address = our();
     let package_id = our_address.package_id();
-    let db = sqlite::open(package_id, "hypergrid", None);
-    db
+    let db = sqlite::open(package_id, "hypergrid", None).await?;
+    Ok(db)
 }
 
 /// Load and initialize the provider database with proper schema
-pub fn load_provider_db() -> anyhow::Result<sqlite::Sqlite> {
-    let db = open_provider_db()?;
-    let good = check_provider_schema(&db);
+pub async fn load_provider_db() -> anyhow::Result<sqlite::Sqlite> {
+    let db = open_provider_db().await?;
+    let good = check_provider_schema(&db).await;
     if !good {
-        info!("Provider database schema not found or incomplete - this is expected if operator hasn't indexed providers yet");
+        debug!("Provider database schema not found or incomplete - this is expected if operator hasn't indexed providers yet");
     }
     Ok(db)
 }
 
 /// Check if the provider database has the required schema
-pub fn check_provider_schema(db: &Sqlite) -> bool {
+pub async fn check_provider_schema(db: &Sqlite) -> bool {
     let required = ["providers"];
     let mut found = required
         .iter()
@@ -37,7 +37,7 @@ pub fn check_provider_schema(db: &Sqlite) -> bool {
         .collect::<std::collections::HashMap<_, _>>();
 
     let statement = "SELECT name from sqlite_master WHERE type='table';".to_string();
-    let data = db.read(statement, vec![]);
+    let data = db.read(statement, vec![]).await;
     match data {
         Err(_) => false,
         Ok(data) => {
@@ -61,14 +61,14 @@ pub fn check_provider_schema(db: &Sqlite) -> bool {
 }
 
 /// Get all providers from the database (indexed by operator)
-pub fn get_all_indexed_providers(db: &Sqlite) -> Result<Vec<HashMap<String, Value>>> {
+pub async fn get_all_indexed_providers(db: &Sqlite) -> Result<Vec<HashMap<String, Value>>> {
     let s = "SELECT * FROM providers".to_string();
-    let data = db.read(s, vec![])?;
+    let data = db.read(s, vec![]).await?;
     Ok(data)
 }
 
 /// Search for providers in the indexed database
-pub fn search_indexed_providers(db: &Sqlite, query: String) -> Result<Vec<HashMap<String, Value>>> {
+pub async fn search_indexed_providers(db: &Sqlite, query: String) -> Result<Vec<HashMap<String, Value>>> {
     let like_param = format!("%{}%", query);
     let exact_param = query; 
 
@@ -86,22 +86,22 @@ pub fn search_indexed_providers(db: &Sqlite, query: String) -> Result<Vec<HashMa
         Value::String(exact_param), 
     ];
 
-    let data = db.read(s, params)?;
+    let data = db.read(s, params).await?;
     Ok(data)
 }
 
 
 /// Get provider by exact name from indexed database
-pub fn get_indexed_provider_by_name(db: &Sqlite, name: &str) -> Result<Option<HashMap<String, Value>>> {
+pub async fn get_indexed_provider_by_name(db: &Sqlite, name: &str) -> Result<Option<HashMap<String, Value>>> {
     let s = "SELECT * FROM providers WHERE name = ?1 LIMIT 1".to_string();
     let p = vec![serde_json::Value::String(name.to_string())];
-    let data = db.read(s, p)?;
+    let data = db.read(s, p).await?;
     Ok(data.into_iter().next())
 }
 
 /// Compare local provider state with indexed state to detect inconsistencies
 /// Only checks if local providers are properly synchronized with the index
-pub fn compare_with_indexed_state(
+pub async fn compare_with_indexed_state(
     local_providers: &[crate::RegisteredProvider], 
     db: &Sqlite
 ) -> Result<ComparisonResult> {
@@ -110,7 +110,7 @@ pub fn compare_with_indexed_state(
 
     // Check each local provider against the index
     for local_provider in local_providers {
-        match get_indexed_provider_by_name(db, &local_provider.provider_name)? {
+        match get_indexed_provider_by_name(db, &local_provider.provider_name).await? {
             Some(indexed) => {
                 // Check for mismatches between local and indexed data
                 if let Some(Value::String(indexed_id)) = indexed.get("provider_id") {

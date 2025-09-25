@@ -13,9 +13,17 @@
       "timer:distro:sys",
       "hypermap-cacher:hypermap-cacher:sys",
       "sign:sign:sys",
+      "timer:distro:sys",
+      "spider:spider:sys",
       "hns-indexer:hns-indexer:sys"
     ],
-    "grant_capabilities": ["http-server:distro:sys", "terminal:terminal:sys", "sqlite:distro:sys"],
+    "grant_capabilities": [
+      "http-server:distro:sys",
+      "terminal:terminal:sys",
+      "sqlite:distro:sys",
+      "timer:distro:sys",
+      "spider:spider:sys"
+    ],
     "public": true
   },
   {

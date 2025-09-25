@@ -121,6 +121,7 @@ impl OperatorProcess {
         init::initialize_ledger(self).await;
     }
 
+    #[local]
     #[http]
     async fn recheck_identity(&mut self) -> Result<(), String> {
         info!("Rechecking operator identity...");
@@ -508,6 +509,7 @@ impl OperatorProcess {
     }
 
     // ===== Spider Chat Integration Endpoints =====
+    // TODO: add abstractions for these spider functions in the spider.rs file and clean here
 
     #[http]
     async fn spider_connect(&mut self, force_new: Option<bool>) -> Result<structs::SpiderConnectResult, String> {
@@ -1010,7 +1012,7 @@ impl OperatorProcess {
         message_type: WsMessageType,
         blob: LazyLoadBlob,
     ) {
-        info!("Handling WebSocket message: {:?}", message_type);
+        //info!("Handling WebSocket message: {:?}", message_type);
         match message_type {
             WsMessageType::Text | WsMessageType::Binary => {
                 let message_bytes = blob.bytes.clone();
@@ -1019,7 +1021,7 @@ impl OperatorProcess {
                 // Parse the incoming message
                 match serde_json::from_str::<WsClientMessage>(&message_str) {
                     Ok(msg) => {
-                        info!("Parsed WebSocket message: {:?}", msg);
+                        //info!("Parsed WebSocket message: {:?}", msg);
                         match msg {
                             WsClientMessage::Subscribe { topics } => {
                                 info!("subscribe");
@@ -1055,7 +1057,6 @@ impl OperatorProcess {
                                 }
                             }
                             WsClientMessage::Ping => {
-                                info!("ping!");
                                 let response = WsServerMessage::Pong;
                                 self.send_ws_message(channel_id, response);
                             }

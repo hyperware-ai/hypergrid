@@ -44,6 +44,22 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
   const operatorSubLabel = 'grid-wallet';
   const [ownerNodeName, setOwnerNodeName] = useState<string>(defaultOperatorEntryName || '');
   
+  // Helper to format address for display
+  const formatAddress = (address: string | undefined) => {
+    if (!address) return '';
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+  };
+  
+  // Check if connected wallet matches the owner EOA
+  const isCorrectWallet = useMemo(() => {
+    if (!eoa || !ownerEoa) return false;
+    return eoa.toLowerCase() === ownerEoa.toLowerCase();
+  }, [eoa, ownerEoa]);
+  
+  const isWrongWallet = useMemo(() => {
+    return eoa && ownerEoa && !isCorrectWallet;
+  }, [eoa, ownerEoa, isCorrectWallet]);
+  
   // Debug logs
   console.log('[OneClickOperatorBoot] Component props:', {
     parentTbaAddress,
@@ -66,12 +82,13 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
 
   const disabled = useMemo(() => {
     // For fresh nodes without a parent TBA, we can still proceed if we have EOA and entry name
-    return !operatorEntryName || !eoa || isPending || isConfirming;
-  }, [operatorEntryName, eoa, isPending, isConfirming]);
+    return !operatorEntryName || !eoa || isWrongWallet || isPending || isConfirming;
+  }, [operatorEntryName, eoa, isWrongWallet, isPending, isConfirming]);
 
   const disabledReasons = useMemo(() => {
     const reasons: string[] = [];
     if (!eoa) reasons.push('wallet not connected - be sure to connect the wallet that owns your Hyperware name');
+    if (isWrongWallet && ownerEoa) reasons.push(`wrong wallet connected - please connect ${formatAddress(ownerEoa)}`);
     // For fresh nodes, we might not have a parent TBA yet - that's ok, we'll mint directly
     if (!parentTbaAddress && ownerNodeName) {
       // If we have a node name but no TBA, this might be a fresh node
@@ -81,7 +98,7 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
     if (isPending) reasons.push('transaction pending');
     if (isConfirming) reasons.push('waiting for confirmation');
     return reasons;
-  }, [eoa, parentTbaAddress, operatorEntryName, isPending, isConfirming, ownerNodeName]);
+  }, [eoa, isWrongWallet, ownerEoa, parentTbaAddress, operatorEntryName, isPending, isConfirming, ownerNodeName, formatAddress]);
 
   const buildBundle = useCallback((): 
     | {
@@ -216,7 +233,7 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
               disabled={disabled}
               style={{ background: disabled ? '#e5e7eb' : '#111827', color: disabled ? '#9ca3af' : '#ffffff', padding: '8px 12px', border: '1px solid #d1d5db', borderRadius: 8 }}
             >
-              {isPending || isConfirming ? 'Confirm in wallet…' : 'Create wallet'}
+              {isPending || isConfirming ? 'Confirm in wallet…' : isWrongWallet ? 'Wrong wallet' : 'Create wallet'}
             </button>
             {hash && (
               <a href={`https://basescan.org/tx/${hash}`} target="_blank" rel="noreferrer" style={{ fontSize: 12 }}>
@@ -234,9 +251,25 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
               <ConnectButton />
             </div>
           )}
-          {eoa && disabled && disabledReasons.length > 0 && (
+          {isWrongWallet && ownerEoa && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fca5a5', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 8 }}>
+                <div style={{ fontWeight: 600, marginBottom: 4 }}>⚠️ Wrong wallet connected</div>
+                <div>Current wallet: {formatAddress(eoa)}</div>
+                <div>Expected wallet: {formatAddress(ownerEoa)} (owns {ownerNodeName || 'your node'})</div>
+                <div style={{ marginTop: 4 }}>Please switch to the correct wallet to continue.</div>
+              </div>
+              <ConnectButton />
+            </div>
+          )}
+          {eoa && !isWrongWallet && disabled && disabledReasons.length > 0 && (
             <div style={{ color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 10 }}>
               {disabledReasons.join(', ')}
+            </div>
+          )}
+          {isCorrectWallet && !disabled && (
+            <div style={{ color: '#059669', background: '#ecfdf5', border: '1px solid #6ee7b7', padding: 8, borderRadius: 8, fontSize: 12, marginBottom: 10 }}>
+              ✅ Correct wallet connected ({formatAddress(eoa)})
             </div>
           )}
 
