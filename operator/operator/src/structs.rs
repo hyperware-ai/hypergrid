@@ -337,6 +337,9 @@ pub struct State {
     pub db_initialized: bool,
     #[serde(default)]
     pub timers_initialized: bool,
+    
+    // Spider API key for chat functionality
+    pub spider_api_key: Option<String>,
 }
 
 impl State {
@@ -370,6 +373,7 @@ impl State {
             hyperwallet_session_active: false,
             db_initialized: false,
             timers_initialized: false,
+            spider_api_key: None,
         }
     }
     pub fn load() -> Self {
@@ -783,4 +787,94 @@ pub enum CoarseState {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct HypergridGraphResponseWrapper {
     pub json_data: String, // JSON-serialized HypergridGraphResponse
+}
+
+// Spider-related structs for chat functionality
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CreateSpiderKeyRequest {
+    pub name: String,
+    pub permissions: Vec<String>,
+    #[serde(rename = "adminKey")]
+    pub admin_key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderApiKey {
+    pub key: String,
+    pub name: String,
+    pub permissions: Vec<String>,
+    #[serde(rename = "createdAt")]
+    pub created_at: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ConnectSpiderRequest {
+    // Empty for now, but can be extended with configuration options
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderConnectResult {
+    pub api_key: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderChatDto {
+    #[serde(rename = "apiKey")]
+    pub api_key: String,
+    pub messages: Vec<SpiderMessage>,
+    #[serde(rename = "llmProvider")]
+    pub llm_provider: Option<String>,
+    pub model: Option<String>,
+    #[serde(rename = "mcpServers")]
+    pub mcp_servers: Option<Vec<String>>,
+    pub metadata: Option<SpiderConversationMetadata>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderMessage {
+    pub role: String,
+    pub content: String,
+    #[serde(rename = "toolCallsJson")]
+    pub tool_calls_json: Option<String>,
+    #[serde(rename = "toolResultsJson")]
+    pub tool_results_json: Option<String>,
+    pub timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderConversationMetadata {
+    #[serde(rename = "startTime")]
+    pub start_time: String,
+    pub client: String,
+    #[serde(rename = "fromStt")]
+    pub from_stt: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderChatResult {
+    #[serde(rename = "conversationId")]
+    pub conversation_id: String,
+    pub response: SpiderMessage,
+    #[serde(rename = "allMessages")]
+    pub all_messages: Option<Vec<SpiderMessage>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderStatusResult {
+    pub connected: bool,
+    pub has_api_key: bool,
+    pub spider_available: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderMcpServer {
+    pub id: String,
+    pub name: String,
+    pub description: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct SpiderMcpServersResult {
+    pub servers: Vec<SpiderMcpServer>,
+    pub error: Option<String>,
 }

@@ -17,6 +17,7 @@ mod structs;
 mod terminal;
 mod wallet;
 mod websocket;
+mod spider;
 
 use crate::app_api_types::{AuthorizeResult, ProviderInfo, ProviderSearchResult, TerminalCommand};
 use crate::structs::{
@@ -30,6 +31,7 @@ use hyperware_process_lib::http::server::WsMessageType;
 use hyperware_process_lib::hypermap;
 use hyperware_process_lib::logging::{error, info};
 use hyperware_process_lib::LazyLoadBlob;
+use hyperware_process_lib::Request as ProcessRequest;
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -117,7 +119,6 @@ impl OperatorProcess {
         init::initialize_ledger(self).await;
     }
 
-    #[local]
     #[http]
     async fn recheck_identity(&mut self) -> Result<(), String> {
         info!("Rechecking operator identity...");
@@ -502,6 +503,327 @@ impl OperatorProcess {
 
         info!("Found {} providers matching query", provider_infos.len());
         Ok(provider_infos)
+    }
+
+    // ===== Spider Chat Integration Endpoints =====
+
+    #[http]
+    async fn spider_connect(&mut self, force_new: Option<bool>) -> Result<structs::SpiderConnectResult, String> {
+        use structs::{CreateSpiderKeyRequest, SpiderApiKey};
+        
+        info!("Handling spider connect request");
+        
+        let force_new = force_new.unwrap_or(false);
+        
+        // If not forcing new and we already have a key, return it
+        if !force_new {
+            if let Some(existing_key) = &self.state.spider_api_key {
+                info!("Returning existing spider API key");
+                return Ok(structs::SpiderConnectResult {
+                    api_key: existing_key.clone(),
+                });
+            }
+        } else {
+            info!("Force_new=true, creating new spider API key even if one exists");
+        }
+
+        // Find the spider process
+        let our = hyperware_process_lib::our();
+        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+
+        // Create the request to get a spider API key
+        let request = CreateSpiderKeyRequest {
+            name: format!("operator-{}", our.node()),
+            permissions: vec!["read".to_string(), "write".to_string(), "chat".to_string()],
+            admin_key: String::new(),
+        };
+
+        // Send request to spider to create an API key
+        let body = serde_json::json!({"CreateSpiderKey": request});
+        let body = serde_json::to_vec(&body).map_err(|e| format!("Failed to serialize request: {}", e))?;
+        
+        let response_result = ProcessRequest::new()
+            .target(spider_address)
+            .body(body)
+            .send_and_await_response(5);
+        
+        // Handle timeout or connection failure gracefully
+        let response = match response_result {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => {
+                info!("Spider process returned error: {:?}", e);
+                return Err("Spider service is not available - Cannot contact Spider process".to_string());
+            }
+            Err(e) => {
+                info!("Failed to contact Spider (timeout or not installed): {:?}", e);
+                return Err("Spider service is not available - Cannot contact Spider process, it may not be installed".to_string());
+            }
+        };
+
+        // Parse the response
+        let response_body = response.body();
+        let result: Result<SpiderApiKey, String> = serde_json::from_slice(response_body)
+            .map_err(|e| format!("Failed to parse spider response: {:?}", e))?;
+
+        match result {
+            Ok(api_key) => {
+                // Store the API key
+                self.state.spider_api_key = Some(api_key.key.clone());
+                // Note: state saving is handled automatically by the framework
+                
+                Ok(structs::SpiderConnectResult {
+                    api_key: api_key.key,
+                })
+            }
+            Err(e) => {
+                error!("Failed to create spider API key: {}", e);
+                Err(format!("Failed to create spider API key: {}", e))
+            }
+        }
+    }
+
+    #[http]
+    async fn spider_chat(&mut self, mut request: structs::SpiderChatDto) -> Result<structs::SpiderChatResult, String> {
+        info!("Handling spider chat request");
+
+        // Find the spider process
+        let our = hyperware_process_lib::our();
+        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+
+        // Try up to 2 times (once with provided key, once with refreshed key if needed)
+        for attempt in 1..=2 {
+            // Convert to spider's expected format
+            let chat_request = serde_json::json!({
+                "Chat": {
+                    "apiKey": request.api_key,
+                    "messages": request.messages,
+                    "llmProvider": request.llm_provider,
+                    "model": request.model,
+                    "mcpServers": request.mcp_servers,
+                    "metadata": request.metadata,
+                }
+            });
+
+            let body = serde_json::to_vec(&chat_request).map_err(|e| format!("Failed to serialize chat request: {}", e))?;
+            let response_result = ProcessRequest::new()
+                .target(spider_address.clone())
+                .body(body)
+                .send_and_await_response(30);
+            
+            // Handle timeout or connection failure gracefully
+            let response = match response_result {
+                Ok(Ok(resp)) => resp,
+                Ok(Err(e)) => {
+                    info!("Spider chat returned error: {:?}", e);
+                    return Err(format!("Spider service error: {:?}", e));
+                }
+                Err(e) => {
+                    info!("Failed to contact Spider for chat (timeout): {:?}", e);
+                    return Err("Spider service is not available - Cannot contact Spider, it may not be installed or is unresponsive".to_string());
+                }
+            };
+
+            // Parse and forward the response
+            let response_body = response.body();
+            let chat_response: serde_json::Value = serde_json::from_slice(response_body)
+                .map_err(|e| format!("Failed to parse spider chat response: {:?}", e))?;
+
+            // Check if it's an unauthorized error
+            if let Some(error_str) = chat_response.get("Err").and_then(|v| v.as_str()) {
+                if error_str.contains("Unauthorized: Invalid API key") && attempt == 1 {
+                    info!("Spider API key is invalid, requesting a new one");
+                    
+                    // Request a new API key
+                    let key_request = structs::CreateSpiderKeyRequest {
+                        name: format!("operator-{}", our.node()),
+                        permissions: vec!["read".to_string(), "write".to_string(), "chat".to_string()],
+                        admin_key: String::new(),
+                    };
+                    
+                    let key_body = serde_json::json!({"CreateSpiderKey": key_request});
+                    let key_body = serde_json::to_vec(&key_body).map_err(|e| format!("Failed to serialize key request: {}", e))?;
+                    let key_response_result = ProcessRequest::new()
+                        .target(spider_address.clone())
+                        .body(key_body)
+                        .send_and_await_response(5);
+                    
+                    // Handle timeout gracefully when refreshing key
+                    let key_response = match key_response_result {
+                        Ok(Ok(resp)) => resp,
+                        Ok(Err(e)) => {
+                            info!("Failed to refresh Spider API key (SendError): {:?}", e);
+                            return Err("Failed to refresh API key - Spider service returned an error".to_string());
+                        }
+                        Err(e) => {
+                            info!("Failed to refresh Spider API key (BuildError): {:?}", e);
+                            return Err("Failed to refresh API key - Spider service is unavailable".to_string());
+                        }
+                    };
+                    
+                    let key_response_body = key_response.body();
+                    let key_result: Result<structs::SpiderApiKey, String> = 
+                        serde_json::from_slice(key_response_body)
+                            .map_err(|e| format!("Failed to parse spider key response: {:?}", e))?;
+                    
+                    match key_result {
+                        Ok(api_key) => {
+                            info!("Got new spider API key, retrying chat request");
+                            // Update state with new key
+                            self.state.spider_api_key = Some(api_key.key.clone());
+                            
+                            // Update the request with the new key and retry
+                            request.api_key = api_key.key.clone();
+                            continue; // Try again with the new key
+                        }
+                        Err(e) => {
+                            error!("Failed to create new spider API key: {}", e);
+                            return Err(format!("Failed to refresh API key: {}", e));
+                        }
+                    }
+                } else {
+                    // Other error or already retried
+                    return Err(error_str.to_string());
+                }
+            }
+
+            // Check if it's a non-unauthorized error
+            if let Some(error) = chat_response.get("Err") {
+                return Err(error.to_string());
+            }
+
+            // Extract the Ok variant - success!
+            if let Some(ok_response) = chat_response.get("Ok") {
+                let mut response = structs::SpiderChatResult {
+                    conversation_id: ok_response.get("conversationId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string(),
+                    response: serde_json::from_value(ok_response.get("response").cloned().unwrap_or_default())
+                        .map_err(|e| format!("Failed to parse response message: {}", e))?,
+                    all_messages: ok_response.get("allMessages")
+                        .and_then(|v| serde_json::from_value(v.clone()).ok()),
+                };
+                
+                // If we refreshed the key (attempt 2), include it in the response
+                // Note: SpiderChatResult doesn't have refreshedApiKey field, 
+                // so we'll need to handle this differently or add the field
+                
+                return Ok(response);
+            }
+        }
+
+        // Should not reach here, but handle it just in case
+        Err("Invalid response from spider after retries".to_string())
+    }
+
+    #[http]
+    async fn spider_status(&self) -> Result<structs::SpiderStatusResult, String> {
+        info!("Handling spider status request");
+        
+        // Try to ping spider to see if it's actually available
+        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+        let ping_body = serde_json::json!({"Ping": null});
+        let ping_body = serde_json::to_vec(&ping_body).map_err(|e| format!("Failed to serialize ping: {}", e))?;
+        
+        let spider_available = match ProcessRequest::new()
+            .target(spider_address)
+            .body(ping_body)
+            .send_and_await_response(2) // Short timeout for status check
+        {
+            Ok(Ok(_)) => true,
+            Ok(Err(e)) => {
+                info!("Spider returned error on ping: {:?}", e);
+                false
+            }
+            Err(e) => {
+                info!("Spider not responding to ping: {:?}", e);
+                false
+            }
+        };
+
+        Ok(structs::SpiderStatusResult {
+            connected: self.state.spider_api_key.is_some() && spider_available,
+            has_api_key: self.state.spider_api_key.is_some(),
+            spider_available,
+        })
+    }
+
+    #[http]
+    async fn spider_mcp_servers(&self, api_key: String) -> Result<structs::SpiderMcpServersResult, String> {
+        info!("Handling spider MCP servers request");
+        
+        // Find the spider process
+        let spider_address = hyperware_process_lib::Address::new("our", ("spider", "spider", "sys"));
+        
+        // Create the request to list MCP servers
+        let list_request = serde_json::json!({
+            "authKey": api_key,
+        });
+        
+        // Send request to spider
+        let body = serde_json::json!({"ListMcpServers": list_request});
+        let body = serde_json::to_vec(&body).map_err(|e| format!("Failed to serialize request: {}", e))?;
+        let response_result = ProcessRequest::new()
+            .target(spider_address)
+            .body(body)
+            .send_and_await_response(5);
+        
+        // Handle timeout or connection failure gracefully
+        let response = match response_result {
+            Ok(Ok(resp)) => resp,
+            Ok(Err(e)) => {
+                info!("Spider returned error for MCP servers: {:?}", e);
+                return Ok(structs::SpiderMcpServersResult {
+                    error: Some("Spider service error".to_string()),
+                    servers: Vec::new(),
+                });
+            }
+            Err(e) => {
+                info!("Failed to contact Spider for MCP servers (timeout): {:?}", e);
+                return Ok(structs::SpiderMcpServersResult {
+                    error: Some("Spider service is not available".to_string()),
+                    servers: Vec::new(),
+                });
+            }
+        };
+        
+        // Parse the response
+        let response_body = response.body();
+        let result: Result<Vec<serde_json::Value>, String> = 
+            serde_json::from_slice(response_body)
+                .map_err(|e| format!("Failed to parse spider response: {:?}", e))?;
+        
+        match result {
+            Ok(servers_json) => {
+                // Convert JSON values to our struct
+                let servers: Vec<structs::SpiderMcpServer> = servers_json.into_iter()
+                    .filter_map(|server| {
+                        // Extract fields from JSON and create SpiderMcpServer
+                        let id = server.get("id").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let name = server.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                        let description = server.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
+                        
+                        if !id.is_empty() && !name.is_empty() {
+                            Some(structs::SpiderMcpServer { id, name, description })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                    
+                Ok(structs::SpiderMcpServersResult {
+                    servers,
+                    error: None,
+                })
+            }
+            Err(e) => {
+                error!("Failed to get MCP servers: {}", e);
+                Ok(structs::SpiderMcpServersResult {
+                    error: Some(format!("Failed to get MCP servers: {}", e)),
+                    servers: Vec::new(),
+                })
+            }
+        }
     }
 
     #[local]

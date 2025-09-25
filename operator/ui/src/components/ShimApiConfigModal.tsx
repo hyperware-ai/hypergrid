@@ -17,7 +17,6 @@ function generateApiKey(length = 32): string {
     return result;
 }
 
-// Define getApiBasePath directly here (copied from AccountManager.tsx)
 const getApiBasePath = () => {
     const pathParts = window.location.pathname.split('/').filter(p => p);
     const processIdPart = pathParts.find(part => part.includes(':'));

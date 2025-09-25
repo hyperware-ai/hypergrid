@@ -2,8 +2,13 @@ import {
   WsClientMessage, 
   WsServerMessage,
   SubscribeMessage,
+  AuthMessage,
+  ChatMessage,
+  CancelMessage,
   PingMessage,
-  StateUpdateTopic
+  StateUpdateTopic,
+  SpiderMessage,
+  ConversationMetadata
 } from '../types/websocket';
 
 export type MessageHandler = (message: WsServerMessage) => void;
@@ -15,6 +20,8 @@ class WebSocketService {
   private url: string = '';
   private isSubscribed: boolean = false;
   private subscribedTopics: StateUpdateTopic[] = [];
+  private isAuthenticated: boolean = false;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   
   connect(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -27,8 +34,9 @@ class WebSocketService {
       this.ws = new WebSocket(url);
       
       this.ws.onopen = () => {
-        console.log('WebSocket connected to operator');
+        console.log('WebSocket connected');
         this.clearReconnectTimeout();
+        this.startPingInterval();
         resolve();
       };
       
@@ -38,8 +46,10 @@ class WebSocketService {
       };
       
       this.ws.onclose = () => {
-        console.log('WebSocket disconnected from operator');
+        console.log('WebSocket disconnected');
         this.isSubscribed = false;
+        this.isAuthenticated = false;
+        this.stopPingInterval();
         this.scheduleReconnect();
       };
       
@@ -90,6 +100,88 @@ class WebSocketService {
     this.send(unsubscribeMsg);
   }
   
+  authenticate(apiKey: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+        reject(new Error('WebSocket not connected'));
+        return;
+      }
+      
+      console.log('WebSocket authenticate: sending auth message with key:', apiKey);
+      
+      // Set up timeout for auth response
+      const authTimeout = window.setTimeout(() => {
+        console.error('WebSocket auth timeout - no response received');
+        this.removeMessageHandler(authHandler);
+        reject(new Error('Authentication timeout - no response from server'));
+      }, 5000); // 5 second timeout
+      
+      // Set up one-time handler for auth response
+      const authHandler = (message: WsServerMessage) => {
+        console.log('WebSocket received message during auth:', message);
+        if (message.type === 'auth_success') {
+          console.log('WebSocket auth success received');
+          window.clearTimeout(authTimeout);
+          this.isAuthenticated = true;
+          this.removeMessageHandler(authHandler);
+          resolve();
+        } else if (message.type === 'auth_error') {
+          console.log('WebSocket auth error received:', message.error);
+          window.clearTimeout(authTimeout);
+          this.removeMessageHandler(authHandler);
+          // Pass the exact error message so we can detect invalid API key
+          reject(new Error(message.error || 'Authentication failed'));
+        }
+      };
+      
+      // Add handler BEFORE sending message
+      this.addMessageHandler(authHandler);
+      
+      // Send auth message - use correct format
+      const authMsg: AuthMessage = {
+        type: 'auth',
+        apiKey
+      };
+      console.log('WebSocket sending auth:', JSON.stringify(authMsg));
+      this.send(authMsg);
+    });
+  }
+  
+  sendChatMessage(
+    messages: SpiderMessage[], 
+    llmProvider?: string, 
+    model?: string, 
+    mcpServers?: string[], 
+    metadata?: ConversationMetadata
+  ): void {
+    if (!this.isAuthenticated) {
+      throw new Error('Not authenticated');
+    }
+    
+    const chatMsg: ChatMessage = {
+      type: 'chat',
+      payload: {
+        messages,
+        llmProvider,
+        model,
+        mcpServers,
+        metadata
+      }
+    };
+    this.send(chatMsg);
+  }
+  
+  sendCancel(): void {
+    if (!this.isAuthenticated) {
+      throw new Error('Not authenticated');
+    }
+    
+    const cancelMsg: CancelMessage = {
+      type: 'cancel'
+    };
+    this.send(cancelMsg);
+  }
+  
   sendPing(): void {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return;
@@ -119,11 +211,13 @@ class WebSocketService {
   
   disconnect(): void {
     this.clearReconnectTimeout();
+    this.stopPingInterval();
     if (this.ws) {
       this.ws.close();
       this.ws = null;
     }
     this.isSubscribed = false;
+    this.isAuthenticated = false;
     this.subscribedTopics = [];
   }
   
@@ -152,12 +246,51 @@ class WebSocketService {
     }
   }
   
+  private startPingInterval(): void {
+    this.stopPingInterval();
+    
+    // Send an immediate ping for testing
+    if (this.isConnected) {
+      console.log('Sending immediate ping for testing');
+      const pingMsg: PingMessage = { type: 'ping' };
+      try {
+        this.send(pingMsg);
+      } catch (error) {
+        console.error('Failed to send ping:', error);
+      }
+    }
+    
+    this.pingInterval = window.setInterval(() => {
+      if (this.isConnected) {
+        const pingMsg: PingMessage = { type: 'ping' };
+        try {
+          console.log('Sending periodic ping');
+          this.send(pingMsg);
+        } catch (error) {
+          console.error('Failed to send ping:', error);
+        }
+      }
+    }, 30000); // Send ping every 30 seconds
+  }
+  
+  private stopPingInterval(): void {
+    if (this.pingInterval) {
+      window.clearInterval(this.pingInterval);
+      this.pingInterval = null;
+    }
+  }
+  
   get isConnected(): boolean {
     return this.ws?.readyState === WebSocket.OPEN;
   }
   
   get isReady(): boolean {
-    return this.isConnected && this.isSubscribed;
+    // For operator state subscriptions
+    if (this.subscribedTopics.length > 0) {
+      return this.isConnected && this.isSubscribed;
+    }
+    // For chat functionality
+    return this.isConnected && this.isAuthenticated;
   }
 }
 

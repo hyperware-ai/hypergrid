@@ -85,8 +85,6 @@ If you prefer manual configuration, you can create a `grid-shim-api.json` file:
 }
 ```
 
-Note: Both `/shim/mcp` and `/mcp` endpoints are supported. The `/mcp` endpoint is the newer one.
-
 Then run with:
 ```bash
 npx @hyperware-ai/hypergrid-mcp -c /path/to/grid-shim-api.json

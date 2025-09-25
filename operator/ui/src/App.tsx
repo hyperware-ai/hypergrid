@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+
 // SearchPage is no longer directly rendered here by default, but keep import if used elsewhere or if needed later.
 import OperatorConsole from "./components/console/OperatorConsole";
 import HeaderSearch from "./components/HeaderSearch.tsx";
 import AppSwitcher from "./components/AppSwitcher.tsx";
+import SpiderChat from "./components/SpiderChat.tsx";
 
 // Import required types
 import { ActiveAccountDetails, OnboardingStatusResponse } from "./logic/types.ts";
@@ -16,9 +18,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { HYPERMAP_ADDRESS } from './constants';
 import { ToastContainer } from "react-toastify";
 import NotificationBell from './components/NotificationBell';
-
-const BASE_URL = import.meta.env.VITE_BASE_URL;
-
+import { callApiWithRouting } from './utils/api-endpoints';
 
 function App() {
   // Popover state
@@ -27,6 +27,9 @@ function App() {
 
   // State for Onboarding Data
   const [onboardingData, setOnboardingData] = useState<OnboardingStatusResponse | null>(null);
+
+  const [spiderApiKey, setSpiderApiKey] = useState<string | null>(null);
+
 
   // Renamed derived variable
   const derivedNodeName = useMemo(() => {
@@ -62,6 +65,37 @@ function App() {
     }
   });
 
+  // Check spider connection status on mount
+  useEffect(() => {
+    callApiWithRouting({ SpiderStatus: {} })
+      .then(data => {
+        if (data.has_api_key) {
+          // If already connected, get the key
+          callApiWithRouting({ SpiderConnect: null }) // null means don't force new
+            .then(data => {
+              if (data.api_key) {
+                setSpiderApiKey(data.api_key);
+              }
+            })
+            .catch(console.error);
+        }
+      })
+      .catch(console.error);
+  }, []);
+
+  const handleSpiderConnect = async () => {
+    try {
+      const data = await callApiWithRouting({ SpiderConnect: null }); // null means don't force new
+      if (data.api_key) {
+        setSpiderApiKey(data.api_key);
+      }
+    } catch (error: any) {
+      console.error('Error connecting to Spider:', error);
+      // Show user-friendly error message
+      alert(error.message || 'Failed to connect to Spider. The Spider service may not be installed.');
+    }
+  };
+
   useEffect(() => {
     function handleClickOutside(event: MouseEvent) {
       if (
@@ -85,6 +119,13 @@ function App() {
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <HeaderSearch />
         <AppSwitcher currentApp="operator" />
+        <div className="flex-1 w-full overflow-hidden">
+          <SpiderChat 
+            spiderApiKey={spiderApiKey} 
+            onConnectClick={handleSpiderConnect}
+            onApiKeyRefreshed={(newKey) => setSpiderApiKey(newKey)}
+          />
+        </div>
       </header>
 
       <div className="flex flex-col flex-grow overflow-hidden relative bg-gray-50">
