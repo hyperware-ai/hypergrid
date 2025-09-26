@@ -1,6 +1,25 @@
 interface operator-process {
 use standard.{address};
 
+    record configure-authorized-client-dto {
+        client-id: option<string>,
+        client-name: option<string>,
+        raw-token: string,
+        hot-wallet-address-to-associate: string
+    }
+
+    record provider-info {
+        id: option<s64>,
+        provider-id: string,
+        name: string,
+        description: option<string>,
+        site: option<string>,
+        wallet: option<string>,
+        price: option<string>,
+        instructions: option<string>,
+        hash: string
+    }
+
     variant terminal-command {
         get-state,
         reset-state,
@@ -54,6 +73,38 @@ use standard.{address};
         provider-name: option<string>
     }
 
+    record managed-wallet {
+        id: string,
+        name: option<string>,
+        storage-json: string,
+        spending-limits: spending-limits
+    }
+
+    record spending-limits {
+        max-per-call: option<string>,
+        max-total: option<string>,
+        currency: option<string>,
+        total-spent: option<string>
+    }
+
+    record active-account-details {
+        id: string,
+        name: option<string>,
+        address: string,
+        is-encrypted: bool,
+        is-selected: bool,
+        is-unlocked: bool,
+        eth-balance: option<string>,
+        usdc-balance: option<string>
+    }
+
+    record spider-api-key {
+        key: string,
+        name: string,
+        permissions: list<string>,
+        created-at: u64
+    }
+
     record hot-wallet-authorized-client {
         id: string,
         name: string,
@@ -61,6 +112,11 @@ use standard.{address};
         authentication-token: string,
         capabilities: service-capabilities,
         status: client-status
+    }
+
+    variant client-status {
+        active,
+        halted
     }
 
     variant service-capabilities {
@@ -80,48 +136,15 @@ use standard.{address};
         payment-tx-hash: option<string>
     }
 
-    variant client-status {
-        active,
-        halted
-    }
-
-    record spider-api-key {
+    record key-value {
         key: string,
-        name: string,
-        permissions: list<string>,
-        created-at: u64
+        value: string
     }
 
-    record active-account-details {
-        id: string,
-        name: option<string>,
-        address: string,
-        is-encrypted: bool,
-        is-selected: bool,
-        is-unlocked: bool,
-        eth-balance: option<string>,
-        usdc-balance: option<string>
-    }
-
-    record managed-wallet {
-        id: string,
-        name: option<string>,
-        storage-json: string,
-        spending-limits: spending-limits
-    }
-
-    record spending-limits {
-        max-per-call: option<string>,
-        max-total: option<string>,
-        currency: option<string>,
-        total-spent: option<string>
-    }
-
-    record authorize-result {
-        url: string,
-        token: string,
-        client-id: string,
-        node: string
+    record spider-status-result {
+        connected: bool,
+        has-api-key: bool,
+        spider-available: bool
     }
 
     record spider-chat-result {
@@ -130,10 +153,24 @@ use standard.{address};
         all-messages: option<list<spider-message>>
     }
 
-    record spider-status-result {
-        connected: bool,
-        has-api-key: bool,
-        spider-available: bool
+    record provider-search-result {
+        provider-id: string,
+        name: string,
+        description: string
+    }
+
+    record configure-authorized-client-result {
+        client-id: string,
+        raw-token: string,
+        api-base-path: string,
+        node-name: string
+    }
+
+    record authorize-result {
+        url: string,
+        token: string,
+        client-id: string,
+        node: string
     }
 
     record spider-chat-dto {
@@ -159,16 +196,17 @@ use standard.{address};
         timestamp: u64
     }
 
-    record key-value {
-        key: string,
-        value: string
+    record provider {
+        name: string,
+        hash: string,
+        facts: list<tuple<string, list<string>>>,
+        wallet: option<string>,
+        price: option<string>,
+        provider-id: option<string>
     }
 
-    record configure-authorized-client-result {
-        client-id: string,
-        raw-token: string,
-        api-base-path: string,
-        node-name: string
+    record spider-connect-result {
+        api-key: string
     }
 
     record spider-mcp-servers-result {
@@ -180,44 +218,6 @@ use standard.{address};
         id: string,
         name: string,
         description: option<string>
-    }
-
-    record provider-info {
-        id: option<s64>,
-        provider-id: string,
-        name: string,
-        description: option<string>,
-        site: option<string>,
-        wallet: option<string>,
-        price: option<string>,
-        instructions: option<string>,
-        hash: string
-    }
-
-    record configure-authorized-client-dto {
-        client-id: option<string>,
-        client-name: option<string>,
-        raw-token: string,
-        hot-wallet-address-to-associate: string
-    }
-
-    record spider-connect-result {
-        api-key: string
-    }
-
-    record provider-search-result {
-        provider-id: string,
-        name: string,
-        description: string
-    }
-
-    record provider {
-        name: string,
-        hash: string,
-        facts: list<tuple<string, list<string>>>,
-        wallet: option<string>,
-        price: option<string>,
-        provider-id: option<string>
     }
 
     // Function signature for: authorize (http)

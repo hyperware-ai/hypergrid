@@ -9,7 +9,6 @@ interface Conversation {
   messages: SpiderMessage[];
   metadata: ConversationMetadata;
   llmProvider: string;
-  model?: string;
   mcpServers: string[];
   mcpServersDetails?: McpServerDetails[] | null;
 }
@@ -467,7 +466,6 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           fromStt: false,
         },
         llmProvider: 'anthropic',
-        model: 'claude-sonnet-4-20250514',
         mcpServers: connectedMcpServers,
       };
 
@@ -492,7 +490,6 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           payload: {
             messages: updatedConversation.messages,
             llmProvider: updatedConversation.llmProvider,
-            model: updatedConversation.model,
             mcpServers: updatedConversation.mcpServers,
             metadata: updatedConversation.metadata,
             conversationId: updatedConversation.id || undefined
@@ -510,7 +507,6 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           api_key: spiderApiKey,
           messages: updatedConversation.messages,
           llm_provider: updatedConversation.llmProvider,
-          model: updatedConversation.model,
           mcp_servers: updatedConversation.mcpServers,
           metadata: updatedConversation.metadata,
         }
