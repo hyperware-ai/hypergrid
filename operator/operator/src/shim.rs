@@ -4,7 +4,6 @@ use crate::structs::{
     ConfigureAuthorizedClientDto, ConfigureAuthorizedClientResult, HotWalletAuthorizedClient,
     PaymentAttemptResult, ServiceCapabilities, State, DEFAULT_NODE_NAME,
 };
-// use crate::ledger; // TODO: Enable when ledger is async
 use alloy_primitives::Address as EthAddress;
 use hex;
 use hyperware_process_lib::{

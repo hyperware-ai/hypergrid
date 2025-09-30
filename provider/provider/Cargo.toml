@@ -13,6 +13,10 @@ wit-bindgen = "0.42.1"
 optional = true
 path = "../target/caller-utils"
 
+[dependencies.hyperprocess_macro]
+branch = "develop"
+git = "https://github.com/hyperware-ai/hyperprocess-macro"
+
 [dependencies.hyperware_process_lib]
 features = [
     "hyperapp",
@@ -21,19 +25,16 @@ features = [
 git = "https://github.com/hyperware-ai/process_lib"
 rev = "b9f1ead"
 
-[dependencies.hyperprocess_macro]
-git = "https://github.com/hyperware-ai/hyperprocess-macro"
-branch = "develop"
-
-[dependencies.hyperware_app_common]
-git = "https://github.com/hyperware-ai/hyperprocess-macro"
-branch = "develop"
+[dependencies.provider_caller_utils]
+optional = true
+path = "../target/provider-caller-utils"
 
 [dependencies.serde]
 features = ["derive"]
 version = "1.0"
 
 [features]
+caller-utils = ["provider_caller_utils"]
 simulation-mode = []
 
 [lib]
