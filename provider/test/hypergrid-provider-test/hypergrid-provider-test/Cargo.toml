@@ -7,10 +7,6 @@ publish = false
 [dependencies.caller-utils]
 path = "../../../target/caller-utils"
 
-[dependencies.hyperware_app_common]
-git = "https://github.com/hyperware-ai/hyperprocess-macro"
-rev = "b6ad495"
-
 [dependencies]
 anyhow = "1.0"
 process_macros = "0.1.0"
