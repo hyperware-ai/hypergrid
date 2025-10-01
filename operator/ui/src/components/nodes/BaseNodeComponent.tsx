@@ -1,6 +1,5 @@
 import React from 'react';
 import { Handle, Position } from 'reactflow';
-import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 
 interface BaseNodeProps {
     children: React.ReactNode;
@@ -46,7 +45,7 @@ const BaseNodeComponent: React.FC<BaseNodeProps> = ({
         <div
             className={baseClasses}
             style={{
-                maxWidth: NODE_WIDTH,
+                maxWidth: 300,
                 ...style
             }}
             onClick={onClick}

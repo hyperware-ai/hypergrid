@@ -6,20 +6,15 @@ const getApiBasePath = () => {
     return packagePath ? `/${packagePath}/api` : '/api';
 };
 
-// Operations that are actual MCP (Model Context Provider) operations
-const MCP_OPERATIONS = ['SearchRegistry', 'CallProvider'];
-
 // Determine the correct endpoint based on the operation
 export const getEndpointForOperation = (operation: string): string => {
-    const basePath = getApiBasePath();
+    const pathParts = window.location.pathname.split('/').filter(p => p);
+    const packagePath = pathParts.find(p => p.includes(':'));
+    const basePath = packagePath ? `/${packagePath}` : '';
     
-    // Check if it's an actual MCP operation
-    if (MCP_OPERATIONS.includes(operation)) {
-        return `${basePath}/mcp`;
-    }
     
-    // All other operations go to the /api/actions endpoint
-    return `${basePath}/actions`;
+    // All other operations go to the standard /api endpoint
+    return `${basePath}/api`;
 };
 
 // Helper to make API calls with automatic endpoint routing
@@ -48,5 +43,10 @@ export const callMcpApi = async (endpoint: string, body: any) => {
 };
 
 // Export endpoints for direct use if needed
-export const MCP_ENDPOINT = `${getApiBasePath()}/mcp`;
-export const API_ACTIONS_ENDPOINT = `${getApiBasePath()}/actions`; 
+export const API_ENDPOINT = getApiBasePath();
+export const SHIM_MCP_ENDPOINT = (() => {
+    const pathParts = window.location.pathname.split('/').filter(p => p);
+    const packagePath = pathParts.find(p => p.includes(':'));
+    const basePath = packagePath ? `/${packagePath}` : '';
+    return `${basePath}/shim/mcp`;
+})(); 

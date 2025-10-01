@@ -1,10 +1,12 @@
 import { 
   WsClientMessage, 
   WsServerMessage,
+  SubscribeMessage,
   AuthMessage,
   ChatMessage,
   CancelMessage,
   PingMessage,
+  StateUpdateTopic,
   SpiderMessage,
   ConversationMetadata
 } from '../types/websocket';
@@ -14,10 +16,12 @@ export type MessageHandler = (message: WsServerMessage) => void;
 class WebSocketService {
   private ws: WebSocket | null = null;
   private messageHandlers: Set<MessageHandler> = new Set();
-  private reconnectTimeout: number | null = null;
+  private reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
   private url: string = '';
+  private isSubscribed: boolean = false;
+  private subscribedTopics: StateUpdateTopic[] = [];
   private isAuthenticated: boolean = false;
-  private pingInterval: number | null = null;
+  private pingInterval: ReturnType<typeof setInterval> | null = null;
   
   connect(url: string): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -43,6 +47,7 @@ class WebSocketService {
       
       this.ws.onclose = () => {
         console.log('WebSocket disconnected');
+        this.isSubscribed = false;
         this.isAuthenticated = false;
         this.stopPingInterval();
         this.scheduleReconnect();
@@ -50,20 +55,49 @@ class WebSocketService {
       
       this.ws.onmessage = (event) => {
         try {
-          console.log('WebSocket raw message received:', event.data);
           const message = JSON.parse(event.data) as WsServerMessage;
-          console.log('WebSocket parsed message:', message);
           this.handleMessage(message);
         } catch (error) {
-          console.error('Failed to parse WebSocket message:', error, 'Raw data:', event.data);
+          console.error('Failed to parse WebSocket message:', error);
         }
       };
     });
   }
   
   private handleMessage(message: WsServerMessage) {
+    // Handle subscribed confirmation
+    if (message.type === 'subscribed') {
+      this.isSubscribed = true;
+      this.subscribedTopics = message.topics;
+      console.log('Subscribed to operator state topics:', message.topics);
+    }
+    
     // Notify all handlers
     this.messageHandlers.forEach(handler => handler(message));
+  }
+  
+  subscribe(topics?: StateUpdateTopic[]): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      throw new Error('WebSocket not connected');
+    }
+    
+    const subscribeMsg: SubscribeMessage = {
+      type: 'subscribe',
+      topics: topics || ['all']
+    };
+    this.send(subscribeMsg);
+  }
+  
+  unsubscribe(topics?: StateUpdateTopic[]): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    
+    const unsubscribeMsg = {
+      type: 'unsubscribe' as const,
+      topics
+    };
+    this.send(unsubscribeMsg);
   }
   
   authenticate(apiKey: string): Promise<void> {
@@ -118,8 +152,7 @@ class WebSocketService {
     llmProvider?: string, 
     model?: string, 
     mcpServers?: string[], 
-    metadata?: ConversationMetadata,
-    conversationId?: string
+    metadata?: ConversationMetadata
   ): void {
     if (!this.isAuthenticated) {
       throw new Error('Not authenticated');
@@ -132,8 +165,7 @@ class WebSocketService {
         llmProvider,
         model,
         mcpServers,
-        metadata,
-        conversationId
+        metadata
       }
     };
     this.send(chatMsg);
@@ -148,6 +180,17 @@ class WebSocketService {
       type: 'cancel'
     };
     this.send(cancelMsg);
+  }
+  
+  sendPing(): void {
+    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+      return;
+    }
+    
+    const pingMsg: PingMessage = {
+      type: 'ping'
+    };
+    this.send(pingMsg);
   }
   
   send(data: WsClientMessage): void {
@@ -173,23 +216,32 @@ class WebSocketService {
       this.ws.close();
       this.ws = null;
     }
+    this.isSubscribed = false;
     this.isAuthenticated = false;
+    this.subscribedTopics = [];
   }
   
   private scheduleReconnect(): void {
     if (this.reconnectTimeout) return;
     
-    this.reconnectTimeout = window.setTimeout(() => {
-      console.log('Attempting to reconnect WebSocket...');
-      this.connect(this.url).catch(error => {
-        console.error('Reconnection failed:', error);
-      });
+    this.reconnectTimeout = setTimeout(() => {
+      console.log('Attempting to reconnect WebSocket to operator...');
+      this.connect(this.url)
+        .then(() => {
+          // Re-subscribe after reconnect
+          if (this.subscribedTopics.length > 0) {
+            this.subscribe(this.subscribedTopics);
+          }
+        })
+        .catch(error => {
+          console.error('Reconnection failed:', error);
+        });
     }, 3000);
   }
   
   private clearReconnectTimeout(): void {
     if (this.reconnectTimeout) {
-      window.clearTimeout(this.reconnectTimeout);
+      clearTimeout(this.reconnectTimeout);
       this.reconnectTimeout = null;
     }
   }
@@ -233,6 +285,11 @@ class WebSocketService {
   }
   
   get isReady(): boolean {
+    // For operator state subscriptions
+    if (this.subscribedTopics.length > 0) {
+      return this.isConnected && this.isSubscribed;
+    }
+    // For chat functionality
     return this.isConnected && this.isAuthenticated;
   }
 }

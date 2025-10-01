@@ -3,7 +3,6 @@ import classNames from 'classnames';
 import { NodeProps, Handle, Position } from 'reactflow';
 import { IOperatorWalletNodeData, IOperatorWalletFundingInfo, INoteInfo, SpendingLimits } from '../../logic/types';
 import type { Address } from 'viem';
-import { NODE_WIDTH } from '../BackendDrivenHypergridVisualizer';
 import CopyToClipboardText from '../CopyToClipboardText';
 import PaymasterApprovalButton from '../PaymasterApprovalButton';
 import { useApprovePaymaster } from '../../logic/hypermapHelpers';
@@ -56,11 +55,9 @@ const PaymasterToggleButton: React.FC<PaymasterToggleButtonProps> = ({
         }
     }, [approveHook.isConfirmed, onApprove, approveHook]);
 
-    // Handle revoke confirmation - don't trigger immediate refresh, let BackendDrivenHypergridVisualizer handle it with delay
     useEffect(() => {
         if (revokeHookState?.isConfirmed) {
             console.log("Revoke confirmed in toggle button - letting parent handle delayed refresh");
-            // Don't call onApprove() here - the parent BackendDrivenHypergridVisualizer will handle the refresh with proper delay
             revokeHookState.reset();
         }
     }, [revokeHookState?.isConfirmed, revokeHookState]);
@@ -176,10 +173,10 @@ const OperatorWalletNodeComponent: React.FC<NodeProps<IOperatorWalletNodeData>> 
         const processIdPart = pathParts.find(part => part.includes(':'));
         return processIdPart ? `/${processIdPart}/api` : '/api';
     };
-    const API_ACTIONS_ENDPOINT_LOCAL = `${getApiBasePathLocal()}/actions`;
+    const API_ENDPOINT_LOCAL = `${getApiBasePathLocal()}`;
 
     const callApiActionsLocal = async (body: any) => {
-        const response = await fetch(API_ACTIONS_ENDPOINT_LOCAL, {
+        const response = await fetch(API_ENDPOINT_LOCAL, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),

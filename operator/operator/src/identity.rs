@@ -1,49 +1,96 @@
-use crate::structs::{State, CHAIN_ID, IdentityStatus};
-use hyperware_process_lib::logging::{info, error, warn};
-use hyperware_process_lib::{eth, hypermap, Address};
+use crate::constants::{
+    CIRCLE_PAYMASTER, NEW_TBA_IMPLEMENTATION, OLD_TBA_IMPLEMENTATION, USDC_BASE_ADDRESS,
+};
+use crate::structs::{IdentityStatus, State, CHAIN_ID};
+use alloy_primitives::{Address as EthAddress, B256, U256};
+use anyhow::{Context, Result};
 use hyperware_process_lib::eth::Provider;
-use alloy_primitives::Address as EthAddress;
-use anyhow::Result;
+use hyperware_process_lib::logging::{error, info, warn};
+use hyperware_process_lib::{eth, hypermap, wallet, Address};
 use std::str::FromStr;
 
-use crate::chain; // To call get_implementation_address
+/// Get implementation address for an ERC-1967 proxy
+fn get_implementation_address(
+    provider: &Provider,
+    proxy_address: EthAddress,
+) -> Result<EthAddress> {
+    info!("Fetching implementation address for: {}", proxy_address);
+    let slot_bytes =
+        B256::from_str("0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc")
+            .expect("ERC-1967 Slot Hash is valid"); // Use expect for constants
+    let slot_u256 = U256::from_be_bytes(slot_bytes.0); // Convert B256 bytes to U256
 
-// TBA Implementation addresses
-const OLD_TBA_IMPLEMENTATION: &str = "0x000000000046886061414588bb9F63b6C53D8674"; // Works but no gasless
-//const NEW_TBA_IMPLEMENTATION: &str = "0x19b89306e31D07426E886E3370E62555A0743D96"; // Supports ERC-4337 gasless (was faulty, no delegation)
-const NEW_TBA_IMPLEMENTATION: &str = "0x3950D18044D7DAA56BFd6740fE05B42C95201535"; // Supports ERC-4337 gasless (fixed)
+    match provider.get_storage_at(proxy_address, slot_u256, None) {
+        // None means latest block
+        Ok(value_b256) => {
+            // Return value is B256
+            let value_bytes: &[u8] = &value_b256.0;
+            if value_bytes.len() == 32 {
+                // Should always be 32 for B256
+                // Address is the last 20 bytes (index 12 to 31)
+                let implementation_address = EthAddress::from_slice(&value_bytes[12..32]);
+                info!("Found implementation address: {}", implementation_address);
+                Ok(implementation_address)
+            } else {
+                error!(
+                    "Storage slot value B256 has unexpected length: {}",
+                    value_bytes.len()
+                );
+                Err(anyhow::anyhow!("Invalid storage slot value length"))
+            }
+        }
+        Err(e) => {
+            error!("Failed to get storage slot for {}: {:?}", proxy_address, e);
+            Err(anyhow::Error::from(e).context(format!(
+                "Failed to get implementation slot for {}",
+                proxy_address
+            )))
+        }
+    }
+}
 
 /// Checks for the expected Hypergrid sub-entry (e.g., grid-wallet.<node_name>.<tlz>)
 /// and verifies it uses a supported HyperAccountAccessControlMinter implementation.
 /// Updates the state with the verified entry name and TBA address if found and correct.
 /// Also sets gasless_enabled based on the implementation version.
 pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<()> {
-    info!("Initializing Hypergrid Operator Identity for node: {}", our.node);
+    info!(
+        "Initializing Hypergrid Operator Identity for node: {}",
+        our.node
+    );
 
     let identity_status = check_operator_identity_detailed(our);
     let mut needs_save = false;
 
     match identity_status {
-        IdentityStatus::Verified { entry_name, tba_address, .. } => {
-            info!("Identity verified: Name={}, TBA={}", entry_name, tba_address);
-            
+        IdentityStatus::Verified {
+            entry_name,
+            tba_address,
+            ..
+        } => {
+            info!(
+                "Identity verified: Name={}, TBA={}",
+                entry_name, tba_address
+            );
+
             // Update state if necessary
-            if state.operator_entry_name.as_deref() != Some(&entry_name) || 
-               state.operator_tba_address.as_deref() != Some(&tba_address) {
+            if state.operator_entry_name.as_deref() != Some(&entry_name)
+                || state.operator_tba_address.as_deref() != Some(&tba_address)
+            {
                 state.operator_entry_name = Some(entry_name.clone());
                 state.operator_tba_address = Some(tba_address.clone());
                 info!("Set operator identity in state.");
                 needs_save = true;
             }
-            
+
             // Check implementation to determine gasless support
             let provider = eth::Provider::new(CHAIN_ID, 30000);
             if let Ok(tba_eth_addr) = EthAddress::from_str(&tba_address) {
-                match chain::get_implementation_address(&provider, tba_eth_addr) {
+                match get_implementation_address(&provider, tba_eth_addr) {
                     Ok(impl_addr) => {
                         let impl_str = impl_addr.to_string().to_lowercase();
                         let new_gasless_enabled = impl_str == NEW_TBA_IMPLEMENTATION.to_lowercase();
-                        
+
                         if state.gasless_enabled != Some(new_gasless_enabled) {
                             state.gasless_enabled = Some(new_gasless_enabled);
                             if new_gasless_enabled {
@@ -58,41 +105,101 @@ pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<
                         warn!("Could not check implementation for gasless support: {}", e);
                     }
                 }
+
+                // Check paymaster approval if gasless is enabled
+                if state.gasless_enabled.unwrap_or(false) {
+                    let paymaster = CIRCLE_PAYMASTER; // Circle paymaster
+                    match wallet::erc20_allowance(
+                        USDC_BASE_ADDRESS,
+                        &tba_address,
+                        paymaster,
+                        &provider,
+                    ) {
+                        Ok(allowance) => {
+                            let approved = allowance > alloy_primitives::U256::ZERO;
+                            info!(
+                                "Paymaster approval check: {}",
+                                if approved { "APPROVED" } else { "NOT APPROVED" }
+                            );
+                            state.paymaster_approved = Some(approved);
+                            needs_save = true;
+                        }
+                        Err(e) => {
+                            warn!("Failed to check paymaster approval: {:?}", e);
+                            state.paymaster_approved = Some(false);
+                            needs_save = true;
+                        }
+                    }
+                } else {
+                    // Not using gasless implementation, so paymaster not relevant
+                    state.paymaster_approved = Some(false);
+                    needs_save = true;
+                }
             }
         }
         IdentityStatus::NotFound => {
             let expected_sub_entry_name = format!("grid-wallet.{}", our.node);
-            error!("---------------------------------------------------------------------");
-            error!("Hypergrid operational sub-entry not found!");
-            error!("Expected sub-entry: {}", expected_sub_entry_name);
-            error!("Please ensure this sub-entry exists with a supported implementation:");
-            error!("  - {} (old - works but no gasless)", OLD_TBA_IMPLEMENTATION);
-            error!("  - {} (new - supports gasless)", NEW_TBA_IMPLEMENTATION);
-            error!("Payments and other Hypergrid operations will fail.");
-            error!("---------------------------------------------------------------------");
-            
-            if state.operator_entry_name.is_some() || state.operator_tba_address.is_some() || state.gasless_enabled.is_some() {
-                info!("Clearing operator identity state due to missing entry.");
+            info!(
+                "Operator wallet sub-entry '{}' not found, checking owner node",
+                expected_sub_entry_name
+            );
+
+            // Check if the owner node exists and store its TBA for UI purposes
+            let provider = eth::Provider::new(CHAIN_ID, 30000);
+            match EthAddress::from_str(hypermap::HYPERMAP_ADDRESS) {
+                Ok(hypermap_addr) if hypermap_addr != EthAddress::ZERO => {
+                    let hypermap_reader = hypermap::Hypermap::new(provider, hypermap_addr);
+                    match hypermap_reader.get(our.node()) {
+                        Ok((tba, owner, _data)) if tba != EthAddress::ZERO => {
+                            let tba_str = tba.to_string();
+                            let owner_str = owner.to_string();
+                            info!(
+                                "Found owner node '{}' with TBA: {}, Owner: {}",
+                                our.node(),
+                                tba_str,
+                                owner_str
+                            );
+
+                            // Store the owner node TBA for UI display
+                            // Note: We're NOT setting operator_entry_name since the operator wallet doesn't exist
+                            if state.operator_tba_address.as_deref() != Some(&tba_str) {
+                                state.operator_tba_address = Some(tba_str);
+                                info!(
+                                    "Stored owner node TBA in operator_tba_address for UI display"
+                                );
+                                needs_save = true;
+                            }
+                        }
+                        Ok(_) => {
+                            info!(
+                                "Owner node '{}' has no TBA or is not registered",
+                                our.node()
+                            );
+                        }
+                        Err(e) => {
+                            error!("Failed to check owner node: {:?}", e);
+                        }
+                    }
+                }
+                _ => {
+                    error!("Invalid HYPERMAP_ADDRESS");
+                }
+            }
+
+            // Clear operator_entry_name since the operator wallet doesn't exist
+            if state.operator_entry_name.is_some() {
                 state.operator_entry_name = None;
-                state.operator_tba_address = None;
-                state.gasless_enabled = None;
                 needs_save = true;
             }
         }
         IdentityStatus::IncorrectImplementation { found, expected } => {
             // This now means UNSUPPORTED implementation (not old or new)
             let expected_sub_entry_name = format!("grid-wallet.{}", our.node);
-            error!("---------------------------------------------------------------------");
-            error!("Hypergrid operational sub-entry uses UNSUPPORTED implementation!");
-            error!("Sub-entry: {}", expected_sub_entry_name);
-            error!("Found implementation: {}", found);
-            error!("Supported implementations:");
-            error!("  - {} (old)", OLD_TBA_IMPLEMENTATION);
-            error!("  - {} (new)", NEW_TBA_IMPLEMENTATION);
-            error!("The operator cannot work with this implementation.");
-            error!("---------------------------------------------------------------------");
-            
-            if state.operator_entry_name.is_some() || state.operator_tba_address.is_some() || state.gasless_enabled.is_some() {
+
+            if state.operator_entry_name.is_some()
+                || state.operator_tba_address.is_some()
+                || state.gasless_enabled.is_some()
+            {
                 info!("Clearing operator identity state due to unsupported implementation.");
                 state.operator_entry_name = None;
                 state.operator_tba_address = None;
@@ -106,11 +213,6 @@ pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<
         }
     }
 
-    if needs_save {
-        info!("Saving updated state after identity check.");
-        state.save();
-    }
-
     Ok(())
 }
 
@@ -118,15 +220,18 @@ pub fn initialize_operator_identity(our: &Address, state: &mut State) -> Result<
 /// Returns a detailed IdentityStatus enum.
 /// Now supports both old and new implementations.
 pub fn check_operator_identity_detailed(our: &Address) -> IdentityStatus {
-    info!("Checking detailed Hypergrid Operator Identity status for node: {}", our.node);
+    info!(
+        "Checking detailed Hypergrid Operator Identity status for node: {}",
+        our.node
+    );
 
     let base_node_name = our.node.clone();
     let expected_sub_entry_name = format!("grid-wallet.{}", base_node_name);
-    
+
     let provider = eth::Provider::new(CHAIN_ID, 30000); // 30s timeout
     let hypermap_addr = match EthAddress::from_str(hypermap::HYPERMAP_ADDRESS) {
-         Ok(addr) => addr,
-         Err(e) => return IdentityStatus::CheckError(format!("Invalid HYPERMAP_ADDRESS: {}", e)),
+        Ok(addr) => addr,
+        Err(e) => return IdentityStatus::CheckError(format!("Invalid HYPERMAP_ADDRESS: {}", e)),
     };
     let hypermap_reader = hypermap::Hypermap::new(provider.clone(), hypermap_addr);
 
@@ -140,22 +245,25 @@ pub fn check_operator_identity_detailed(our: &Address) -> IdentityStatus {
                 );
                 return IdentityStatus::NotFound;
             }
-            
+
             let tba_str = tba.to_string();
             let owner_str = owner.to_string();
-            info!("Found sub-entry '{}', TBA: {}, Owner: {}. Checking implementation...", expected_sub_entry_name, tba_str, owner_str);
-            
+            info!(
+                "Found sub-entry '{}', TBA: {}, Owner: {}. Checking implementation...",
+                expected_sub_entry_name, tba_str, owner_str
+            );
+
             // 2. Check implementation address
-            match chain::get_implementation_address(&provider, tba) {
+            match get_implementation_address(&provider, tba) {
                 Ok(implementation_address) => {
                     let impl_str = implementation_address.to_string();
                     let impl_str_lower = impl_str.to_lowercase();
-                    
+
                     // Check if it's one of our supported implementations
                     if impl_str_lower == OLD_TBA_IMPLEMENTATION.to_lowercase() {
                         info!("Sub-entry '{}' uses OLD implementation ({}) - works but no gasless support", 
                             expected_sub_entry_name, impl_str);
-                        IdentityStatus::Verified { 
+                        IdentityStatus::Verified {
                             entry_name: expected_sub_entry_name,
                             tba_address: tba_str,
                             owner_address: owner_str,
@@ -163,39 +271,52 @@ pub fn check_operator_identity_detailed(our: &Address) -> IdentityStatus {
                     } else if impl_str_lower == NEW_TBA_IMPLEMENTATION.to_lowercase() {
                         info!("Sub-entry '{}' uses NEW implementation ({}) - gasless transactions supported!", 
                             expected_sub_entry_name, impl_str);
-                        IdentityStatus::Verified { 
+                        IdentityStatus::Verified {
                             entry_name: expected_sub_entry_name,
                             tba_address: tba_str,
                             owner_address: owner_str,
                         }
                     } else {
-                        error!("Sub-entry '{}' exists but uses UNSUPPORTED implementation: {}", 
-                            expected_sub_entry_name, impl_str);
-                        error!("Supported implementations:");
-                        error!("  - {} (old)", OLD_TBA_IMPLEMENTATION);
-                        error!("  - {} (new)", NEW_TBA_IMPLEMENTATION);
-                        IdentityStatus::IncorrectImplementation { 
-                            found: impl_str, 
-                            expected: format!("{} or {}", OLD_TBA_IMPLEMENTATION, NEW_TBA_IMPLEMENTATION)
+                        //error!("Sub-entry '{}' exists but uses UNSUPPORTED implementation: {}",
+                        //    expected_sub_entry_name, impl_str);
+                        //error!("Supported implementations:");
+                        //error!("  - {} (old)", OLD_TBA_IMPLEMENTATION);
+                        //error!("  - {} (new)", NEW_TBA_IMPLEMENTATION);
+                        IdentityStatus::IncorrectImplementation {
+                            found: impl_str,
+                            expected: format!(
+                                "{} or {}",
+                                OLD_TBA_IMPLEMENTATION, NEW_TBA_IMPLEMENTATION
+                            ),
                         }
                     }
                 }
                 Err(e) => {
-                    let err_msg = format!("Failed to get implementation address for '{}' (TBA: {}): {:?}", expected_sub_entry_name, tba_str, e);
+                    let err_msg = format!(
+                        "Failed to get implementation address for '{}' (TBA: {}): {:?}",
+                        expected_sub_entry_name, tba_str, e
+                    );
                     error!("{}", err_msg);
                     IdentityStatus::ImplementationCheckFailed(err_msg)
                 }
             }
         }
-        Err(e) => { // Handle hypermap.get errors
+        Err(e) => {
+            // Handle hypermap.get errors
             let err_msg = format!("{:?}", e);
-             error!("Error during '{}' lookup via hypermap.get: {}", expected_sub_entry_name, err_msg);
-             // Attempt to differentiate between "not found" and other errors
+            error!(
+                "Error during '{}' lookup via hypermap.get: {}",
+                expected_sub_entry_name, err_msg
+            );
+            // Attempt to differentiate between "not found" and other errors
             if err_msg.contains("note not found") || err_msg.contains("entry not found") {
                 IdentityStatus::NotFound
             } else {
-                IdentityStatus::CheckError(format!("RPC/Read Error for '{}': {}", expected_sub_entry_name, err_msg))
+                IdentityStatus::CheckError(format!(
+                    "RPC/Read Error for '{}': {}",
+                    expected_sub_entry_name, err_msg
+                ))
             }
         }
     }
-} 
+}

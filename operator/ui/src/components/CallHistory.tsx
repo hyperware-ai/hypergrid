@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns'; // Using date-fns for timestamp formatting
 // Import shared types
 import { CallRecord, PaymentAttemptResult } from '../logic/types';
-import { API_ACTIONS_ENDPOINT } from '../utils/api-endpoints';
+import { API_ENDPOINT } from '../utils/api-endpoints';
 
 // Add props interface
 interface CallHistoryProps {
@@ -118,17 +118,8 @@ const CallHistory: React.FC<CallHistoryProps> = ({ selectedAccountId, isNonColla
         setError(null);
         // setAllHistory([]); // Don't clear immediately, wait for fetch
         try {
-            const requestBody = { GetCallHistory: {} };
-            const response = await fetch(API_ACTIONS_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(requestBody),
-            });
-            if (!response.ok) {
-                const errData = await response.json().catch(() => ({ error: `HTTP error! Status: ${response.status}` }));
-                throw new Error(errData.error || `Failed to fetch history: ${response.statusText}`);
-            }
-            const data: CallRecord[] = await response.json();
+            const { callApiWithRouting } = await import('../utils/api-endpoints');
+            const data: CallRecord[] = await callApiWithRouting({ GetCallHistory: {} });
             console.log('CallHistory data:', data);
             setAllHistory(data.reverse()); // Store all history, newest first
         } catch (err) {

@@ -1,0 +1,4 @@
+world types-operator-sortugdev-dot-os-v0 {
+    import operator-process;
+    include lib;
+}

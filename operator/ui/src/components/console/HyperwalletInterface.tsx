@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 
 const getApiBasePath = () => {
   const pathParts = window.location.pathname.split('/').filter((p) => p);
@@ -11,7 +11,7 @@ const CLIENT_NAME_MAX_LEN = 60;
 export type HwClient = {
   id: string;
   name: string;
-  status: 'active' | 'paused';
+  status: 'active' | 'halted';
   monthlyLimit?: number;
   dailyLimit?: number;
   monthlySpent?: number;
@@ -72,13 +72,28 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
   const toggleClientStatus = async (clientId: string) => {
     const base = clients.find((c) => c.id === clientId);
     const current = (optimistic[clientId]?.status || base?.status || 'active');
-    const next = current === 'active' ? 'paused' : 'active';
+    const next = current === 'active' ? 'halted' : 'active';
     setOptimistic((prev) => ({ ...prev, [clientId]: { ...(prev[clientId] || {}), status: next } }));
     await onToggleClientStatus(clientId);
   };
 
   const hwClients = clients || [];
   const hwEvents = events || [];
+  
+  // Clear removed clients when the clients prop updates (e.g., from WebSocket)
+  useEffect(() => {
+    setRemovedClientIds(prev => {
+      const next = new Set(prev);
+      // Remove any IDs that are no longer in the removed set
+      // (i.e., when WebSocket confirms the removal)
+      for (const id of prev) {
+        if (!hwClients.some(c => c.id === id)) {
+          next.delete(id);
+        }
+      }
+      return next.size === prev.size ? prev : next;
+    });
+  }, [hwClients]);
 
   const balanceHistory = useMemo(() => {
     let runningBalance = 3500;
@@ -243,6 +258,8 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
   const [copied, setCopied] = useState<boolean>(false);
   const [renamingClientId, setRenamingClientId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState<string>('');
+  const [confirmingRemoveClientId, setConfirmingRemoveClientId] = useState<string | null>(null);
+  const [removedClientIds, setRemovedClientIds] = useState<Set<string>>(new Set());
 
   const startRename = (clientId: string, currentName: string) => {
     setRenamingClientId(clientId);
@@ -263,15 +280,12 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
       if (onRenameClient) {
         await onRenameClient(clientId, next);
       } else {
-        const response = await fetch(`${getApiBasePath()}/actions`, {
+        const response = await fetch(`${getApiBasePath()}`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
           body: JSON.stringify({
-            RenameAuthorizedClient: {
-              client_id: clientId,
-              new_name: next
-            }
+            RenameAuthorizedClient: [clientId, next]
           })
         });
         if (!response.ok) {
@@ -303,33 +317,14 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
           ) : (
             <>
               {/* Top-center: grid-wallet.node.os name */}
-              <div className="absolute left-1/2 transform -translate-x-1/2 top-3 text-sm text-gray-900 font-medium whitespace-nowrap">
+              <div className="absolute left-1/2 transform -translate-x-1/2 top-3 text-sm text-gray-900 font-medium">
                 {nodeName ? `grid-wallet.${nodeName}` : '—'}
               </div>
               {/* Center: balance */}
               <div className="absolute inset-0 flex items-center justify-center text-gray-900">
-                {/* Balance indicators - moved to left side */}
-                {balanceNum === 0 && (
-                  <div className="inline-flex items-center mr-3 px-3 py-1 rounded-full bg-red-100/80 backdrop-blur-sm animate-pulse">
-                    <span className="text-red-700 text-xs font-medium mr-1">
-                      Send USDC to start →
-                    </span>
-                  </div>
-                )}
-                
-                {balanceNum > 0 && balanceNum < 1 && (
-                  <div className="inline-flex items-center mr-3 px-3 py-1 rounded-full bg-amber-100/70 backdrop-blur-sm">
-                    <span className="text-amber-700 text-xs">
-                      Low balance →
-                    </span>
-                  </div>
-                )}
-                
                 <span className="font-semibold text-4xl align-middle">{balanceNum.toLocaleString()}</span>
                 <span className="ml-2 text-sm align-middle">USDC</span>
-                
-                {/* Existing warning badge - now only shows for balance between 0 and 1 */}
-                {isLowBalance && balanceNum > 0 && (
+                {isLowBalance && (
                   <div className="relative group ml-2">
                     <span className="inline-flex items-center justify-center w-8 h-8 rounded-full bg-yellow-400 text-white text-sm font-bold align-middle">!</span>
                     <div className="absolute left-full top-1/2 ml-2 -translate-y-1/2 whitespace-nowrap rounded bg-yellow-300 text-black text-xs px-3 py-1.5 shadow-lg z-50 opacity-0 group-hover:opacity-100 transition-opacity duration-0">
@@ -385,7 +380,7 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                 </div>
               ))
             ) : (
-            sortedClients.map((client: any) => {
+            sortedClients.filter((client: any) => !removedClientIds.has(client.id)).map((client: any) => {
               const overlay = optimistic[client.id] || {};
               const merged = { ...client, ...overlay } as HwClient & { lastActivity?: string };
               const spent = Number((merged as any).monthlySpent || 0);
@@ -394,7 +389,7 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
               const isExpanded = expandedClient === merged.id;
               return (
                 <div key={client.id}>
-                  <div className={`flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 rounded-md border border-gray-200`} onClick={() => setExpandedClient(isExpanded ? null : merged.id)}>
+                  <div className={`flex items-center justify-between p-3 cursor-pointer hover:bg-gray-50 rounded-md border border-gray-200`} onClick={() => { setExpandedClient(isExpanded ? null : merged.id); setConfirmingRemoveClientId(null); }}>
                     <div className="flex items-center gap-3">
                       <div className="w-4 h-4 rounded-sm" style={{ backgroundColor: getClientColor(merged.id) }} />
                       {renamingClientId === merged.id ? (
@@ -452,7 +447,51 @@ const HyperwalletInterface: React.FC<Props> = ({ operatorTba, usdcBalance, clien
                         </div>
                         <div className="flex items-center gap-2 pb-2">
                           <button onClick={() => toggleClientStatus(merged.id)} className={`px-3 py-1 text-xs border rounded-md ${merged.status === 'active' ? 'border-red-300 text-red-700 hover:bg-red-50' : 'border-green-300 text-green-700 hover:bg-green-50'}`}>{merged.status === 'active' ? 'Halt' : 'Resume'}</button>
-                          {/* remove client button hidden for now */}
+                          <button 
+                            onClick={async () => {
+                              if (confirmingRemoveClientId === merged.id) {
+                                // Second click - actually remove
+                                // Optimistically remove the client from the UI
+                                setRemovedClientIds(prev => new Set(prev).add(merged.id));
+                                setConfirmingRemoveClientId(null);
+                                setExpandedClient(null);
+                                
+                                try {
+                                  const response = await fetch(`${getApiBasePath()}`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    credentials: 'include',
+                                    body: JSON.stringify({
+                                      RemoveAuthorizedClient: merged.id
+                                    })
+                                  });
+                                  if (!response.ok) {
+                                    throw new Error(await response.text());
+                                  }
+                                  // WebSocket will handle the state update
+                                } catch (error) {
+                                  console.error('Failed to remove client:', error);
+                                  // Revert the optimistic update on error
+                                  setRemovedClientIds(prev => {
+                                    const next = new Set(prev);
+                                    next.delete(merged.id);
+                                    return next;
+                                  });
+                                  alert('Failed to remove client. Please try again.');
+                                }
+                              } else {
+                                // First click - show confirmation
+                                setConfirmingRemoveClientId(merged.id);
+                                // Auto-reset after 3 seconds
+                                setTimeout(() => {
+                                  setConfirmingRemoveClientId(null);
+                                }, 3000);
+                              }
+                            }}
+                            className="px-3 py-1 text-xs border border-red-300 text-red-700 hover:bg-red-50 rounded-md"
+                          >
+                            {confirmingRemoveClientId === merged.id ? 'are you sure?' : 'Remove Client'}
+                          </button>
                         </div>
                       </div>
                     </div>

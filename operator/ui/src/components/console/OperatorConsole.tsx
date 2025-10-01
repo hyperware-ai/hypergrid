@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Address, createPublicClient, http, namehash as viemNamehash } from 'viem';
 import { base } from 'viem/chains';
-import BackendDrivenHypergridVisualizerWrapper from '../BackendDrivenHypergridVisualizer';
 import OneClickOperatorBoot from './OneClickOperatorBoot';
 import OperatorFinalizeSetup from './OperatorFinalizeSetup';
 import WelcomeIntro from './WelcomeIntro';
@@ -11,6 +10,9 @@ import AuthorizedClientConfigModal from '../AuthorizedClientConfigModal';
 import ShimApiConfigModal from '../ShimApiConfigModal';
 import { HYPERMAP as HYPERMAP_ADDR, hypermapAbi as hypermapAbiFull } from '../../abis';
 import { callApiWithRouting } from '../../utils/api-endpoints';
+import { webSocketService } from '../../services/websocket';
+import { WsServerMessage, WalletSummary } from '../../types/websocket';
+import { fetchNodeInfo } from '../../helpers';
 
 type SpendingLimits = {
   maxPerCall?: string | null;
@@ -52,9 +54,15 @@ type CallRecord = {
 type StateSnapshot = {
   authorized_clients: Record<string, HotWalletAuthorizedClient>;
   wallet_limits_cache: Record<string, SpendingLimits>;
+  client_limits_cache?: Array<[string, SpendingLimits]>;
   call_history: CallRecord[];
   operator_tba_address?: string | null;
   operator_entry_name?: string | null;
+  wallets?: WalletSummary[];
+  selected_wallet_id?: string | null;
+  active_account?: ActiveAccountDetails | null;
+  gasless_enabled?: boolean | null;
+  paymaster_approved?: boolean | null;
 };
 
 type ActiveAccountDetails = {
@@ -117,7 +125,13 @@ const OperatorConsole: React.FC = () => {
   const [hotWalletForNewClient, setHotWalletForNewClient] = useState<string | null>(null);
   const [isRefreshingUi, setIsRefreshingUi] = useState<boolean>(false);
   const [showIntro, setShowIntro] = useState<boolean>(true);
+  // Check if we've already completed setup by looking for gasless_enabled in state
+  // This is set after the operator is fully configured
   const [showSetupComplete, setShowSetupComplete] = useState<boolean>(false);
+  // Track if user has dismissed the setup complete message (persisted in localStorage)
+  const [setupCompleteDismissed, setSetupCompleteDismissed] = useState<boolean>(() => {
+    return localStorage.getItem('operator-setup-complete-dismissed') === 'true';
+  });
   // Mock mode state (scoped to this console)
   const [mockMode, setMockMode] = useState<boolean>(false);
   const [mockOperatorTba, setMockOperatorTba] = useState<string>('0xDeaDbeEf00000000000000000000000000000000');
@@ -143,15 +157,43 @@ const OperatorConsole: React.FC = () => {
   };
   const onSetLimitsMock = async () => {};
   const onToggleClientStatusMock = async (clientId: string) => {
-    setMockClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: c.status === 'active' ? 'paused' : 'active' } : c)));
+    setMockClients((prev) => prev.map((c) => (c.id === clientId ? { ...c, status: c.status === 'active' ? 'halted' : 'active' } : c)));
   };
 
   const nodeId = useMemo(() => (window as any)?.our?.node ?? null, []);
 
+  // Fetch the node TBA when we have a node name
+  useEffect(() => {
+    const fetchOwnerNodeTba = async () => {
+      if (nodeId && !ownerNodeTba) {
+        try {
+          console.log('[OperatorConsole] Fetching TBA for node:', nodeId);
+          const nodeInfo = await fetchNodeInfo(nodeId);
+          console.log('[OperatorConsole] Node info response:', nodeInfo);
+          
+          // The response should contain the TBA address
+          if (nodeInfo && nodeInfo.tba) {
+            setOwnerNodeTba(nodeInfo.tba as Address);
+            setOwnerNodeName(nodeId);
+          } else if (nodeInfo && typeof nodeInfo === 'string' && nodeInfo.startsWith('0x')) {
+            // Sometimes the API returns just the address as a string
+            setOwnerNodeTba(nodeInfo as Address);
+            setOwnerNodeName(nodeId);
+          }
+        } catch (error) {
+          console.error('[OperatorConsole] Failed to fetch node TBA:', error);
+          // For a fresh node, this might fail - that's ok
+        }
+      }
+    };
+    
+    fetchOwnerNodeTba();
+  }, [nodeId, ownerNodeTba]);
+
   const fetchState = useCallback(async () => {
-    const res = await fetch(`${baseApi}/state`, { method: 'GET' });
-    const json = (await res.json()) as StateSnapshot;
-    setState(json);
+    // State is now managed via WebSocket - this is a no-op
+    // The state is automatically updated via WebSocket messages
+    console.log('[Migration] fetchState called - state is now managed via WebSocket');
   }, []);
 
   const fetchActive = useCallback(async () => {
@@ -163,76 +205,21 @@ const OperatorConsole: React.FC = () => {
     }
   }, []);
 
-  useEffect(() => {
-    fetchState();
-    fetchActive();
-  }, [fetchState, fetchActive]);
-
   const refreshAll = useCallback(async () => {
     setIsRefreshingUi(true);
     try {
       await fetchState();
-      await fetchActive();
+      //await fetchActive();
     } finally {
       setIsRefreshingUi(false);
     }
-  }, [fetchState, fetchActive]);
+  }, [fetchState]);
 
   // Global event hook to open graph from header cog
   useEffect(() => {
     const handler = () => setShowGraphView(true);
     document.addEventListener('open-graph-view', handler as any);
     return () => document.removeEventListener('open-graph-view', handler as any);
-  }, []);
-
-  // Fetch owner node TBA from the hypergrid graph (legacy-compatible source)
-  useEffect(() => {
-    const loadOwnerNodeTba = async () => {
-      try {
-        const res = await fetch(`${baseApi}/hypergrid-graph`);
-        if (!res.ok) return;
-        const graph = await res.json();
-        const coarse = graph?.coarseState || graph?.coarse_state;
-        const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-        for (const n of nodes) {
-          if (n?.type === 'ownerNode') {
-            const data = (n.data && (n.data.ownerNode || n.data)) || {};
-            const tba = (data.tba_address || data.tbaAddress) as string | undefined;
-            const name = (data.name || data.node_name || data.nodeName) as string | undefined;
-            const owner = (data.owner_address || data.ownerAddress) as string | undefined;
-            if (tba) {
-              setOwnerNodeTba(tba as Address);
-            }
-            if (name) {
-              setOwnerNodeName(name);
-            }
-            if (owner) {
-              setOwnerNodeOwnerEoa(owner as Address);
-            }
-            if (tba || name || owner) {
-              break;
-            }
-          }
-          if (n?.type === 'operatorWalletNode') {
-            const data = (n.data && (n.data.operatorWalletNode || n.data)) || {};
-            const opTba = (data.tba_address || data.tbaAddress) as string | undefined;
-            if (opTba) {
-              setResolvedOperatorTba(opTba as Address);
-              // don't break; still prefer to capture owner node info further in loop
-            }
-            const funding = (data.funding_status || data.fundingStatus) as any;
-            if (funding?.usdcBalanceStr) setOperatorUsdcBalance(funding.usdcBalanceStr);
-          }
-        }
-        // Store coarse state for rendering decisions
-        if (coarse) {
-          (window as any).__coarseState = coarse; // optional global for debugging
-        }
-      } catch {
-        // ignore
-      }
-    };
-    loadOwnerNodeTba();
   }, []);
 
   const clients = useMemo(() => {
@@ -467,32 +454,143 @@ const OperatorConsole: React.FC = () => {
 
   // Decide which actions to render using coarse state from backend
   const [coarseState, setCoarseState] = useState<string | null>(null);
+  const [shouldReloadGraph, setShouldReloadGraph] = useState(0);
+  
+  // WebSocket connection setup
   useEffect(() => {
-    const load = async () => {
+    const setupWebSocket = async () => {
       try {
-        const res = await fetch(`${baseApi}/hypergrid-graph`);
-        if (!res.ok) return;
-        const graph = await res.json();
-        const coarse = graph?.coarseState || graph?.coarse_state || null;
-        setCoarseState(coarse);
-        const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-        for (const n of nodes) {
-          if (n?.type === 'operatorWalletNode') {
-            const data = (n.data && (n.data.operatorWalletNode || n.data)) || {};
-            const opTba = (data.tba_address || data.tbaAddress) as string | undefined;
-            if (opTba) {
-              setResolvedOperatorTba(opTba as Address);
+        // Determine WebSocket URL
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const host = window.location.host;
+        const processIdPart = window.location.pathname.split('/').filter(Boolean).find((p) => p.includes(':'));
+        const wsPath = processIdPart ? `/${processIdPart}/ws` : '/ws';
+        const wsUrl = `${protocol}//${host}${wsPath}`;
+        
+        console.log('[WebSocket] Connecting to:', wsUrl);
+        await webSocketService.connect(wsUrl);
+        
+        // Subscribe to all state updates
+        webSocketService.subscribe(['all']);
+        
+        // Set up message handler
+        const messageHandler = (message: WsServerMessage) => {
+          console.log('[WebSocket] Received message:', message);
+          
+          switch (message.type) {
+            case 'state_snapshot':
+              // Initial state snapshot
+              const snapshot = message.state;
+              setCoarseState(snapshot.coarse_state);
+              setState({
+                authorized_clients: Object.fromEntries(snapshot.authorized_clients),
+                wallet_limits_cache: {},
+                client_limits_cache: snapshot.client_limits_cache || [],
+                call_history: snapshot.recent_transactions.map((rec: any) => ({
+                  ...rec,
+                  payment_result: rec.payment_result && typeof rec.payment_result === 'string' 
+                    ? JSON.parse(rec.payment_result) 
+                    : rec.payment_result
+                })),
+                operator_tba_address: snapshot.operator_tba_address,
+                operator_entry_name: snapshot.operator_entry_name,
+                wallets: snapshot.wallets,
+                selected_wallet_id: snapshot.selected_wallet_id,
+                active_account: snapshot.active_account,
+                gasless_enabled: snapshot.gasless_enabled,
+                paymaster_approved: snapshot.paymaster_approved,
+              });
+              // Also update the active account state
+              if (snapshot.active_account) {
+                setActive(snapshot.active_account);
+              }
+              if (snapshot.operator_tba_address) {
+                setResolvedOperatorTba(snapshot.operator_tba_address as Address);
+              }
+              // Update hot wallet if available
+              if (snapshot.selected_wallet_id) {
+                setSingleHotWallet(snapshot.selected_wallet_id as Address);
+              }
+              // If gasless is enabled AND paymaster is approved, the operator is fully set up
+              if (snapshot.gasless_enabled && snapshot.paymaster_approved) {
+                setShowSetupComplete(true);
+              }
               break;
-            }
+              
+            case 'state_update':
+              // Handle specific state updates
+              const { topic, data } = message;
+              switch (topic) {
+                case 'graph_state':
+                  if (data.update_type === 'graph_state_update') {
+                    setCoarseState(data.coarse_state);
+                    if (data.operator_tba_address) {
+                      setResolvedOperatorTba(data.operator_tba_address as Address);
+                    }
+                  }
+                  break;
+                  
+                case 'wallets':
+                  if (data.update_type === 'wallet_update') {
+                    // Update wallet data in state
+                    setState(prev => prev ? {
+                      ...prev,
+                      wallets: data.wallets,
+                      selected_wallet_id: data.selected_wallet_id,
+                    } : null);
+                    // Update active account with balance
+                    if (data.active_account) {
+                      setActive(data.active_account);
+                    }
+                    // Update hot wallet if changed
+                    if (data.selected_wallet_id) {
+                      setSingleHotWallet(data.selected_wallet_id as Address);
+                    }
+                  }
+                  break;
+                  
+                case 'transactions':
+                  if (data.update_type === 'new_transaction') {
+                    // Add new transaction to history
+                    setState(prev => prev ? {
+                      ...prev,
+                      call_history: [...prev.call_history, {
+                        ...data.record,
+                        payment_result: data.record.payment_result && typeof data.record.payment_result === 'string' 
+                          ? JSON.parse(data.record.payment_result) 
+                          : data.record.payment_result
+                      }]
+                    } : null);
+                  }
+                  break;
+                  
+                case 'authorization':
+                  if (data.update_type === 'authorization_update') {
+                    setState(prev => prev ? {
+                      ...prev,
+                      authorized_clients: Object.fromEntries(data.clients)
+                    } : null);
+                  }
+                  break;
+              }
+              break;
           }
-        }
-        const opNode = nodes.find((n: any) => n?.type === 'operatorWalletNode');
-        const funding = opNode && (opNode.data?.funding_status || opNode.data?.fundingStatus);
-        if (funding?.usdcBalanceStr) setOperatorUsdcBalance(funding.usdcBalanceStr as string);
-      } catch {}
+        };
+        
+        webSocketService.addMessageHandler(messageHandler);
+      } catch (error) {
+        console.error('[WebSocket] Failed to connect:', error);
+      }
     };
-    load();
-  }, [fetchState, fetchActive]);
+    
+    setupWebSocket();
+    
+    // Cleanup on unmount
+    return () => {
+      webSocketService.disconnect();
+    };
+  }, []);
+  
 
   const isBefore = coarseState === 'beforeWallet' || coarseState === 'BeforeWallet' || coarseState === 'before_wallet';
   const isAfterNoClients = coarseState === 'afterWalletNoClients' || coarseState === 'AfterWalletNoClients' || coarseState === 'after_wallet_no_clients';
@@ -500,13 +598,15 @@ const OperatorConsole: React.FC = () => {
 
   const fetchLinkedWallets = useCallback(async (): Promise<Address | null> => {
     try {
-      const res = await fetch(`${baseApi}/linked-wallets`);
-      if (!res.ok) return null;
-      const j = await res.json();
-      const arr = Array.isArray(j?.linked_wallets) ? j.linked_wallets : [];
-      const pick = arr.find((w: any) => w?.is_managed) || arr[0];
-      if (pick?.address) {
-        const addr = pick.address as Address;
+      // Use the selected wallet from WebSocket state as the hot wallet
+      if (state && state.selected_wallet_id) {
+        const addr = state.selected_wallet_id as Address;
+        setSingleHotWallet(addr);
+        return addr;
+      }
+      // Fallback: use the first wallet if any exist
+      if (state && state.wallets && state.wallets.length > 0) {
+        const addr = state.wallets[0].address as Address;
         setSingleHotWallet(addr);
         return addr;
       }
@@ -514,11 +614,18 @@ const OperatorConsole: React.FC = () => {
     } catch {
       return null;
     }
-  }, [baseApi]);
+  }, [state]);
 
   useEffect(() => {
     if (isAfterNoClients) fetchLinkedWallets();
   }, [isAfterNoClients, fetchLinkedWallets]);
+
+  // Update singleHotWallet when state changes
+  useEffect(() => {
+    if (state && state.selected_wallet_id && !singleHotWallet) {
+      setSingleHotWallet(state.selected_wallet_id as Address);
+    }
+  }, [state, singleHotWallet]);
 
   const handleGenerateHotWallet = useCallback(async () => {
     try {
@@ -530,26 +637,47 @@ const OperatorConsole: React.FC = () => {
 
   // Build live props for HyperwalletInterface when after_wallet_with_clients
   const buildHwProps = () => {
-    // operatorTba & usdcBalance from graph
-    // We already read graph at load; read again quickly for safety
+    // operatorTba & usdcBalance from WebSocket state
     const operatorTba = (operatorTbaFromState as string) || '';
-    const usdcBalance = operatorUsdcBalance || '0';
+    const usdcBalance = active?.usdc_balance || operatorUsdcBalance || '0';
 
     // Clients from state.authorized_clients
     const authClients: any = (state?.authorized_clients as any) || {};
     const clientArr: HwClient[] = Object.values(authClients).map((c: any) => {
-      const lims = (state as any)?.client_limits_cache?.[c.id] || {};
-      const spent = lims.total_spent ?? lims.totalSpent ?? '0';
-      const max = lims.max_total ?? lims.maxTotal ?? null;
-      const wlKey = (c.associated_hot_wallet_address || '').toLowerCase?.() || c.associated_hot_wallet_address;
-      const wlLims = (state as any)?.wallet_limits_cache?.[wlKey] || (state as any)?.wallet_limits_cache?.[c.associated_hot_wallet_address] || {};
-      const fallbackMax = wlLims.max_total ?? wlLims.maxTotal ?? null;
+      // Check if spending data is already included in the client object (new format)
+      const monthlySpent = c.monthlySpent !== undefined ? c.monthlySpent : 0;
+      const monthlyLimit = c.monthlyLimit !== undefined ? c.monthlyLimit : undefined;
+      
+      // Fallback to old format if needed
+      if (c.monthlySpent === undefined) {
+        // client_limits_cache is an array of tuples: [[client_id, limits], ...]
+        const limitsArray = (state as any)?.client_limits_cache || [];
+        const limitsEntry = limitsArray.find(([id]: [string, any]) => id === c.id);
+        const lims = limitsEntry ? limitsEntry[1] : {};
+        const spent = lims.total_spent ?? lims.totalSpent ?? '0';
+        const max = lims.max_total ?? lims.maxTotal ?? null;
+        const wlKey = (c.associated_hot_wallet_address || '').toLowerCase?.() || c.associated_hot_wallet_address;
+        const wlLims = (state as any)?.wallet_limits_cache?.[wlKey] || (state as any)?.wallet_limits_cache?.[c.associated_hot_wallet_address] || {};
+        const fallbackMax = wlLims.max_total ?? wlLims.maxTotal ?? null;
+        
+        return {
+          id: c.id,
+          name: c.name,
+          status: 'active',
+          monthlyLimit: max != null ? Number(max) : (fallbackMax != null ? Number(fallbackMax) : undefined),
+          monthlySpent: Number(spent || '0'),
+          dailyLimit: undefined,
+          dailySpent: undefined,
+        } as HwClient;
+      }
+      
+      // Use new format
       return {
         id: c.id,
         name: c.name,
         status: 'active',
-        monthlyLimit: max != null ? Number(max) : (fallbackMax != null ? Number(fallbackMax) : undefined),
-        monthlySpent: Number(spent || '0'),
+        monthlyLimit: monthlyLimit,
+        monthlySpent: monthlySpent,
         dailyLimit: undefined,
         dailySpent: undefined,
       } as HwClient;
@@ -635,18 +763,50 @@ const OperatorConsole: React.FC = () => {
 
   const onSetLimits = async (clientId: string, limits: { maxPerCall?: string; maxTotal?: string }) => {
     try {
-      await fetch(`${baseApi}/actions`, {
+      const response = await fetch(`${getApiBasePath()}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ SetClientLimits: { client_id: clientId, limits: { maxPerCall: limits.maxPerCall ?? null, maxTotal: limits.maxTotal ?? null, currency: 'USDC' } } }),
+        body: JSON.stringify({
+          SetClientLimits: [
+            clientId,
+            {
+              maxPerCall: limits.maxPerCall || null,
+              maxTotal: limits.maxTotal || null,
+              currency: "USDC",
+              totalSpent: null
+            }
+          ]
+        })
       });
-      await fetchState();
-    } catch {}
+      
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+      // State will be updated via WebSocket
+    } catch (error) {
+      console.error('Failed to set client limits:', error);
+    }
   };
 
-  const onToggleClientStatus = async (_clientId: string) => {
-    // placeholder: backend flag can be added later; no-op for now
+  const onToggleClientStatus = async (clientId: string) => {
+    try {
+      const response = await fetch(`${getApiBasePath()}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          ToggleClientStatus: clientId
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(await response.text());
+      }
+    } catch (error) {
+      console.error('Failed to toggle client status:', error);
+      // Optionally show an error message to user
+    }
   };
 
   const onOpenClientSettings = (clientId: string, clientName: string) => {
@@ -693,34 +853,34 @@ const OperatorConsole: React.FC = () => {
           defaultOperatorEntryName={operatorEntryName}
           ownerEoa={ownerNodeOwnerEoa as any}
           onBootComplete={() => {
+            console.log('[onBootComplete] Wallet creation complete, reloading state...');
             fetchState();
-            fetchActive();
-            setCoarseState(null); // force refetch via effect
+            //fetchActive();
+            // Force reload of graph data to get updated coarseState
+            setShouldReloadGraph(prev => prev + 1);
           }}
         />
       )}
-      {isAfterNoClients && !showSetupComplete && (
+      {isAfterNoClients && !showSetupComplete && (!state?.gasless_enabled || !state?.paymaster_approved) && (
         <OperatorFinalizeSetup
           operatorTbaAddress={operatorTbaFromState as any}
           hotWalletAddress={singleHotWallet as any}
           autoReload={false}
           onComplete={() => {
             fetchState();
-            fetchActive();
+            //fetchActive();
             setShowSetupComplete(true);
           }}
         />
       )}
-      {isAfterNoClients && showSetupComplete && (
+      {isAfterNoClients && (showSetupComplete || (state?.gasless_enabled && state?.paymaster_approved)) && !setupCompleteDismissed && (
         <SetupComplete
           onDone={() => {
-            setCoarseState(null);
-            window.location.reload();
+            // Dismiss the setup complete message and persist it
+            setSetupCompleteDismissed(true);
+            localStorage.setItem('operator-setup-complete-dismissed', 'true');
           }}
         />
-      )}
-      {isAfterNoClients && (
-        <div style={{ display: 'none' }} />
       )}
       {/* Mock panel hidden in production UI */}
 
@@ -736,7 +896,7 @@ const OperatorConsole: React.FC = () => {
           onAddClient={addMockClient}
           onOpenGraphView={() => setShowGraphView(true)}
         />
-      ) : isAfterWithClients ? (
+      ) : (isAfterWithClients || (isAfterNoClients && setupCompleteDismissed) || (isAfterNoClients && state?.gasless_enabled && state?.paymaster_approved && !showSetupComplete)) ? (
         <>
           <HyperwalletInterface
             operatorTba={buildHwProps().operatorTba}
@@ -754,17 +914,17 @@ const OperatorConsole: React.FC = () => {
           {isClientModalOpen && clientModalData && (
             <AuthorizedClientConfigModal
               isOpen={isClientModalOpen}
-              onClose={(refresh) => { setIsClientModalOpen(false); if (refresh) fetchState(); }}
+              onClose={() => setIsClientModalOpen(false)}
               clientId={clientModalData.id}
               clientName={clientModalData.name}
               hotWalletAddress={clientModalData.hotWallet}
-              onClientUpdate={() => fetchState()}
+              //onClientUpdate={() => fetchState()}
             />
           )}
           {isShimModalOpen && (
             <ShimApiConfigModal
               isOpen={isShimModalOpen}
-              onClose={(_refresh) => {
+              onClose={() => {
                 setIsShimModalOpen(false);
                 setHotWalletForNewClient(null);
                 window.location.reload();
@@ -815,19 +975,6 @@ const OperatorConsole: React.FC = () => {
           nodeName={ownerNodeName || nodeId || undefined}
           isLoading={true}
         />
-      )}
-      {showGraphView && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', padding: 24 }}>
-          <div style={{ background: '#fff', height: '100%', overflow: 'hidden', padding: 16 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
-              <div style={{ fontWeight: 600 }}>Graph View</div>
-              <button onClick={() => setShowGraphView(false)} style={{ background: '#eee', border: '1px solid #ddd', padding: '4px 8px' }}>Close</button>
-            </div>
-            <div style={{ height: 'calc(100% - 40px)' }}>
-              <BackendDrivenHypergridVisualizerWrapper />
-            </div>
-          </div>
-        </div>
       )}
     </div>
   );

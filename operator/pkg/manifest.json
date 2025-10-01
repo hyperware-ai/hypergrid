@@ -13,9 +13,9 @@
       "timer:distro:sys",
       "hypermap-cacher:hypermap-cacher:sys",
       "sign:sign:sys",
-      "http-client:distro:sys",
+      "http-client:distro:sys", 
       "hns-indexer:hns-indexer:sys",
-      "hyperwallet:hyperwallet:hallman.hypr",
+      "hyperwallet:hyperwallet:sys",
       "spider:spider:sys"
     ],
     "grant_capabilities": [

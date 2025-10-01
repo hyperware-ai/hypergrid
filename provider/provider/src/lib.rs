@@ -1146,4 +1146,3 @@ impl EndpointDefinition {
             .collect()
     }
 }
-

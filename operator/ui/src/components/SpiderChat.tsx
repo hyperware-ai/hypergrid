@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
-import { webSocketService } from '../services/websocket';
 import { WsServerMessage, SpiderMessage, ConversationMetadata, McpServerDetails } from '../types/websocket';
+import { callApiWithRouting } from '../utils/api-endpoints';
 
 // Types
 interface Conversation {
@@ -109,16 +109,18 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const [spiderUnavailable, setSpiderUnavailable] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const messageHandlerRef = useRef<((message: WsServerMessage) => void) | null>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const authTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isActive = !!spiderApiKey;
-
+  
   // Auto-scroll to bottom when new messages arrive
   const scrollToBottom = (smooth: boolean = true) => {
     if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({
-        behavior: smooth ? 'smooth' : 'auto',
-        block: 'end'
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: smooth ? 'smooth' : 'auto', 
+        block: 'end' 
       });
     }
   };
@@ -141,25 +143,20 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   // Fetch MCP servers when API key is available
   const fetchMcpServers = async (apiKey: string) => {
     try {
-      const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/api/spider-mcp-servers`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ apiKey }),
+      const result = await callApiWithRouting({ 
+        SpiderMcpServers: apiKey 
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (data.servers) {
-          // Filter for connected servers and get their IDs
-          const connectedServerIds = data.servers
-            .filter((server: any) => server.connected)
-            .map((server: any) => server.id);
-          setConnectedMcpServers(connectedServerIds);
-          console.log('Connected MCP servers:', connectedServerIds);
-        }
+      
+      // Handle Result<T, E> wrapper
+      const data = result.Ok || result;
+      
+      if (data.servers) {
+        // Filter for connected servers and get their IDs
+        const connectedServerIds = data.servers
+          .filter((server: any) => server.connected)
+          .map((server: any) => server.id);
+        setConnectedMcpServers(connectedServerIds);
+        console.log('Connected MCP servers:', connectedServerIds);
       }
     } catch (error) {
       console.error('Failed to fetch MCP servers:', error);
@@ -169,11 +166,11 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   // Connect to WebSocket when API key is available
   useEffect(() => {
     let timer: number | undefined;
-
+    
     if (spiderApiKey) {
       // Fetch MCP servers
       fetchMcpServers(spiderApiKey);
-
+      
       if (useWebSocket) {
         // Add a small delay to ensure the component is ready
         timer = window.setTimeout(() => {
@@ -181,18 +178,23 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         }, 100);
       }
     }
-
+    
     return () => {
       if (timer) {
         clearTimeout(timer);
       }
-      if (messageHandlerRef.current) {
-        webSocketService.removeMessageHandler(messageHandlerRef.current);
-        messageHandlerRef.current = null;
-      }
-      if (wsConnected) {
-        webSocketService.disconnect();
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
         setWsConnected(false);
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
+      }
+      if (authTimeoutRef.current) {
+        clearTimeout(authTimeoutRef.current);
+        authTimeoutRef.current = null;
       }
     };
   }, [spiderApiKey, useWebSocket]);
@@ -200,18 +202,52 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   const connectWebSocket = async (apiKey?: string) => {
     const keyToUse = apiKey || spiderApiKey;
     if (!keyToUse) return;
-
+    
     try {
+      // Close existing connection if any
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+      
       // Determine WebSocket URL - connect to spider service endpoint
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
       const host = window.location.host;
       const wsUrl = `${protocol}//${host}/spider:spider:sys/ws`;
-
-      console.log('Connecting to WebSocket at:', wsUrl);
-      await webSocketService.connect(wsUrl);
-
-      // Set up message handler for progressive updates
-      const messageHandler = (message: WsServerMessage) => {
+      
+      console.log('Connecting to Spider WebSocket at:', wsUrl);
+      
+      const ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+      
+      // Set up WebSocket event handlers
+      ws.onopen = () => {
+        console.log('Spider WebSocket connected, authenticating...');
+        // Send auth message
+        const authMessage = {
+          type: 'auth',
+          apiKey: keyToUse
+        };
+        ws.send(JSON.stringify(authMessage));
+        
+        // Set auth timeout
+        authTimeoutRef.current = setTimeout(() => {
+          if (!wsConnected) {
+            console.error('Spider auth timeout');
+            ws.close();
+            throw new Error('Authentication timeout - no response from server');
+          }
+        }, 5000);
+      };
+      
+      ws.onmessage = (event) => {
+        let message: WsServerMessage;
+        try {
+          message = JSON.parse(event.data);
+        } catch (e) {
+          console.error('Failed to parse WebSocket message:', e);
+          return;
+        }
         switch (message.type) {
           case 'message':
             // Progressive message update from tool loop
@@ -219,27 +255,22 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
               if (!prev) return prev;
               const updated = { ...prev };
               updated.messages = [...updated.messages];
-
-              // Add the new message if we don't have it yet
-              const messageExists = updated.messages.some(m =>
-                m.timestamp === message.message.timestamp &&
-                m.role === message.message.role
-              );
-
-              if (!messageExists) {
+              // Check if we already have this message (by timestamp or content)
+              const lastMsg = updated.messages[updated.messages.length - 1];
+              if (!lastMsg || lastMsg.timestamp !== message.message.timestamp) {
                 updated.messages.push(message.message);
               }
               return updated;
             });
             break;
-
+            
           case 'stream':
             // Handle streaming updates (partial message content)
             setConversation(prev => {
               if (!prev) return prev;
               const updated = { ...prev };
               updated.messages = [...updated.messages];
-
+              
               // Find or create assistant message for streaming
               let assistantMsgIndex = updated.messages.length - 1;
               if (assistantMsgIndex < 0 || updated.messages[assistantMsgIndex].role !== 'assistant') {
@@ -261,51 +292,32 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
               return updated;
             });
             break;
-
+            
           case 'chat_complete':
             // Final response received
             if (message.payload) {
               setConversation(prev => {
                 if (!prev) return prev;
                 const updated = { ...prev };
-                // Keep the same conversation ID if it exists
-                updated.id = message.payload.conversationId || updated.id;
-
-                // If we have allMessages, they contain all the assistant's messages including tool calls
+                updated.id = message.payload.conversationId;
+                
+                // If we have allMessages, replace the conversation messages
                 if (message.payload.allMessages && message.payload.allMessages.length > 0) {
-                  // Find the last user message index
-                  let lastUserMessageIndex = -1;
-                  for (let i = updated.messages.length - 1; i >= 0; i--) {
-                    if (updated.messages[i].role === 'user') {
-                      lastUserMessageIndex = i;
-                      break;
-                    }
-                  }
-
-                  // Replace everything after the last user message with the complete response
-                  if (lastUserMessageIndex >= 0) {
-                    updated.messages = [
-                      ...updated.messages.slice(0, lastUserMessageIndex + 1),
-                      ...message.payload.allMessages
-                    ];
-                  } else {
-                    // If no user message found, append all messages
-                    updated.messages.push(...message.payload.allMessages);
-                  }
+                  // Keep user messages and replace assistant responses
+                  const userMessageCount = updated.messages.filter(m => m.role === 'user').length;
+                  const baseMessages = updated.messages.slice(0, userMessageCount);
+                  updated.messages = [...baseMessages, ...message.payload.allMessages];
                 } else if (message.payload.response) {
                   // Just add the final response if not already present
                   const lastMsg = updated.messages[updated.messages.length - 1];
-                  if (!lastMsg || lastMsg.role !== 'assistant' || !lastMsg.content) {
+                  if (!lastMsg || lastMsg.role !== 'assistant') {
                     updated.messages.push(message.payload.response);
-                  } else {
-                    // Update the last assistant message with final content
-                    updated.messages[updated.messages.length - 1] = message.payload.response;
                   }
                 }
-
+                
                 return updated;
               });
-
+              
               // Handle refreshed API key
               if (message.payload.refreshedApiKey && onApiKeyRefreshed) {
                 onApiKeyRefreshed(message.payload.refreshedApiKey);
@@ -314,35 +326,47 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             setIsLoading(false);
             setCurrentRequestId(null);
             break;
-
+            
           case 'error':
             setError(message.error || 'WebSocket error occurred');
             setIsLoading(false);
             setCurrentRequestId(null);
             break;
-
+            
           case 'status':
-            // Only log, don't show "Processing iteration" messages in UI
-            if (message.message && !message.message.includes('Processing iteration')) {
-              console.log('Status:', message.status, message.message);
-            }
+            console.log('Status:', message.status, message.message);
             break;
+            
+          case 'auth_success':
+            console.log('Spider authentication successful');
+            if (authTimeoutRef.current) {
+              clearTimeout(authTimeoutRef.current);
+              authTimeoutRef.current = null;
+            }
+            setWsConnected(true);
+            setError(null);
+            break;
+            
+          case 'auth_error':
+            console.error('Spider authentication failed:', message.error);
+            ws.close();
+            throw new Error(message.error || 'Authentication failed');
         }
       };
-
-      messageHandlerRef.current = messageHandler;
-      webSocketService.addMessageHandler(messageHandler);
-
-      // Authenticate with spider API key
-      console.log('Authenticating with API key:', keyToUse);
-      await webSocketService.authenticate(keyToUse);
-      console.log('Authentication successful');
-
-      setWsConnected(true);
-      setError(null);
+      
+      ws.onerror = (event) => {
+        console.error('Spider WebSocket error:', event);
+        setWsConnected(false);
+      };
+      
+      ws.onclose = () => {
+        console.log('Spider WebSocket disconnected');
+        setWsConnected(false);
+        wsRef.current = null;
+      };
     } catch (error: any) {
       console.error('Failed to connect WebSocket:', error);
-
+      
       // Check if it's a timeout or connection error (Spider not installed)
       if (error.message?.includes('timeout') ||
           (error.name === 'TypeError' && error.message?.includes('Failed to fetch'))) {
@@ -353,11 +377,11 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         setSpiderUnavailable(true);
         return;
       }
-
+      
       // Check if it's an auth error (invalid API key)
       if (error.message && (error.message.includes('Invalid API key') || error.message.includes('lacks write permission'))) {
         console.log('API key is invalid, requesting a new one...');
-
+        
         // Don't retry if we already tried with a fresh key (to prevent infinite loop)
         if (apiKey) {
           console.error('Already tried with a fresh API key, giving up');
@@ -366,40 +390,39 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           setError('Unable to authenticate with Spider. Falling back to HTTP.');
           return;
         }
-
+        
         // Request a new API key
         try {
-          const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
-          const response = await fetch(`${apiBase}/api/spider-connect`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ force_new: true }), // Force creation of a new key
-            signal: AbortSignal.timeout(5000) // 5 second timeout
+          const data = await callApiWithRouting({ 
+            SpiderConnect: true // force_new = true
           });
-          const data = await response.json();
-
-          if (data.api_key) {
-            console.log('Got new API key:', data.api_key, 'retrying WebSocket connection...');
+          
+          // Handle Result<T, E> wrapper from Rust
+          if (data.Ok && data.Ok.api_key) {
+            console.log('Got new API key:', data.Ok.api_key, 'retrying WebSocket connection...');
             // Update the API key in parent component
             if (onApiKeyRefreshed) {
-              onApiKeyRefreshed(data.api_key);
+              onApiKeyRefreshed(data.Ok.api_key);
             }
-
+            
             // Disconnect current connection
-            webSocketService.disconnect();
+            if (wsRef.current) {
+              wsRef.current.close();
+              wsRef.current = null;
+            }
             // Small delay to ensure disconnect completes
             await new Promise(resolve => setTimeout(resolve, 100));
-            // CRITICAL: Explicitly pass the NEW key to prevent using stale closure value
-            await connectWebSocket(data.api_key);
+            // pass the NEW key to prevent using stale closure value
+            await connectWebSocket(data.Ok.api_key);
             return;
+          } else if (data.Err) {
+            throw new Error(data.Err);
           } else {
             throw new Error('Failed to get new API key');
           }
         } catch (refreshError: any) {
           console.error('Failed to refresh API key:', refreshError);
-
+          
           // Check if the refresh failed due to timeout (Spider not available)
           if (refreshError.name === 'AbortError' || refreshError.message?.includes('timeout')) {
             setSpiderUnavailable(true);
@@ -407,7 +430,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           } else {
             setError('Failed to refresh API key. Falling back to HTTP.');
           }
-
+          
           setWsConnected(false);
           setUseWebSocket(false);
         }
@@ -446,84 +469,74 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         mcpServers: connectedMcpServers,
       };
 
-      // Model is sent separately in the chat payload, not part of Conversation
-      const model = 'claude-sonnet-4-20250514';
-
       // Add user message
       const userMessage: SpiderMessage = {
         role: 'user',
         content: message,
         timestamp: Date.now(),
       };
-
+      
       updatedConversation.messages.push(userMessage);
       setConversation({ ...updatedConversation });
       setMessage('');
 
       // Check if we should use WebSocket
-      console.log('WebSocket check - useWebSocket:', useWebSocket, 'isReady:', webSocketService.isReady, 'isConnected:', webSocketService.isConnected);
-      if (useWebSocket && webSocketService.isReady) {
+      console.log('WebSocket check - useWebSocket:', useWebSocket, 'wsConnected:', wsConnected, 'ws ready:', wsRef.current?.readyState === WebSocket.OPEN);
+      if (useWebSocket && wsConnected && wsRef.current?.readyState === WebSocket.OPEN) {
         // Send via WebSocket for progressive updates
         console.log('Sending chat message via WebSocket');
-        webSocketService.sendChatMessage(
-          updatedConversation.messages,
-          updatedConversation.llmProvider,
-          model,  // Pass model separately
-          updatedConversation.mcpServers,
-          updatedConversation.metadata,
-          updatedConversation.id // Pass conversation ID to continue existing conversation
-        );
+        const chatMessage = {
+          type: 'chat',
+          payload: {
+            messages: updatedConversation.messages,
+            llmProvider: updatedConversation.llmProvider,
+            mcpServers: updatedConversation.mcpServers,
+            metadata: updatedConversation.metadata,
+            conversationId: updatedConversation.id || undefined
+          }
+        };
+        wsRef.current.send(JSON.stringify(chatMessage));
         // WebSocket responses will be handled by the message handler
         return;
       }
       console.log('Falling back to HTTP');
 
       // Fallback to HTTP
-      const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/api/spider-chat`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          apiKey: spiderApiKey,
+      const result = await callApiWithRouting({
+        SpiderChat: {
+          api_key: spiderApiKey,
           messages: updatedConversation.messages,
-          llmProvider: updatedConversation.llmProvider,
-          model: model,  // Pass model separately
+          llm_provider: updatedConversation.llmProvider,
+          mcp_servers: updatedConversation.mcpServers,
           metadata: updatedConversation.metadata,
-          mcpServers: updatedConversation.mcpServers,
-        }),
+        }
       });
-
-      if (!response.ok) {
-        throw new Error(`Failed to send message: ${response.statusText}`);
+      
+      // Handle Result<T, E> wrapper from Rust
+      if (result.Err) {
+        throw new Error(result.Err);
       }
-
-      const data = await response.json();
-
+      
+      const data = result.Ok || result;
+      
       // Only update if this request hasn't been cancelled
       if (currentRequestId === requestId) {
         // Update conversation with response
-        if (data.conversationId) {
-          updatedConversation.id = data.conversationId;
+        if (data.conversation_id) {
+          updatedConversation.id = data.conversation_id;
         }
-
-        if (data.allMessages && data.allMessages.length > 0) {
-          updatedConversation.messages.push(...data.allMessages);
+        
+        if (data.all_messages && data.all_messages.length > 0) {
+          updatedConversation.messages.push(...data.all_messages);
         } else if (data.response) {
           updatedConversation.messages.push(data.response);
         }
 
         setConversation({ ...updatedConversation });
-
+        
         // If the API key was refreshed, update it in the parent component
-        if (data.refreshedApiKey && onApiKeyRefreshed) {
-          onApiKeyRefreshed(data.refreshedApiKey);
-          // Reconnect WebSocket with new key
-          if (useWebSocket) {
-            await connectWebSocket();
-          }
-        }
+        // Note: The backend doesn't currently return refreshedApiKey in SpiderChatResult
+        // This functionality would need to be added to the backend if needed
       }
     } catch (err: any) {
       if (err.name === 'AbortError') {
@@ -541,9 +554,12 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
   };
 
   const handleCancel = () => {
-    if (useWebSocket && webSocketService.isReady) {
+    if (useWebSocket && wsConnected && wsRef.current?.readyState === WebSocket.OPEN) {
       try {
-        webSocketService.sendCancel();
+        const cancelMessage = {
+          type: 'cancel'
+        };
+        wsRef.current.send(JSON.stringify(cancelMessage));
       } catch (error) {
         console.error('Failed to send cancel:', error);
       }
@@ -558,56 +574,55 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
     setMessage('');
   };
 
-
-  const getToolEmoji = () => '🔧';
-
-  // Check Spider availability when attempting to connect
-  const handleConnectWithTimeout = async () => {
-    try {
-      // Set a timeout for the connection attempt
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 5000); // 5 second timeout
-
-      const apiBase = import.meta.env.VITE_BASE_URL || window.location.pathname.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/api/spider-status`, {
-        signal: controller.signal
-      });
-
-      clearTimeout(timeout);
-
-      if (response.ok) {
-        setSpiderUnavailable(false);
-        onConnectClick();
-      } else {
-        setSpiderUnavailable(true);
+  const toggleWebSocket = () => {
+    const newState = !useWebSocket;
+    setUseWebSocket(newState);
+    
+    if (newState) {
+      connectWebSocket();
+    } else {
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
       }
-    } catch (error: any) {
-      if (error.name === 'AbortError' || error.message?.includes('timeout')) {
-        setSpiderUnavailable(true);
-      } else {
-        console.error('Error checking Spider status:', error);
-        setSpiderUnavailable(true);
-      }
+      setWsConnected(false);
     }
   };
 
-  // Inactive state - show connect button or unavailable message
-  if (!isActive || spiderUnavailable) {
+  const getToolEmoji = () => '🔧';
+
+  // Handle connect with timeout - checks Spider availability
+  const handleConnectWithTimeout = async () => {
+    const timeout = setTimeout(() => {
+      setSpiderUnavailable(true);
+    }, 3000);
+    
+    try {
+      await onConnectClick();
+    } finally {
+      clearTimeout(timeout);
+    }
+  };
+
+  // Inactive state - show connect button
+  if (!isActive) {
     return (
       <div className="flex flex-col h-full p-4">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-400">Spider Chat</h2>
+          <h2 className="text-lg font-semibold text-gray-800">Spider Chat</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             {spiderUnavailable ? (
               <>
-                <p className="text-gray-500 mb-2">Could not contact Spider</p>
-                <p className="text-gray-400 text-sm">Is Spider installed?</p>
+                <p className="text-red-500 mb-4">Spider service is not available</p>
+                <p className="text-gray-500 text-sm">
+                  Make sure Spider is installed and running
+                </p>
               </>
             ) : (
               <>
-                <p className="text-gray-500 mb-4">Connect to Spider to enable chat and test out the Hypergrid tools</p>
+                <p className="text-gray-500 mb-4">Connect to Spider to enable chat</p>
                 <button
                   onClick={handleConnectWithTimeout}
                   className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
@@ -624,17 +639,19 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
 
   // Active state - show chat interface
   return (
-    <div className="flex flex-col h-full">
+    <>
+      <div className="flex flex-col h-full">
       <div className="flex items-center justify-between p-4 border-b">
         <h2 className="text-lg font-semibold text-gray-800">Spider Chat</h2>
         <div className="flex items-center gap-2">
-          <div
-            className={`p-2 rounded-lg cursor-default ${
-              useWebSocket
-                ? wsConnected
-                  ? 'bg-green-100 text-green-700'
-                  : 'bg-yellow-100 text-yellow-700'
-                : 'bg-gray-100 text-gray-700'
+          <button
+            onClick={toggleWebSocket}
+            className={`p-2 rounded-lg transition-colors ${
+              useWebSocket 
+                ? wsConnected 
+                  ? 'bg-green-100 text-green-700 hover:bg-green-200' 
+                  : 'bg-yellow-100 text-yellow-700 hover:bg-yellow-200'
+                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
             }`}
             title={useWebSocket ? (wsConnected ? 'WebSocket Connected' : 'Connecting...') : 'Using HTTP'}
           >
@@ -647,7 +664,7 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
                 <path d="M21 12H3 M21 6H3 M21 18H3"/>
               )}
             </svg>
-          </div>
+          </button>
           <button
             onClick={handleNewConversation}
             className="p-2 hover:bg-gray-100 rounded-lg transition-colors"
@@ -672,33 +689,22 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
         {conversation?.messages.map((msg, index) => {
           const toolCalls = msg.toolCallsJson ? JSON.parse(msg.toolCallsJson) as ToolCall[] : null;
           const nextMsg = conversation.messages[index + 1];
-          const toolResults = nextMsg?.role === 'tool' && nextMsg.toolResultsJson
-            ? JSON.parse(nextMsg.toolResultsJson) as ToolResult[]
-            : null;
 
           return (
             <React.Fragment key={index}>
-              {msg.role !== 'tool' && msg.content && msg.content.trim() &&
-               !msg.content.includes('Processing iteration') &&
-               !msg.content.includes('[Tool calls pending]') &&
-               !msg.content.includes('Executing tool calls') && (
+              {msg.role !== 'tool' && msg.content && msg.content.trim() && (
                 <div className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
-                  <div
+                  <div 
                     className={`inline-block max-w-[80%] px-4 py-2 rounded-lg ${
-                      msg.role === 'user'
-                        ? 'bg-blue-600 text-white text-left'
+                      msg.role === 'user' 
+                        ? 'bg-blue-600 text-white' 
                         : 'bg-gray-100 text-gray-800'
                     }`}
-                    style={{
-                      wordWrap: 'break-word',
-                      overflowWrap: 'break-word',
-                      wordBreak: 'break-word'
-                    }}
                   >
                     {msg.role === 'user' ? (
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                      <p className="whitespace-pre-wrap">{msg.content}</p>
                     ) : (
-                      <div className="prose prose-sm max-w-none break-words">
+                      <div className="prose prose-sm max-w-none">
                         <ReactMarkdown>
                           {msg.content}
                         </ReactMarkdown>
@@ -710,27 +716,27 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
 
               {toolCalls && toolCalls.map((toolCall, toolIndex) => {
                 const isLastMessage = index === conversation.messages.length - 1;
-                const toolResult = toolResults?.find(r => r.tool_call_id === toolCall.id);
-                const isWaitingForResult = isLastMessage && isLoading && !toolResult;
+                const isWaitingForResult = isLastMessage && isLoading;
+                
+                // Find corresponding tool result
+                let toolResult: ToolResult | undefined;
+                if (nextMsg && nextMsg.role === 'tool') {
+                  const results = JSON.parse(nextMsg.content || '[]') as ToolResult[];
+                  toolResult = results.find(r => r.tool_call_id === toolCall.id);
+                }
 
                 return (
                   <div key={`tool-${index}-${toolIndex}`} className="mb-2 text-left">
-                    <div className="inline-flex items-center gap-2 px-3 py-1 bg-gray-50 rounded-lg text-sm text-gray-600">
+                    <button
+                      className="inline-flex items-center gap-2 px-3 py-1 bg-gray-50 hover:bg-gray-100 rounded-lg text-sm text-gray-600 transition-colors cursor-pointer"
+                      onClick={() => setSelectedToolCall({ call: toolCall, result: toolResult })}
+                    >
                       <span>{getToolEmoji()}</span>
-                      {isWaitingForResult ? (
-                        <>
-                          <span>{toolCall.tool_name}</span>
-                          <span className="animate-pulse">...</span>
-                        </>
-                      ) : (
-                        <button
-                          className="hover:underline cursor-pointer"
-                          onClick={() => setSelectedToolCall({ call: toolCall, result: toolResult })}
-                        >
-                          {toolCall.tool_name}
-                        </button>
+                      <span>{toolCall.tool_name}</span>
+                      {isWaitingForResult && (
+                        <span className="animate-pulse">...</span>
                       )}
-                    </div>
+                    </button>
                   </div>
                 );
               })}
@@ -738,10 +744,10 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           );
         }) || (
           <div className="text-center text-gray-500">
-            <p>Use this chat window to test out searching for and calling Hypergrid providers!</p>
+            <p>Start a conversation by typing a message below</p>
           </div>
         )}
-
+        
         {isLoading && conversation && (
           <div className="mb-4 text-left">
             <div className="inline-block px-4 py-2 bg-gray-100 rounded-lg">
@@ -752,17 +758,9 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
             </div>
           </div>
         )}
-
+        
         <div ref={messagesEndRef} />
       </div>
-
-      {selectedToolCall && (
-        <ToolCallModal
-          toolCall={selectedToolCall.call}
-          toolResult={selectedToolCall.result}
-          onClose={() => setSelectedToolCall(null)}
-        />
-      )}
 
       <form onSubmit={handleSubmit} className="p-4 border-t">
         <div className="flex gap-2">
@@ -794,6 +792,15 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           )}
         </div>
       </form>
-    </div>
+      </div>
+      
+      {selectedToolCall && (
+        <ToolCallModal
+          toolCall={selectedToolCall.call}
+          toolResult={selectedToolCall.result}
+          onClose={() => setSelectedToolCall(null)}
+        />
+      )}
+    </>
   );
 }

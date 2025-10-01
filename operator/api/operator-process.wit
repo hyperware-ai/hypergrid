@@ -1,0 +1,406 @@
+interface operator-process {
+use standard.{address};
+
+    record provider-search-result {
+        provider-id: string,
+        name: string,
+        description: string
+    }
+
+    record spider-status-result {
+        connected: bool,
+        has-api-key: bool,
+        spider-available: bool
+    }
+
+    record provider-info {
+        id: option<s64>,
+        provider-id: string,
+        name: string,
+        description: option<string>,
+        site: option<string>,
+        wallet: option<string>,
+        price: option<string>,
+        instructions: option<string>,
+        hash: string
+    }
+
+    record spider-mcp-servers-result {
+        servers: list<spider-mcp-server>,
+        error: option<string>
+    }
+
+    record spider-mcp-server {
+        id: string,
+        name: string,
+        description: option<string>
+    }
+
+    record configure-authorized-client-dto {
+        client-id: option<string>,
+        client-name: option<string>,
+        raw-token: string,
+        hot-wallet-address-to-associate: string
+    }
+
+    variant terminal-command {
+        get-state,
+        reset-state,
+        check-db-schema,
+        search-providers(string),
+        wipe-db-and-reindex,
+        print-ledger(string)
+    }
+
+    record state {
+        chain-id: u64,
+        contract-address: string,
+        hypermap-address: string,
+        hypermap-timeout: u64,
+        root-hash: option<string>,
+        names: list<tuple<string, string>>,
+        last-checkpoint-block: u64,
+        logging-started: u64,
+        providers-cache: list<tuple<u64, string>>,
+        managed-wallets: list<tuple<string, managed-wallet>>,
+        selected-wallet-id: option<string>,
+        operator-entry-name: option<string>,
+        operator-tba-address: option<string>,
+        wallet-limits-cache: list<tuple<string, spending-limits>>,
+        client-limits-cache: list<tuple<string, spending-limits>>,
+        active-signer-wallet-id: option<string>,
+        cached-active-details: option<active-account-details>,
+        call-history: list<call-record>,
+        hashed-shim-api-key: option<string>,
+        authorized-clients: list<tuple<string, hot-wallet-authorized-client>>,
+        gasless-enabled: option<bool>,
+        paymaster-approved: option<bool>,
+        hyperwallet-session-active: bool,
+        db-initialized: bool,
+        timers-initialized: bool,
+        spider-api-key: option<string>
+    }
+
+    record managed-wallet {
+        id: string,
+        name: option<string>,
+        storage-json: string,
+        spending-limits: spending-limits
+    }
+
+    record spending-limits {
+        max-per-call: option<string>,
+        max-total: option<string>,
+        currency: option<string>,
+        total-spent: option<string>
+    }
+
+    record hot-wallet-authorized-client {
+        id: string,
+        name: string,
+        associated-hot-wallet-address: string,
+        authentication-token: string,
+        capabilities: service-capabilities,
+        status: client-status
+    }
+
+    variant service-capabilities {
+        all,
+        search-only,
+        call-providers,
+        none
+    }
+
+    record call-provider {
+        request: provider-request
+    }
+
+    record provider-request {
+        provider-name: string,
+        arguments: list<tuple<string, string>>,
+        payment-tx-hash: option<string>
+    }
+
+    variant client-status {
+        active,
+        halted
+    }
+
+    record active-account-details {
+        id: string,
+        name: option<string>,
+        address: string,
+        is-encrypted: bool,
+        is-selected: bool,
+        is-unlocked: bool,
+        eth-balance: option<string>,
+        usdc-balance: option<string>
+    }
+
+    record spider-api-key {
+        key: string,
+        name: string,
+        permissions: list<string>,
+        created-at: u64
+    }
+
+    record call-record {
+        timestamp-start-ms: u64,
+        provider-lookup-key: string,
+        target-provider-id: string,
+        call-args-json: string,
+        response-json: option<string>,
+        call-success: bool,
+        response-timestamp-ms: u64,
+        payment-result: option<string>,
+        duration-ms: u64,
+        operator-wallet-id: option<string>,
+        client-id: option<string>,
+        provider-name: option<string>
+    }
+
+    record configure-authorized-client-result {
+        client-id: string,
+        raw-token: string,
+        api-base-path: string,
+        node-name: string
+    }
+
+    record key-value {
+        key: string,
+        value: string
+    }
+
+    record spider-chat-result {
+        conversation-id: string,
+        response: spider-message,
+        all-messages: option<list<spider-message>>
+    }
+
+    record spider-chat-dto {
+        api-key: string,
+        messages: list<spider-message>,
+        llm-provider: option<string>,
+        model: option<string>,
+        mcp-servers: option<list<string>>,
+        metadata: option<spider-conversation-metadata>
+    }
+
+    record provider {
+        name: string,
+        hash: string,
+        facts: list<tuple<string, list<string>>>,
+        wallet: option<string>,
+        price: option<string>,
+        provider-id: option<string>
+    }
+
+    record spider-conversation-metadata {
+        start-time: string,
+        client: string,
+        from-stt: bool
+    }
+
+    record spider-message {
+        role: string,
+        content: string,
+        tool-calls-json: option<string>,
+        tool-results-json: option<string>,
+        timestamp: u64
+    }
+
+    record authorize-result {
+        url: string,
+        token: string,
+        client-id: string,
+        node: string
+    }
+
+    record spider-connect-result {
+        api-key: string
+    }
+
+    // Function signature for: authorize (http)
+    // HTTP: POST /mcp-authorize
+    record authorize-signature-http {
+        target: string,
+        node: string,
+        token: string,
+        client-id: string,
+        name: option<string>,
+        returning: result<authorize-result, string>
+    }
+
+    // Function signature for: call-provider (http)
+    // HTTP: POST /mcp-call-provider
+    record call-provider-signature-http {
+        target: string,
+        provider-id: string,
+        provider-name: string,
+        args: list<key-value>,
+        client-id: string,
+        token: string,
+        returning: result<string, string>
+    }
+
+    // Function signature for: configure-authorized-client (http)
+    // HTTP: POST /mcp-configure-authorized-client
+    record configure-authorized-client-signature-http {
+        target: string,
+        req: configure-authorized-client-dto,
+        returning: result<configure-authorized-client-result, string>
+    }
+
+    // Function signature for: recheck-identity (http)
+    // HTTP: POST /api/recheck-identity
+    record recheck-identity-signature-http {
+        target: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: recheck-identity (local)
+    record recheck-identity-signature-local {
+        target: address,
+        returning: result<_, string>
+    }
+
+    // Function signature for: recheck-paymaster-approval (http)
+    // HTTP: POST /api/recheck-paymaster-approval
+    record recheck-paymaster-approval-signature-http {
+        target: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: recheck-paymaster-approval (local)
+    record recheck-paymaster-approval-signature-local {
+        target: address,
+        returning: result<_, string>
+    }
+
+    // Function signature for: remove-authorized-client (http)
+    // HTTP: POST /api/remove-authorized-client
+    record remove-authorized-client-signature-http {
+        target: string,
+        client-id: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: remove-authorized-client (local)
+    record remove-authorized-client-signature-local {
+        target: address,
+        client-id: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: rename-authorized-client (http)
+    // HTTP: POST /api/rename-authorized-client
+    record rename-authorized-client-signature-http {
+        target: string,
+        client-id: string,
+        new-name: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: rename-authorized-client (local)
+    record rename-authorized-client-signature-local {
+        target: address,
+        client-id: string,
+        new-name: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: search-providers-public (http)
+    // HTTP: POST /api/search-providers-public
+    record search-providers-public-signature-http {
+        target: string,
+        query: string,
+        returning: result<list<provider-info>, string>
+    }
+
+    // Function signature for: search-providers-public (local)
+    record search-providers-public-signature-local {
+        target: address,
+        query: string,
+        returning: result<list<provider-info>, string>
+    }
+
+    // Function signature for: search-registry (http)
+    // HTTP: POST /mcp-search-registry
+    record search-registry-signature-http {
+        target: string,
+        query: string,
+        client-id: string,
+        token: string,
+        returning: result<list<provider-search-result>, string>
+    }
+
+    // Function signature for: set-client-limits (http)
+    // HTTP: POST /api/set-client-limits
+    record set-client-limits-signature-http {
+        target: string,
+        client-id: string,
+        limits: spending-limits,
+        returning: result<_, string>
+    }
+
+    // Function signature for: set-client-limits (local)
+    record set-client-limits-signature-local {
+        target: address,
+        client-id: string,
+        limits: spending-limits,
+        returning: result<_, string>
+    }
+
+    // Function signature for: spider-chat (http)
+    // HTTP: POST /api/spider-chat
+    record spider-chat-signature-http {
+        target: string,
+        request: spider-chat-dto,
+        returning: result<spider-chat-result, string>
+    }
+
+    // Function signature for: spider-connect (http)
+    // HTTP: POST /api/spider-connect
+    record spider-connect-signature-http {
+        target: string,
+        force-new: option<bool>,
+        returning: result<spider-connect-result, string>
+    }
+
+    // Function signature for: spider-mcp-servers (http)
+    // HTTP: POST /api/spider-mcp-servers
+    record spider-mcp-servers-signature-http {
+        target: string,
+        api-key: string,
+        returning: result<spider-mcp-servers-result, string>
+    }
+
+    // Function signature for: spider-status (http)
+    // HTTP: POST /api/spider-status
+    record spider-status-signature-http {
+        target: string,
+        returning: result<spider-status-result, string>
+    }
+
+    // Function signature for: terminal-command (local)
+    record terminal-command-signature-local {
+        target: address,
+        command: terminal-command,
+        returning: result<string, string>
+    }
+
+    // Function signature for: toggle-client-status (http)
+    // HTTP: POST /api/toggle-client-status
+    record toggle-client-status-signature-http {
+        target: string,
+        client-id: string,
+        returning: result<_, string>
+    }
+
+    // Function signature for: toggle-client-status (local)
+    record toggle-client-status-signature-local {
+        target: address,
+        client-id: string,
+        returning: result<_, string>
+    }
+}

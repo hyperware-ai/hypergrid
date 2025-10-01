@@ -13,10 +13,17 @@
       "timer:distro:sys",
       "hypermap-cacher:hypermap-cacher:sys",
       "sign:sign:sys",
-      "hns-indexer:hns-indexer:sys",
+      "timer:distro:sys",
+      "spider:spider:sys",
+      "hns-indexer:hns-indexer:sys"
+    ],
+    "grant_capabilities": [
+      "http-server:distro:sys",
+      "terminal:terminal:sys",
+      "sqlite:distro:sys",
+      "timer:distro:sys",
       "spider:spider:sys"
     ],
-    "grant_capabilities": ["http-server:distro:sys", "terminal:terminal:sys", "sqlite:distro:sys", "spider:spider:sys"],
     "public": true
   },
   {
@@ -31,8 +38,8 @@
       "vfs:distro:sys",
       "eth:distro:sys",
       "sqlite:distro:sys",
-      "timer:distro:sys",
-      "spider:spider:sys"
+      "spider:spider:sys",
+      "timer:distro:sys"
     ],
     "grant_capabilities": [
       "homepage:homepage:sys",
@@ -42,8 +49,8 @@
       "terminal:terminal:sys",
       "eth:distro:sys",
       "sqlite:distro:sys",
-      "timer:distro:sys",
-      "spider:spider:sys"
+      "spider:spider:sys",
+      "timer:distro:sys"
     ],
     "public": false
   }

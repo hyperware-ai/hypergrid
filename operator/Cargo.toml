@@ -1,10 +1,12 @@
 [profile.release]
-panic = "abort"
-opt-level = "s"
 lto = true
+opt-level = "s"
+panic = "abort"
 
 [workspace]
 members = [
-    "operator"
+    "operator",
+    "target/operator-caller-utils",
+    "target/operator-caller-util?",
 ]
 resolver = "2"

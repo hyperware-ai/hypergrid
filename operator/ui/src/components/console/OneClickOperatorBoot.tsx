@@ -15,6 +15,7 @@ import {
   DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
   BASE_CHAIN_ID,
 } from '../../logic/hypermapHelpers';
+import { callApiWithRouting } from '../../utils/api-endpoints';
 
 type Props = {
   // Parent (node) TBA that owns the operator sub-entry to be minted (from backend state)
@@ -58,6 +59,14 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
   const isWrongWallet = useMemo(() => {
     return eoa && ownerEoa && !isCorrectWallet;
   }, [eoa, ownerEoa, isCorrectWallet]);
+  
+  // Debug logs
+  console.log('[OneClickOperatorBoot] Component props:', {
+    parentTbaAddress,
+    defaultOperatorEntryName,
+    ownerEoa
+  });
+  
   useEffect(() => {
     if (!defaultOperatorEntryName && typeof window !== 'undefined') {
       const n = (window as any)?.our?.node;
@@ -65,30 +74,6 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
     }
   }, [defaultOperatorEntryName]);
 
-  // Robust fallback: fetch owner node name from hypergrid graph if still missing
-  useEffect(() => {
-    if (ownerNodeName) return;
-    try {
-      const pathParts = typeof window !== 'undefined' ? window.location.pathname.split('/').filter(Boolean) : [];
-      const processIdPart = pathParts.find((p) => p.includes(':'));
-      const base = processIdPart ? `/${processIdPart}/api` : '/api';
-      fetch(`${base}/hypergrid-graph`).then(async (res) => {
-        if (!res.ok) return;
-        const graph = await res.json();
-        const nodes = Array.isArray(graph?.nodes) ? graph.nodes : [];
-        for (const n of nodes) {
-          if (n?.type === 'ownerNode') {
-            const data = (n.data && (n.data.ownerNode || n.data)) || {};
-            const name = (data.name || data.node_name || data.nodeName) as string | undefined;
-            if (name && typeof name === 'string') {
-              setOwnerNodeName(name);
-              break;
-            }
-          }
-        }
-      }).catch(() => {});
-    } catch {}
-  }, [ownerNodeName]);
   const operatorEntryName = ownerNodeName ? `${operatorSubLabel}.${ownerNodeName}` : '';
   const approvalAmount = DEFAULT_PAYMASTER_APPROVAL_AMOUNT;
 
@@ -96,26 +81,38 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
   const { isLoading: isConfirming, isSuccess: isConfirmed } = useWaitForTransactionReceipt({ hash, chainId: BASE_CHAIN_ID });
 
   const disabled = useMemo(() => {
-    return !parentTbaAddress || !operatorEntryName || !eoa || isWrongWallet || isPending || isConfirming;
-  }, [parentTbaAddress, operatorEntryName, eoa, isWrongWallet, isPending, isConfirming]);
+    // For fresh nodes without a parent TBA, we can still proceed if we have EOA and entry name
+    return !operatorEntryName || !eoa || isWrongWallet || isPending || isConfirming;
+  }, [operatorEntryName, eoa, isWrongWallet, isPending, isConfirming]);
 
   const disabledReasons = useMemo(() => {
     const reasons: string[] = [];
     if (!eoa) reasons.push('wallet not connected - be sure to connect the wallet that owns your Hyperware name');
     if (isWrongWallet && ownerEoa) reasons.push(`wrong wallet connected - please connect ${formatAddress(ownerEoa)}`);
-    if (!parentTbaAddress) reasons.push('owner node TBA not found');
+    // For fresh nodes, we might not have a parent TBA yet - that's ok, we'll mint directly
+    if (!parentTbaAddress && ownerNodeName) {
+      // If we have a node name but no TBA, this might be a fresh node
+      console.log('[OneClickOperatorBoot] No parent TBA found for node:', ownerNodeName, '- this might be a fresh node');
+    }
     if (!operatorEntryName) reasons.push('operator entry name missing');
     if (isPending) reasons.push('transaction pending');
     if (isConfirming) reasons.push('waiting for confirmation');
     return reasons;
-  }, [eoa, isWrongWallet, ownerEoa, parentTbaAddress, operatorEntryName, isPending, isConfirming, formatAddress]);
+  }, [eoa, isWrongWallet, ownerEoa, parentTbaAddress, operatorEntryName, isPending, isConfirming, ownerNodeName, formatAddress]);
 
-  const buildBundle = useCallback((): {
-    target: Address;
-    abi: typeof tbaExecuteAbi;
-    functionName: 'execute';
-    args: readonly [Address, bigint, Hex, number];
-  } => {
+  const buildBundle = useCallback((): 
+    | {
+        target: Address;
+        abi: typeof tbaExecuteAbi;
+        functionName: 'execute';
+        args: readonly [Address, bigint, Hex, number];
+      }
+    | {
+        target: Address;
+        abi: typeof hypermapAbi;
+        functionName: 'mint';
+        args: readonly [Address, Hex, Hex, Address];
+      } => {
     // 1) Inner calls the operator TBA will execute immediately after mint
     // ~access-list => namehash('~grid-beta-signers.<operatorSubLabel>.<ownerNodeEntryName>')
     const accessListValue = viemNamehash(`~grid-beta-signers.${operatorEntryName}`);
@@ -152,6 +149,22 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
       operation: 0,
     });
 
+    // If no parent TBA (fresh node), mint directly from EOA
+    if (!parentTbaAddress) {
+      return {
+        target: HYPERMAP_ADDRESS,
+        abi: hypermapAbi,
+        functionName: 'mint',
+        args: [
+          eoa as Address, // mint to the EOA since no parent TBA
+          encodePacked(['bytes'], [stringToHex(operatorEntryName)]),
+          initCall, // initial call data for the new TBA
+          DEFAULT_OPERATOR_TBA_IMPLEMENTATION,
+        ],
+      } as const;
+    }
+
+    // Otherwise, use parent TBA to mint (existing logic)
     return {
       target: parentTbaAddress as Address,
       abi: tbaExecuteAbi,
@@ -163,21 +176,43 @@ const OneClickOperatorBoot: React.FC<Props> = ({ parentTbaAddress, defaultOperat
   const onClick = useCallback(() => {
     if (disabled) return;
     const req = buildBundle();
-    writeContract({
-      address: req.target,
-      abi: req.abi,
-      functionName: req.functionName,
-      args: req.args,
-      chainId: BASE_CHAIN_ID,
-    });
+    
+    if (req.functionName === 'execute') {
+      // TypeScript knows this is the execute variant
+      writeContract({
+        address: req.target,
+        abi: tbaExecuteAbi,
+        functionName: 'execute',
+        args: req.args as readonly [Address, bigint, Hex, number],
+        chainId: BASE_CHAIN_ID,
+      });
+    } else {
+      // TypeScript knows this is the mint variant
+      writeContract({
+        address: req.target,
+        abi: hypermapAbi,
+        functionName: 'mint',
+        args: req.args as readonly [Address, Hex, Hex, Address],
+        chainId: BASE_CHAIN_ID,
+      });
+    }
   }, [disabled, buildBundle, writeContract]);
 
   React.useEffect(() => {
     if (isConfirmed) {
-      setTimeout(() => {
+      // After confirmation, trigger identity recheck
+      setTimeout(async () => {
+        try {
+          // Call the recheck identity endpoint
+          await callApiWithRouting( "RecheckIdentity" );
+          console.log('Identity recheck triggered successfully');
+        } catch (error) {
+          console.error('Error calling recheck identity:', error);
+        }
+        
+        // Call the callback and reset
         onBootComplete?.();
         reset();
-        try { window.location.reload(); } catch {}
       }, 2000);
     }
   }, [isConfirmed, onBootComplete, reset]);

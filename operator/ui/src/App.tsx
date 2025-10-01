@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+
 // SearchPage is no longer directly rendered here by default, but keep import if used elsewhere or if needed later.
 import OperatorConsole from "./components/console/OperatorConsole";
 import HeaderSearch from "./components/HeaderSearch.tsx";
@@ -17,9 +18,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { HYPERMAP_ADDRESS } from './constants';
 import { ToastContainer } from "react-toastify";
 import NotificationBell from './components/NotificationBell';
-
-const BASE_URL = import.meta.env.VITE_BASE_URL || '';
-
+import { callApiWithRouting } from './utils/api-endpoints';
 
 function App() {
   // Popover state
@@ -29,8 +28,8 @@ function App() {
   // State for Onboarding Data
   const [onboardingData, setOnboardingData] = useState<OnboardingStatusResponse | null>(null);
 
-  // Spider chat state
   const [spiderApiKey, setSpiderApiKey] = useState<string | null>(null);
+
 
   // Renamed derived variable
   const derivedNodeName = useMemo(() => {
@@ -68,67 +67,44 @@ function App() {
 
   // Check spider connection status on mount
   useEffect(() => {
-    const checkSpiderStatus = async () => {
-      try {
-        const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
-        const controller = new AbortController();
-        const timeout = setTimeout(() => controller.abort(), 3000); // 3 second timeout
-
-        const response = await fetch(`${apiBase}/api/spider-status`, {
-          signal: controller.signal
-        });
-
-        clearTimeout(timeout);
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data.has_api_key) {
-            // If already connected, get the key
-            const connectResponse = await fetch(`${apiBase}/api/spider-connect`, {
-              method: 'POST',
-              signal: AbortSignal.timeout(3000) // 3 second timeout
-            });
-            const connectData = await connectResponse.json();
-            if (connectData.api_key) {
-              setSpiderApiKey(connectData.api_key);
-            }
-          }
+    callApiWithRouting({ SpiderStatus: {} })
+      .then(data => {
+        // Handle Result<T, E> wrapper
+        const status = data.Ok || data;
+        if (status.has_api_key) {
+          // If already connected, get the key
+          callApiWithRouting({ SpiderConnect: null }) // null means don't force new
+            .then(data => {
+              // Handle Result<T, E> wrapper
+              if (data.Ok && data.Ok.api_key) {
+                setSpiderApiKey(data.Ok.api_key);
+              }
+            })
+            .catch(console.error);
         }
-      } catch (error: any) {
-        // Silently fail if Spider is not available
-        if (error.name === 'AbortError') {
-          console.log('Spider service not available (timeout)');
-        } else {
-          console.error('Error checking Spider status:', error);
-        }
-      }
-    };
-
-    checkSpiderStatus();
+      })
+      .catch(console.error);
   }, []);
 
   const handleSpiderConnect = async () => {
     try {
-      const apiBase = BASE_URL || window.location.pathname.replace(/\/$/, '');
-      const response = await fetch(`${apiBase}/api/spider-connect`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        signal: AbortSignal.timeout(5000) // 5 second timeout
-      });
-      const data = await response.json();
-      if (data.api_key) {
-        setSpiderApiKey(data.api_key);
-      } else if (data.error) {
-        console.error('Failed to connect to Spider:', data.error);
+      console.log('Calling SpiderConnect...');
+      const data = await callApiWithRouting({ SpiderConnect: null }); // null means don't force new
+      console.log('SpiderConnect response:', data);
+      
+      // Handle Result<T, E> wrapper from Rust
+      if (data.Ok && data.Ok.api_key) {
+        console.log('Setting spider API key:', data.Ok.api_key);
+        setSpiderApiKey(data.Ok.api_key);
+      } else if (data.Err) {
+        throw new Error(data.Err);
+      } else {
+        console.log('No API key in response');
       }
     } catch (error: any) {
-      if (error.name === 'AbortError') {
-        console.error('Spider connection timeout - service may not be installed');
-      } else {
-        console.error('Error connecting to Spider:', error);
-      }
+      console.error('Error connecting to Spider:', error);
+      // Show user-friendly error message
+      alert(error.message || 'Failed to connect to Spider. The Spider service may not be installed.');
     }
   };
 
@@ -154,14 +130,14 @@ function App() {
       <header className="flex flex-col py-8 px-6 dark:bg-black bg-white shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
         <img src={`${import.meta.env.BASE_URL}/Logomark.svg`} alt="Hypergrid Logo" className="h-10" />
         <HeaderSearch />
+        <AppSwitcher currentApp="operator" />
         <div className="flex-1 w-full overflow-hidden">
-          <SpiderChat
-            spiderApiKey={spiderApiKey}
+          <SpiderChat 
+            spiderApiKey={spiderApiKey} 
             onConnectClick={handleSpiderConnect}
             onApiKeyRefreshed={(newKey) => setSpiderApiKey(newKey)}
           />
         </div>
-        <AppSwitcher currentApp="operator" />
       </header>
 
       <div className="flex flex-col flex-grow overflow-hidden relative bg-gray-50">
