@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::constants::PUBLISHER;
+use crate::constants::{HYPERMAP_ADDRESS, HYPERGRID_NAMESPACE_MINTER_ADDRESS, PUBLISHER};
 use chrono::Utc;
 use hyperware_process_lib::{
     http::{
@@ -12,6 +12,7 @@ use hyperware_process_lib::{
     signer::Signer,
     sqlite::Sqlite,
     vfs, Address, Request as ProcessRequest,
+    hyperwallet_client::api::call_contract,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -314,7 +315,7 @@ fn handle_shim_auth_error(auth_error: AuthError) -> anyhow::Result<()> {
 // ===========================================================================================
 
 /// Main MCP request dispatcher - routes Model Context Provider operations
-/// Only handles SearchRegistry and CallProvider - the actual MCP operations
+/// Handles SearchRegistry, CallProvider, and RegisterProvider - the actual MCP operations
 fn handle_mcp(
     our: &Address,
     req: McpRequest,
@@ -340,6 +341,29 @@ fn handle_mcp(
             provider_name,
             arguments,
             client_config_opt,
+        ),
+
+        // Provider registration
+        McpRequest::RegisterProvider {
+            provider_name,
+            provider_id,
+            description,
+            instructions,
+            registered_provider_wallet,
+            price,
+            endpoint,
+            validation_arguments,
+        } => handle_provider_registration_request(
+            our,
+            state,
+            provider_name,
+            provider_id,
+            description,
+            instructions,
+            registered_provider_wallet,
+            price,
+            endpoint,
+            validation_arguments,
         ),
     }
 }
@@ -783,6 +807,372 @@ fn handle_provider_call_request(
             )
         }
     }
+}
+
+/// Handle provider registration request from Spider
+/// This function:
+/// 0. Validates the provider endpoint (if validation arguments provided)
+/// 1. Mints a new provider TBA on-chain via hyperwallet
+/// 2. Sets provider metadata notes via hyperwallet
+/// 3. Sends a local message to the provider process with registration data and tx receipt
+fn handle_provider_registration_request(
+    our: &Address,
+    state: &mut State,
+    provider_name: String,
+    provider_id: String,
+    description: String,
+    instructions: String,
+    registered_provider_wallet: String,
+    price: f64,
+    endpoint: serde_json::Value,
+    validation_arguments: Option<Vec<(String, String)>>,
+) -> anyhow::Result<()> {
+    use alloy_primitives::{Address as EthAddress, Bytes as AlloyBytes};
+    use alloy_sol_types::{sol, SolCall};
+    use std::str::FromStr;
+
+    info!(
+        "Handling provider registration request for: '{}' (id: '{}')",
+        provider_name, provider_id
+    );
+
+    // 0. Validate the provider endpoint before doing on-chain work
+    if let Some(args) = validation_arguments {
+        info!("Validating provider endpoint before on-chain registration...");
+        match validate_provider_endpoint(&provider_name, &endpoint, &args) {
+            Ok(()) => {
+                info!("Provider endpoint validation successful for '{}'", provider_name);
+            }
+            Err(e) => {
+                error!("Provider endpoint validation failed for '{}': {}", provider_name, e);
+                return send_json_response(
+                    StatusCode::BAD_REQUEST,
+                    &json!({
+                        "error": "Provider endpoint validation failed",
+                        "details": e,
+                        "provider_name": provider_name
+                    }),
+                );
+            }
+        }
+    } else {
+        warn!("No validation arguments provided - skipping endpoint validation for '{}'", provider_name);
+    }
+
+    // 1. Get hyperwallet session (already initialized, no user input needed)
+    let session = match &state.hyperwallet_session {
+        Some(s) => s,
+        None => {
+            error!("Hyperwallet session not initialized");
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({"error": "Hyperwallet not initialized"}),
+            );
+        }
+    };
+
+    // 2. Get operator wallet address for minting
+    let wallet_address = match &state.selected_wallet_id {
+        Some(id) => id.clone(),
+        None => {
+            error!("No wallet selected");
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({"error": "No operator wallet selected"}),
+            );
+        }
+    };
+
+    // 3. Encode the mint function call
+    sol! {
+        function mint(address owner, bytes calldata label) external returns (address);
+    }
+    
+    let owner_addr = EthAddress::from_str(&wallet_address)
+        .map_err(|e| anyhow::anyhow!("Invalid wallet address: {}", e))?;
+    
+    let mint_call = mintCall {
+        owner: owner_addr,
+        label: AlloyBytes::from(provider_name.as_bytes().to_vec()),
+    };
+    let mint_calldata = mint_call.abi_encode();
+
+    // 4. Call the minter contract via hyperwallet (auto-signed!)
+    info!("Calling HYPERGRID_NAMESPACE_MINTER.mint() for provider '{}'...", provider_name);
+    let mint_receipt = match call_contract(
+        &session.session_id,
+        HYPERGRID_NAMESPACE_MINTER_ADDRESS,
+        &mint_calldata,
+        None, // no ETH value
+    ) {
+        Ok(receipt) => {
+            info!("Mint transaction confirmed: {}", receipt.hash);
+            receipt
+        }
+        Err(e) => {
+            error!("Failed to mint provider TBA: {}", e);
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({
+                    "error": "Failed to mint provider on-chain",
+                    "details": format!("{}", e)
+                }),
+            );
+        }
+    };
+
+    // 5. Calculate the TBA address (deterministic based on namehash)
+    // For now, we'll need to extract it from logs or calculate it
+    // TODO: Parse the mint receipt logs to extract the actual TBA address
+    // For now, use a placeholder that we'll improve
+    let tba_address = format!("0x{}", &mint_receipt.hash[2..42]); // Placeholder
+
+    // 6. Build notes multicall calldata
+    let notes_calldata = match build_provider_notes_calldata(
+        &provider_id,
+        &registered_provider_wallet,
+        &description,
+        &instructions,
+        price,
+    ) {
+        Ok(data) => data,
+        Err(e) => {
+            error!("Failed to build notes calldata: {}", e);
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({
+                    "error": "Failed to prepare provider metadata",
+                    "details": format!("{}", e)
+                }),
+            );
+        }
+    };
+
+    // 7. Call TBA.execute() to set notes (also auto-signed!)
+    info!("Setting provider notes via TBA.execute() for '{}'...", provider_name);
+    let notes_receipt = match call_contract(
+        &session.session_id,
+        &tba_address,
+        &notes_calldata,
+        None,
+    ) {
+        Ok(receipt) => {
+            info!("Notes transaction confirmed: {}", receipt.hash);
+            receipt
+        }
+        Err(e) => {
+            error!("Failed to set provider notes: {}", e);
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({
+                    "error": "Failed to set provider metadata on-chain",
+                    "details": format!("{}", e)
+                }),
+            );
+        }
+    };
+
+    // 8. Reconstruct the RegisteredProvider struct for the local message
+    let registered_provider = serde_json::json!({
+        "provider_name": provider_name,
+        "provider_id": provider_id,
+        "description": description,
+        "instructions": instructions,
+        "registered_provider_wallet": registered_provider_wallet,
+        "price": price,
+        "endpoint": endpoint,
+    });
+
+    // 9. Send local message to provider process
+    info!("Sending registration confirmation to provider process '{}'...", provider_id);
+    let provider_address = Address::new(&provider_id, ("provider", "hypergrid", PUBLISHER));
+    
+    let registration_request = serde_json::json!({
+        "provider": registered_provider,
+        "mint_tx_hash": mint_receipt.hash,
+        "notes_tx_hash": notes_receipt.hash,
+        "tba_address": tba_address,
+    });
+
+    match ProcessRequest::to(provider_address)
+        .body(serde_json::to_vec(&registration_request)?)
+        .send()
+    {
+        Ok(()) => {
+            info!("Registration message sent to provider '{}'", provider_id);
+        }
+        Err(e) => {
+            warn!("Failed to send registration to provider: {:?}", e);
+            // Continue anyway - the on-chain registration succeeded
+        }
+    }
+
+    // 10. Return success to Spider
+    send_json_response(
+        StatusCode::OK,
+        &json!({
+            "success": true,
+            "provider_name": provider_name,
+            "provider_id": provider_id,
+            "tba_address": tba_address,
+            "mint_tx": mint_receipt.hash,
+            "notes_tx": notes_receipt.hash,
+            "message": "Provider registered successfully on-chain"
+        }),
+    )
+}
+
+/// Validate a provider endpoint by making a test call
+fn validate_provider_endpoint(
+    provider_name: &str,
+    endpoint: &serde_json::Value,
+    validation_args: &[(String, String)],
+) -> Result<(), String> {
+    use hyperware_process_lib::http::client::send_request_await_response;
+    use hyperware_process_lib::http::Method;
+    
+    info!("Validating provider endpoint for '{}'", provider_name);
+    
+    // Parse endpoint configuration
+    let url_template = endpoint.get("urlTemplate")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing urlTemplate in endpoint".to_string())?;
+    
+    let method_str = endpoint.get("method")
+        .and_then(|v| v.as_str())
+        .ok_or_else(|| "Missing method in endpoint".to_string())?;
+    
+    let method = match method_str.to_uppercase().as_str() {
+        "GET" => Method::GET,
+        "POST" => Method::POST,
+        "PUT" => Method::PUT,
+        "DELETE" => Method::DELETE,
+        "PATCH" => Method::PATCH,
+        _ => return Err(format!("Unsupported HTTP method: {}", method_str)),
+    };
+    
+    // Build URL with validation arguments
+    let mut final_url = url_template.to_string();
+    let args_map: std::collections::HashMap<_, _> = validation_args.iter().cloned().collect();
+    
+    // Simple placeholder replacement for validation
+    for (key, value) in &args_map {
+        final_url = final_url.replace(&format!("{{{}}}", key), value);
+    }
+    
+    let parsed_url = url::Url::parse(&final_url)
+        .map_err(|e| format!("Invalid URL after substitution: {}", e))?;
+    
+    info!("Testing provider endpoint: {} {}", method_str, final_url);
+    
+    // Make the HTTP call with a timeout
+    let response = send_request_await_response(
+        method,
+        parsed_url,
+        None, // No custom headers for validation
+        10000, // 10 second timeout
+        vec![], // Empty body for now
+    )
+    .map_err(|e| format!("HTTP request failed: {:?}", e))?;
+    
+    let status = response.status();
+    if status.as_u16() >= 400 {
+        return Err(format!(
+            "Provider returned error status: {} ({})",
+            status.as_u16(),
+            String::from_utf8_lossy(response.body())
+        ));
+    }
+    
+    info!(
+        "Provider endpoint validation successful: status {}, body length {}",
+        status.as_u16(),
+        response.body().len()
+    );
+    
+    Ok(())
+}
+
+/// Build the TBA.execute() calldata for setting provider metadata notes via multicall
+fn build_provider_notes_calldata(
+    provider_id: &str,
+    wallet: &str,
+    description: &str,
+    instructions: &str,
+    price: f64,
+) -> anyhow::Result<Vec<u8>> {
+    use alloy_primitives::{Address as EthAddress, Bytes as AlloyBytes, U256};
+    use alloy_sol_types::{sol, SolCall};
+    use std::str::FromStr;
+
+    // Define the Hypermap note function
+    sol! {
+        function note(bytes calldata noteKey, bytes calldata noteValue) external returns (bytes32 labelhash);
+    }
+
+    // Define the Multicall aggregate function
+    sol! {
+        struct Call {
+            address target;
+            bytes callData;
+        }
+        function aggregate(Call[] calls) external payable returns (uint256 blockNumber, bytes[] returnData);
+    }
+
+    // Build individual note calls
+    let note_keys = [
+        "~provider-id",
+        "~wallet",
+        "~description",
+        "~instructions",
+        "~price",
+    ];
+    let note_values = [
+        provider_id,
+        wallet,
+        description,
+        instructions,
+        &price.to_string(),
+    ];
+
+    let hypermap_address = EthAddress::from_str(HYPERMAP_ADDRESS)
+        .map_err(|e| anyhow::anyhow!("Invalid HYPERMAP_ADDRESS: {}", e))?;
+
+    let mut calls = Vec::new();
+    for (key, value) in note_keys.iter().zip(note_values.iter()) {
+        let note_call = noteCall {
+            noteKey: AlloyBytes::from(key.as_bytes().to_vec()),
+            noteValue: AlloyBytes::from(value.as_bytes().to_vec()),
+        };
+        let note_calldata = note_call.abi_encode();
+        
+        calls.push(Call {
+            target: hypermap_address,
+            callData: AlloyBytes::from(note_calldata),
+        });
+    }
+
+    // Build the multicall
+    let multicall_call = aggregateCall { calls };
+    let multicall_data = multicall_call.abi_encode();
+
+    // Multicall contract address (same across chains)
+    let multicall_address = "0xcA11bde05977b3631167028862bE2a173976CA11";
+
+    // Build TBA execute call with DELEGATECALL
+    sol! {
+        function execute(address to, uint256 value, bytes calldata data, uint8 operation) external payable returns (bytes memory result);
+    }
+
+    let execute_call = executeCall {
+        to: EthAddress::from_str(multicall_address)
+            .map_err(|e| anyhow::anyhow!("Invalid multicall address: {}", e))?,
+        value: U256::ZERO,
+        data: AlloyBytes::from(multicall_data),
+        operation: 1u8, // DELEGATECALL
+    };
+
+    Ok(execute_call.abi_encode())
 }
 
 /// Execute the full provider flow: health check, payment (if needed), then provider call

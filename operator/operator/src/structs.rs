@@ -370,6 +370,20 @@ pub enum McpRequest {
         provider_name: String,
         arguments: Vec<(String, String)>,
     },
+    RegisterProvider {
+        #[serde(rename = "providerName")]
+        provider_name: String,
+        #[serde(rename = "providerId")]
+        provider_id: String,
+        description: String,
+        instructions: String,
+        #[serde(rename = "registeredProviderWallet")]
+        registered_provider_wallet: String,
+        price: f64,
+        endpoint: serde_json::Value,
+        #[serde(rename = "validationArguments", default)]
+        validation_arguments: Option<Vec<(String, String)>>,
+    },
 }
 
 // NEW: Regular API requests for UI operations - not MCP related

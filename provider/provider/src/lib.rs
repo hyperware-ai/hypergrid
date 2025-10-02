@@ -52,6 +52,15 @@ pub struct ValidateAndRegisterRequest {
     pub validation_arguments: Vec<(String, String)>,
 }
 
+// Provider registration request from operator (after on-chain confirmation)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct OperatorRegistrationRequest {
+    pub provider: RegisteredProvider,
+    pub mint_tx_hash: String,
+    pub notes_tx_hash: String,
+    pub tba_address: String,
+}
+
 // Type system for API endpoints
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum HttpMethod {
@@ -427,6 +436,63 @@ impl HypergridProviderState {
                 Err(error_msg)
             }
         }
+    }
+
+    #[local]
+    async fn register_provider_from_operator(&mut self, request: OperatorRegistrationRequest) -> Result<RegisteredProvider, String> {
+        info!(
+            "Received registration request from operator for provider: '{}' with TBA: {}",
+            request.provider.provider_name, request.tba_address
+        );
+
+        // Validate tx receipts exist
+        if request.mint_tx_hash.is_empty() || request.notes_tx_hash.is_empty() {
+            return Err("Missing transaction receipts".to_string());
+        }
+
+        // Check if provider already registered
+        if self
+            .registered_providers
+            .iter()
+            .any(|p| p.provider_name == request.provider.provider_name)
+        {
+            return Err(format!(
+                "Provider '{}' is already registered",
+                request.provider.provider_name
+            ));
+        }
+
+        info!(
+            "Registering provider '{}' with on-chain confirmation: mint_tx={}, notes_tx={}, tba={}",
+            request.provider.provider_name, request.mint_tx_hash, request.notes_tx_hash, request.tba_address
+        );
+
+        // Add provider to registry
+        self.registered_providers.push(request.provider.clone());
+
+        // Save to VFS
+        if let Err(e) = self.save_providers_to_vfs() {
+            error!("Failed to save providers to VFS: {}", e);
+        }
+
+        // Save state
+        match rmp_serde::to_vec(self) {
+            Ok(bytes) => {
+                hyperware_process_lib::set_state(&bytes);
+                info!("Provider registration saved successfully");
+            }
+            Err(e) => {
+                error!("Failed to serialize state: {}", e);
+                return Err(format!("Failed to save registration: {}", e));
+            }
+        }
+
+        info!(
+            "Successfully registered provider '{}' from operator",
+            request.provider.provider_name
+        );
+
+        Ok(request.provider)
     }
 
     #[http]
