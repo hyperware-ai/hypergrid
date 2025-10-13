@@ -1,46 +1,11 @@
 interface operator-process {
 use standard.{address};
 
-    record provider-search-result {
-        provider-id: string,
-        name: string,
-        description: string
-    }
-
-    record spider-status-result {
-        connected: bool,
-        has-api-key: bool,
-        spider-available: bool
-    }
-
-    record provider-info {
-        id: option<s64>,
-        provider-id: string,
-        name: string,
-        description: option<string>,
-        site: option<string>,
-        wallet: option<string>,
-        price: option<string>,
-        instructions: option<string>,
-        hash: string
-    }
-
-    record spider-mcp-servers-result {
-        servers: list<spider-mcp-server>,
-        error: option<string>
-    }
-
-    record spider-mcp-server {
-        id: string,
-        name: string,
-        description: option<string>
-    }
-
-    record configure-authorized-client-dto {
-        client-id: option<string>,
-        client-name: option<string>,
+    record configure-authorized-client-result {
+        client-id: string,
         raw-token: string,
-        hot-wallet-address-to-associate: string
+        api-base-path: string,
+        node-name: string
     }
 
     variant terminal-command {
@@ -81,18 +46,19 @@ use standard.{address};
         spider-api-key: option<string>
     }
 
-    record managed-wallet {
-        id: string,
-        name: option<string>,
-        storage-json: string,
-        spending-limits: spending-limits
-    }
-
-    record spending-limits {
-        max-per-call: option<string>,
-        max-total: option<string>,
-        currency: option<string>,
-        total-spent: option<string>
+    record call-record {
+        timestamp-start-ms: u64,
+        provider-lookup-key: string,
+        target-provider-id: string,
+        call-args-json: string,
+        response-json: option<string>,
+        call-success: bool,
+        response-timestamp-ms: u64,
+        payment-result: option<string>,
+        duration-ms: u64,
+        operator-wallet-id: option<string>,
+        client-id: option<string>,
+        provider-name: option<string>
     }
 
     record hot-wallet-authorized-client {
@@ -102,6 +68,11 @@ use standard.{address};
         authentication-token: string,
         capabilities: service-capabilities,
         status: client-status
+    }
+
+    variant client-status {
+        active,
+        halted
     }
 
     variant service-capabilities {
@@ -121,9 +92,18 @@ use standard.{address};
         payment-tx-hash: option<string>
     }
 
-    variant client-status {
-        active,
-        halted
+    record managed-wallet {
+        id: string,
+        name: option<string>,
+        storage-json: string,
+        spending-limits: spending-limits
+    }
+
+    record spending-limits {
+        max-per-call: option<string>,
+        max-total: option<string>,
+        currency: option<string>,
+        total-spent: option<string>
     }
 
     record active-account-details {
@@ -144,37 +124,22 @@ use standard.{address};
         created-at: u64
     }
 
-    record call-record {
-        timestamp-start-ms: u64,
-        provider-lookup-key: string,
-        target-provider-id: string,
-        call-args-json: string,
-        response-json: option<string>,
-        call-success: bool,
-        response-timestamp-ms: u64,
-        payment-result: option<string>,
-        duration-ms: u64,
-        operator-wallet-id: option<string>,
-        client-id: option<string>,
-        provider-name: option<string>
-    }
-
-    record configure-authorized-client-result {
-        client-id: string,
-        raw-token: string,
-        api-base-path: string,
-        node-name: string
-    }
-
-    record key-value {
-        key: string,
-        value: string
-    }
-
     record spider-chat-result {
         conversation-id: string,
         response: spider-message,
         all-messages: option<list<spider-message>>
+    }
+
+    record provider-info {
+        id: option<s64>,
+        provider-id: string,
+        name: string,
+        description: option<string>,
+        site: option<string>,
+        wallet: option<string>,
+        price: option<string>,
+        instructions: option<string>,
+        hash: string
     }
 
     record spider-chat-dto {
@@ -186,6 +151,43 @@ use standard.{address};
         metadata: option<spider-conversation-metadata>
     }
 
+    record spider-message {
+        role: string,
+        content: string,
+        tool-calls-json: option<string>,
+        tool-results-json: option<string>,
+        timestamp: u64
+    }
+
+    record spider-conversation-metadata {
+        start-time: string,
+        client: string,
+        from-stt: bool
+    }
+
+    record spider-mcp-servers-result {
+        servers: list<spider-mcp-server>,
+        error: option<string>
+    }
+
+    record spider-mcp-server {
+        id: string,
+        name: string,
+        description: option<string>
+    }
+
+    record spider-status-result {
+        connected: bool,
+        has-api-key: bool,
+        spider-available: bool
+    }
+
+    record provider-search-result {
+        provider-id: string,
+        name: string,
+        description: string
+    }
+
     record provider {
         name: string,
         hash: string,
@@ -195,18 +197,20 @@ use standard.{address};
         provider-id: option<string>
     }
 
-    record spider-conversation-metadata {
-        start-time: string,
-        client: string,
-        from-stt: bool
+    record key-value {
+        key: string,
+        value: string
     }
 
-    record spider-message {
-        role: string,
-        content: string,
-        tool-calls-json: option<string>,
-        tool-results-json: option<string>,
-        timestamp: u64
+    record spider-connect-result {
+        api-key: string
+    }
+
+    record configure-authorized-client-dto {
+        client-id: option<string>,
+        client-name: option<string>,
+        raw-token: string,
+        hot-wallet-address-to-associate: string
     }
 
     record authorize-result {
@@ -214,10 +218,6 @@ use standard.{address};
         token: string,
         client-id: string,
         node: string
-    }
-
-    record spider-connect-result {
-        api-key: string
     }
 
     // Function signature for: authorize (http)

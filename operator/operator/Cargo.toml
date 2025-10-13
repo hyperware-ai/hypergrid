@@ -13,6 +13,10 @@ sha3 = "0.10"
 url = "2.4"
 wit-bindgen = "0.42.1"
 
+[dependencies.caller-utils]
+optional = true
+path = "../target/caller-utils"
+
 [dependencies.hyperprocess_macro]
 branch = "develop"
 git = "https://github.com/hyperware-ai/hyperprocess-macro"
@@ -23,11 +27,7 @@ features = [
     "hyperwallet",
 ]
 git = "https://github.com/hyperware-ai/process_lib"
-rev = "4beff93"
-
-[dependencies.operator_caller_utils]
-optional = true
-path = "../target/operator-caller-utils"
+branch = "develop"
 
 [dependencies.serde]
 features = ["derive"]
@@ -38,7 +38,6 @@ features = ["v4"]
 version = "1.16.0"
 
 [features]
-caller-utils = ["operator_caller_utils"]
 default = []
 legacy-mods = []
 

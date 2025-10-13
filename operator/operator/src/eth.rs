@@ -5,7 +5,9 @@ use alloy_sol_types::SolEvent;
 use hyperware_process_lib::eth::{EthSub, EthSubError, Filter, Log, SubscriptionResult};
 use hyperware_process_lib::hypermap::contract::{Mint, Note};
 use hyperware_process_lib::logging::{error, info};
+use hyperware_process_lib::hypermap::namehash;
 use std::str::FromStr;
+use crate::constants::{NAMESPACE, HYPR_HASH};
 
 /// Create ETH filters for Mint, Note and USDC Transfer events
 pub fn make_filters(state: &State) -> Vec<Filter> {
@@ -341,25 +343,34 @@ pub async fn add_mint(
     child_hash: String,
     label: String,
 ) -> Result<(), String> {
-    //info!("Adding mint: {} -> {} ({})", parent_hash, child_hash, label);
+    info!("Adding mint: {} -> {} ({})", parent_hash, child_hash, label);
 
-    // Insert into database if available
-    // Note: We no longer maintain the in-memory names mapping - use database instead
-    if let Some(db) = &process.db_conn {
-        match crate::db::insert_provider(db, parent_hash, child_hash.clone(), label.clone()).await {
-            Ok(_) => {
-                //info!("Provider inserted into database: {} -> {}", parent_hash, child_hash);
-            }
-            Err(e) => {
-                //error!("Failed to insert provider into database: {:?}", e);
-                // Don't fail the whole operation if db insert fails
-            }
-        }
+    let grid_hypr_hash = namehash("grid.hypr");
+    
+    // So what needs to happen here is we need to check that we're only indexing providers under grid.hypr
+    if parent_hash == grid_hypr_hash {
+                // We're only indexing providers under grid.hypr
+                // So we can insert into the database
+                if let Some(db) = &process.db_conn {
+                    match crate::db::insert_provider(db, parent_hash, child_hash.clone(), label.clone()).await {
+                        Ok(_) => {
+                            info!("Provider inserted into database: {} -> {}", parent_hash, child_hash);
+                        }
+                        Err(e) => {
+                            error!("Failed to insert provider into database: {:?}", e);
+                        }
+                    }
+                } else {
+                    error!("No database connection available for mint insertion");
+                }
     } else {
-        error!("No database connection available for mint insertion");
+        info!("Skipping mint: {} -> {} ({})", parent_hash, child_hash, label);
+        // We're not indexing providers under grid.hypr
+        // So we don't need to insert into the database
+        return Ok(());
     }
-
-    //info!("Mint added successfully");
+    
+    info!("Mint added successfully");
     Ok(())
 }
 
