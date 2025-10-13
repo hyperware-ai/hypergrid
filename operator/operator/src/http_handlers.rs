@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::constants::{HYPERMAP_ADDRESS, HYPERGRID_NAMESPACE_MINTER_ADDRESS, PUBLISHER};
+use crate::constants::{HYPERMAP_ADDRESS, HYPERGRID_NAMESPACE_MINTER_ADDRESS, HYPR_SUFFIX, PUBLISHER};
 use chrono::Utc;
 use hyperware_process_lib::{
     http::{
@@ -12,7 +12,6 @@ use hyperware_process_lib::{
     signer::Signer,
     sqlite::Sqlite,
     vfs, Address, Request as ProcessRequest,
-    hyperwallet_client::api::call_contract,
 };
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
@@ -22,7 +21,7 @@ use crate::{
     authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities},
     db as dbm,
     graph::handle_get_hypergrid_graph_layout,
-    helpers::send_json_response,
+    helpers::{send_json_response, call_contract_via_erc4337},
     hyperwallet_client::{payments as hyperwallet_payments, service as hyperwallet_service},
     structs::{
         ApiRequest, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse,
@@ -859,7 +858,7 @@ fn handle_provider_registration_request(
         warn!("No validation arguments provided - skipping endpoint validation for '{}'", provider_name);
     }
 
-    // 1. Get hyperwallet session (already initialized, no user input needed)
+    // 1. Get hyperwallet session 
     let session = match &state.hyperwallet_session {
         Some(s) => s,
         None => {
@@ -897,35 +896,65 @@ fn handle_provider_registration_request(
     };
     let mint_calldata = mint_call.abi_encode();
 
-    // 4. Call the minter contract via hyperwallet (auto-signed!)
-    info!("Calling HYPERGRID_NAMESPACE_MINTER.mint() for provider '{}'...", provider_name);
-    let mint_receipt = match call_contract(
-        &session.session_id,
-        HYPERGRID_NAMESPACE_MINTER_ADDRESS,
-        &mint_calldata,
-        None, // no ETH value
-    ) {
-        Ok(receipt) => {
-            info!("Mint transaction confirmed: {}", receipt.hash);
-            receipt
-        }
-        Err(e) => {
-            error!("Failed to mint provider TBA: {}", e);
+    // 4. Get the operator TBA address from state
+    let operator_tba_address = match &state.operator_tba_address {
+        Some(tba) => tba.clone(),
+        None => {
+            error!("Operator TBA address not configured in state");
             return send_json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &json!({
-                    "error": "Failed to mint provider on-chain",
-                    "details": format!("{}", e)
+                    "error": "Operator TBA address not configured",
+                    "details": "Cannot make contract calls without TBA address"
                 }),
             );
         }
     };
 
-    // 5. Calculate the TBA address (deterministic based on namehash)
-    // For now, we'll need to extract it from logs or calculate it
-    // TODO: Parse the mint receipt logs to extract the actual TBA address
-    // For now, use a placeholder that we'll improve
-    let tba_address = format!("0x{}", &mint_receipt.hash[2..42]); // Placeholder
+    // 5. Calculate the TBA address deterministically using namehash
+    // The provider is minted under the namespace defined by HYPR_SUFFIX
+    use hyperware_process_lib::hypermap;
+    
+    // Extract parent namespace from HYPR_SUFFIX (e.g., ".grid.hypr" → "grid.hypr")
+    let parent_name = HYPR_SUFFIX.trim_start_matches('.');
+    
+    // Build the full provider path (e.g., "weather-api.grid.hypr" or "weather-api.obfusc-grid123.hypr")
+    let full_provider_path = format!("{}.{}", provider_name, parent_name);
+    
+    // Calculate namehash
+    let provider_namehash = hypermap::namehash(&full_provider_path);
+    info!("Calculated provider namehash: {} for path: {}", provider_namehash, full_provider_path);
+    
+    // Query the Hypermap contract to get the TBA address for this namehash
+    let hypermap_instance = hypermap::Hypermap::default(60);
+    let (tba_address, owner, _data) = match hypermap_instance.get_hash(&provider_namehash) {
+        Ok((tba, owner, data)) => {
+            info!("Retrieved TBA from Hypermap: {} (owner: {})", tba, owner);
+            (format!("{:?}", tba), owner, data)
+        }
+        Err(e) => {
+            error!("Failed to query TBA from Hypermap: {}", e);
+            // Fallback: try waiting a bit and retry once
+            std::thread::sleep(std::time::Duration::from_secs(2));
+            match hypermap_instance.get_hash(&provider_namehash) {
+                Ok((tba, owner, data)) => {
+                    info!("Retrieved TBA from Hypermap on retry: {} (owner: {})", tba, owner);
+                    (format!("{:?}", tba), owner, data)
+                }
+                Err(e2) => {
+                    error!("Failed to query TBA from Hypermap even after retry: {}", e2);
+                    return send_json_response(
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        &json!({
+                            "error": "Failed to retrieve minted provider TBA address",
+                            "details": format!("{}", e2),
+                            "error": "TBA address retrieval failed"
+                        }),
+                    );
+                }
+            }
+        }
+    };
 
     // 6. Build notes multicall calldata
     let notes_calldata = match build_provider_notes_calldata(
@@ -948,31 +977,62 @@ fn handle_provider_registration_request(
         }
     };
 
-    // 7. Call TBA.execute() to set notes (also auto-signed!)
-    info!("Setting provider notes via TBA.execute() for '{}'...", provider_name);
-    let notes_receipt = match call_contract(
+    // 7. Execute minting via ERC-4337 UserOperation
+    info!("Minting provider '{}' via ERC-4337...", provider_name);
+    
+    let mint_receipt = match call_contract_via_erc4337(
         &session.session_id,
-        &tba_address,
-        &notes_calldata,
+        &wallet_address, // EOA wallet ID
+        &operator_tba_address, // Use the operator TBA address
+        &HYPERGRID_NAMESPACE_MINTER_ADDRESS.to_string(),
+        &mint_calldata,
         None,
     ) {
         Ok(receipt) => {
-            info!("Notes transaction confirmed: {}", receipt.hash);
+            info!("Mint UserOperation confirmed: {}", receipt.hash);
             receipt
         }
         Err(e) => {
-            error!("Failed to set provider notes: {}", e);
+            error!("Failed to execute mint via ERC-4337: {}", e);
             return send_json_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
                 &json!({
-                    "error": "Failed to set provider metadata on-chain",
+                    "error": "Failed to execute mint via ERC-4337",
                     "details": format!("{}", e)
                 }),
             );
         }
     };
 
-    // 8. Reconstruct the RegisteredProvider struct for the local message
+    // 8. Execute notes setting via ERC-4337 UserOperation
+    // The notes_calldata already contains a complete TBA.execute() call with multicall
+    info!("Setting notes for provider '{}' via ERC-4337...", provider_name);
+    
+    let notes_receipt = match call_contract_via_erc4337(
+        &session.session_id,
+        &wallet_address, // EOA wallet ID
+        &tba_address, // Use the provider's TBA address (not operator TBA)
+        &tba_address, // Target is the same TBA (self-execution)
+        &notes_calldata,
+        None,
+    ) {
+        Ok(receipt) => {
+            info!("Notes UserOperation confirmed: {}", receipt.hash);
+            receipt
+        }
+        Err(e) => {
+            error!("Failed to execute notes via ERC-4337: {}", e);
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({
+                    "error": "Failed to execute notes via ERC-4337",
+                    "details": format!("{}", e)
+                }),
+            );
+        }
+    };
+
+    // 9. Reconstruct the RegisteredProvider struct for the local message
     let registered_provider = serde_json::json!({
         "provider_name": provider_name,
         "provider_id": provider_id,
@@ -983,7 +1043,7 @@ fn handle_provider_registration_request(
         "endpoint": endpoint,
     });
 
-    // 9. Send local message to provider process
+    // 10. Send local message to provider process
     info!("Sending registration confirmation to provider process '{}'...", provider_id);
     let provider_address = Address::new(&provider_id, ("provider", "hypergrid", PUBLISHER));
     
@@ -1007,7 +1067,7 @@ fn handle_provider_registration_request(
         }
     }
 
-    // 10. Return success to Spider
+    // 11. Return success to Spider
     send_json_response(
         StatusCode::OK,
         &json!({
@@ -1017,7 +1077,7 @@ fn handle_provider_registration_request(
             "tba_address": tba_address,
             "mint_tx": mint_receipt.hash,
             "notes_tx": notes_receipt.hash,
-            "message": "Provider registered successfully on-chain"
+            "message": "Provider registered successfully on-chain via ERC-4337 (mint + notes multicall)"
         }),
     )
 }
@@ -2553,6 +2613,7 @@ fn handle_post(
     match serde_json::from_slice::<McpRequest>(blob.bytes()) {
         Ok(body) => handle_mcp(our, body, state, db, client_config_opt),
         Err(_) => {
+
             // Fall back to legacy HttpMcpRequest format for backwards compatibility
             match serde_json::from_slice::<HttpMcpRequest>(blob.bytes()) {
                 Ok(body) => {

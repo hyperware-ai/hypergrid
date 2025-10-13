@@ -2314,3 +2314,93 @@ pub fn handle_terminal_debug(
     }
     Ok(())
 }
+
+
+
+/// Call a contract via ERC-4337 UserOperation with paymaster support (gasless)
+/// This function uses the existing ERC-4337 infrastructure to make contract calls
+/// that work with USDC-only wallets through gas abstraction
+pub fn call_contract_via_erc4337(
+    session_id: &str,
+    eoa_wallet_id: &str,
+    tba_address: &str,
+    target_contract: &str,
+    calldata: &[u8],
+    value: Option<&str>,
+) -> Result<wallet::TxReceipt, anyhow::Error> {
+    use hyperware_process_lib::hyperwallet_client::api::{
+        build_and_sign_user_operation_for_payment,
+        submit_user_operation,
+        get_user_operation_receipt,
+    };
+    use hyperware_process_lib::hyperwallet_client::types::PaymasterConfig;
+
+    info!("Calling contract via ERC-4337: target={}, tba={}", target_contract, tba_address);
+
+    let call_data_hex = format!("0x{}", hex::encode(calldata));
+    let session_id_str = session_id.to_string();
+    let eoa_wallet_id_str = eoa_wallet_id.to_string();
+    let tba_address_str = tba_address.to_string();
+    let target_contract_str = target_contract.to_string();
+
+    // Build and sign the UserOperation
+    let build_response = build_and_sign_user_operation_for_payment(
+        &session_id_str,
+        &eoa_wallet_id_str,
+        &tba_address_str,
+        &target_contract_str,
+        &call_data_hex,
+        true, // use_paymaster
+        Some(PaymasterConfig {
+            is_circle_paymaster: true,
+            paymaster_address: "0x0578cFB241215b77442a541325d6A4E6dFE700Ec".to_string(),
+            paymaster_verification_gas: "500000".to_string(),
+            paymaster_post_op_gas: "300000".to_string(),
+        }),
+        None, // password
+    )?;
+
+    // Submit the UserOperation to the bundler
+    let signed_user_op: serde_json::Value = serde_json::from_str(&build_response.signed_user_operation)?;
+    let user_op_hash = submit_user_operation(
+        &session_id_str,
+        signed_user_op,
+        &build_response.entry_point,
+        None, // bundler_url - use default
+    )?;
+
+    info!("UserOperation submitted: {}", user_op_hash);
+
+    // Try to get the receipt (it might not be ready immediately)
+    let receipt_response = get_user_operation_receipt(
+        &session_id_str,
+        &user_op_hash,
+    )?;
+
+    // Extract the transaction hash from the receipt
+    let tx_hash = if let Some(receipt) = receipt_response.receipt {
+        // Parse the receipt JSON to get the transaction hash
+        let receipt_json: serde_json::Value = serde_json::from_str(&receipt)?;
+        receipt_json
+            .get("transactionHash")
+            .and_then(|v| v.as_str())
+            .unwrap_or(&user_op_hash)
+            .to_string()
+    } else {
+        // If no receipt yet, use the UserOperation hash
+        user_op_hash.clone()
+    };
+
+    // Return a TxReceipt with the transaction hash
+    Ok(wallet::TxReceipt {
+        hash: B256::from_str(&tx_hash).unwrap_or_default(),
+        details: serde_json::json!({
+            "from": tba_address,
+            "to": target_contract,
+            "amount": value.unwrap_or("0"),
+            "chain_id": 8453, // Base
+            "user_operation_hash": user_op_hash,
+            "method": "erc4337_user_operation"
+        }).to_string(),
+    })
+}

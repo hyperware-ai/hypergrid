@@ -107,6 +107,7 @@ fn init(our: Address) {
             Operation::SetWalletLimits,
             Operation::SendEth,
             Operation::SendToken,
+            Operation::CallContract,
             Operation::ExecuteViaTba,
             Operation::GetBalance,
             Operation::GetTokenBalance,

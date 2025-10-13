@@ -381,7 +381,7 @@ pub enum McpRequest {
         registered_provider_wallet: String,
         price: f64,
         endpoint: serde_json::Value,
-        #[serde(rename = "validationArguments", default)]
+        #[serde(rename = "validationArguments")]
         validation_arguments: Option<Vec<(String, String)>>,
     },
 }
