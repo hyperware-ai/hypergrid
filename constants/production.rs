@@ -1,5 +1,6 @@
 // Production environment constants
 pub const NAMESPACE: &str = "grid";
+pub const NAMESPACE_HYPR: &str = "grid.hypr";
 pub const WALLET_PREFIX: &str = "grid-wallet.";
 pub const HYPR_SUFFIX: &str = ".grid.hypr";
 pub const PUBLISHER: &str = "ware.hypr";

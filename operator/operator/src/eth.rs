@@ -7,7 +7,7 @@ use hyperware_process_lib::hypermap::contract::{Mint, Note};
 use hyperware_process_lib::logging::{error, info};
 use hyperware_process_lib::hypermap::namehash;
 use std::str::FromStr;
-use crate::constants::{NAMESPACE, HYPR_HASH};
+use crate::constants::{NAMESPACE, NAMESPACE_HYPR, HYPR_HASH};
 
 /// Create ETH filters for Mint, Note and USDC Transfer events
 pub fn make_filters(state: &State) -> Vec<Filter> {
@@ -345,11 +345,11 @@ pub async fn add_mint(
 ) -> Result<(), String> {
     info!("Adding mint: {} -> {} ({})", parent_hash, child_hash, label);
 
-    let grid_hypr_hash = namehash("grid.hypr");
+    let grid_hypr_hash = namehash(NAMESPACE_HYPR);
     
-    // So what needs to happen here is we need to check that we're only indexing providers under grid.hypr
+    // So what needs to happen here is we need to check that we're only indexing providers under the namespace
     if parent_hash == grid_hypr_hash {
-                // We're only indexing providers under grid.hypr
+                // We're only indexing providers under the namespace
                 // So we can insert into the database
                 if let Some(db) = &process.db_conn {
                     match crate::db::insert_provider(db, parent_hash, child_hash.clone(), label.clone()).await {

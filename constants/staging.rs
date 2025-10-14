@@ -1,5 +1,6 @@
 // Staging environment constants
 pub const NAMESPACE: &str = "obfusc-grid123";
+pub const NAMESPACE_HYPR: &str = "obfusc-grid123.hypr";
 pub const WALLET_PREFIX: &str = "grid-wallet.";
 pub const HYPR_SUFFIX: &str = ".obfusc-grid123.hypr";
 pub const PUBLISHER: &str = "test.hypr";
