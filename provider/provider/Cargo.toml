@@ -22,8 +22,8 @@ features = [
     "hyperapp",
     "logging",
 ]
+branch = "develop"
 git = "https://github.com/hyperware-ai/process_lib"
-rev = "b9f1ead"
 
 [dependencies.serde]
 features = ["derive"]
