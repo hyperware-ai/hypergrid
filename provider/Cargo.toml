@@ -6,7 +6,6 @@ panic = "abort"
 [workspace]
 members = [
     "provider",
-    "target/provider-caller-utils",
-    "target/provider-caller-util?",
+    "target/caller-util?",
 ]
 resolver = "2"

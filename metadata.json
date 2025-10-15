@@ -4,7 +4,7 @@
     "image": "https://raw.githubusercontent.com/hyperware-ai/hpn/ccd0e9c0d08b2344b06ce4a5b8584f819b92e43e/hypergrid-logo.webp",
     "properties": {
         "package_name": "hypergrid",
-        "current_version": "1.2.2",
+        "current_version": "1.2.1",
         "publisher": "ware.hypr",
         "mirrors": ["ware.hypr", "sam.hypr", "backup-distro-node.os"],
         "code_hashes": {

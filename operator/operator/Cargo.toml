@@ -22,12 +22,12 @@ branch = "develop"
 git = "https://github.com/hyperware-ai/hyperprocess-macro"
 
 [dependencies.hyperware_process_lib]
+branch = "develop"
 features = [
     "hyperapp",
     "hyperwallet",
 ]
 git = "https://github.com/hyperware-ai/process_lib"
-branch = "develop"
 
 [dependencies.serde]
 features = ["derive"]
