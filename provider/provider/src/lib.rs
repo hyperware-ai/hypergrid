@@ -4,12 +4,13 @@ use hyperware_process_lib::logging::RemoteLogSettings;
 use hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
     get_state,
+    http::StatusCode,
     hypermap,
     logging::{debug, error, info, warn, init_logging, Level},
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
-    hyperapp::{source, SaveOptions, sleep, get_server},
+    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, APP_HELPERS},
 };
 use crate::constants::HYPR_SUFFIX;
 use rmp_serde;
@@ -50,6 +51,37 @@ pub struct DummyResponse {
 pub struct ValidateAndRegisterRequest {
     pub provider: RegisteredProvider,
     pub validation_arguments: Vec<(String, String)>,
+}
+
+// x402 payment protocol structures
+// These use camelCase field names per x402 spec (not Rust's snake_case convention)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentRequirements {
+    pub x402_version: u8,
+    pub accepts: Vec<AcceptedPayment>,
+    pub error: String,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedPayment {
+    pub scheme: String,
+    pub network: String,
+    pub max_amount_required: String,  // USDC in atomic units (6 decimals)
+    pub resource: String,
+    pub description: String,
+    pub mime_type: String,
+    pub pay_to: String,  // Ethereum address
+    pub max_timeout_seconds: u64,
+    pub asset: String,   // USDC contract address
+    pub extra: ExtraData,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExtraData {
+    pub name: String,
+    pub version: String,
 }
 
 // Type system for API endpoints
@@ -355,6 +387,10 @@ impl Default for HypergridProviderState {
     endpoints = vec![
         Binding::Http {
             path: "/api",
+            config: HttpBindingConfig::new(false, false, false, None),
+        },
+        Binding::Http {
+            path: "/xfour",
             config: HttpBindingConfig::new(false, false, false, None),
         },
         Binding::Ws {
@@ -841,6 +877,126 @@ impl HypergridProviderState {
     async fn export_providers(&self) -> Result<String, String> {
         debug!("Exporting providers as JSON");
         self.export_providers_json()
+    }
+
+    /// HTTP 402 Payment Required endpoint for x402 micropayment protocol
+    ///
+    /// This endpoint implements the x402 payment flow:
+    /// 1. Initial request: Client sends query params (providername + provider args), gets 402 response with PaymentRequirements
+    /// 2. Payment retry: Client retries with X-PAYMENT header (not yet implemented)
+    /// 3. Final response: After payment validation, return actual provider response (not yet implemented)
+    #[http(path = "/xfour")]
+    async fn handle_xfour(&self) -> Result<String, String> {
+        info!("x402 endpoint called");
+
+        // ===== QUERY PARAMETER VALIDATION =====
+        // Get query params using APP_HELPERS pattern
+        let params = APP_HELPERS.with(|helpers| {
+            helpers
+                .borrow()
+                .current_http_context
+                .as_ref()
+                .map(|ctx| ctx.request.query_params().clone())
+        });
+
+        // Check if params exist and are non-empty
+        let params = match params {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                // Return 400 Bad Request if no query parameters
+                let error_json = serde_json::json!({
+                    "error": "Missing query parameters. Expected ?providername=...&..."
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::BAD_REQUEST);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+        };
+
+        // ===== PROVIDER NAME EXTRACTION =====
+        let provider_name = match params.get("providername") {
+            Some(name) => name,
+            None => {
+                // Return 400 Bad Request if providername missing
+                let error_json = serde_json::json!({
+                    "error": "Missing required parameter: providername"
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::BAD_REQUEST);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+        };
+
+        // ===== PROVIDER LOOKUP =====
+        let provider = match self.registered_providers.iter().find(|p| &p.provider_name == provider_name) {
+            Some(p) => p,
+            None => {
+                // Return 404 Not Found if provider doesn't exist
+                let error_json = serde_json::json!({
+                    "error": format!("Provider not found: {}", provider_name)
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::NOT_FOUND);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+        };
+
+        info!("Provider '{}' found, building payment requirements", provider_name);
+
+        // ===== GET FULL REQUEST URL FOR RESOURCE FIELD =====
+        let resource_url = APP_HELPERS.with(|helpers| {
+            helpers
+                .borrow()
+                .current_http_context
+                .as_ref()
+                .and_then(|ctx| ctx.request.url().ok())
+                .map(|url| url.to_string())
+                .unwrap_or_else(|| format!("http://unknown/provider:hypergrid:test.hypr/xfour?providername={}", provider_name))
+        });
+
+        // ===== CONVERT PRICE TO ATOMIC UNITS =====
+        // USDC has 6 decimal places: 1 USDC = 1,000,000 atomic units
+        let max_amount_atomic = ((provider.price * 1_000_000.0) as u64).to_string();
+
+        // ===== BUILD X402 PAYMENT REQUIREMENTS =====
+        let accepted_payment = AcceptedPayment {
+            scheme: "exact".to_string(),
+            network: "base-sepolia".to_string(),
+            max_amount_required: max_amount_atomic,
+            resource: resource_url,
+            description: provider.description.clone(),
+            mime_type: "application/json".to_string(),
+            pay_to: provider.registered_provider_wallet.clone(),
+            max_timeout_seconds: 60,
+            asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".to_string(), // Base Sepolia USDC
+            extra: ExtraData {
+                name: "USD Coin".to_string(),
+                version: "2".to_string(),
+            },
+        };
+
+        let payment_reqs = PaymentRequirements {
+            x402_version: 1,
+            accepts: vec![accepted_payment],
+            error: "".to_string(),
+        };
+
+        // ===== SERIALIZE AND SET RESPONSE =====
+        let payment_json = serde_json::to_vec(&payment_reqs)
+            .map_err(|e| format!("Failed to serialize payment requirements: {}", e))?;
+
+        set_response_body(payment_json);
+        set_response_status(StatusCode::PAYMENT_REQUIRED);
+        add_response_header("Content-Type".to_string(), "application/json".to_string());
+
+        info!("Returning 402 Payment Required for provider '{}'", provider_name);
+        Ok("".to_string())
     }
 
     #[http]
