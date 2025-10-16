@@ -15,7 +15,14 @@ use hyperware_process_lib::{
     Address,
     hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, APP_HELPERS},
 };
-use crate::constants::HYPR_SUFFIX;
+use crate::constants::{
+    HYPR_SUFFIX,
+    USDC_SEPOLIA_ADDRESS,
+    USDC_EIP712_NAME,
+    USDC_EIP712_VERSION,
+    X402_PAYMENT_NETWORK,
+    X402_FACILITATOR_BASE_URL,
+};
 use base64ct::{Base64, Encoding};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
@@ -470,17 +477,17 @@ fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str)
 
     let accepted_payment = AcceptedPayment {
         scheme: "exact".to_string(),
-        network: "base-sepolia".to_string(),
+        network: X402_PAYMENT_NETWORK.to_string(),
         max_amount_required: max_amount_atomic,
         resource: resource_url.to_string(),
         description: provider.description.clone(),
         mime_type: "application/json".to_string(),
         pay_to: provider.registered_provider_wallet.clone(),
         max_timeout_seconds: 60,
-        asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".to_string(), // Base Sepolia USDC
+        asset: USDC_SEPOLIA_ADDRESS.to_string(),
         extra: ExtraData {
-            name: "USDC".to_string(),  // EIP-712 domain name for Base Sepolia USDC
-            version: "2".to_string(),
+            name: USDC_EIP712_NAME.to_string(),
+            version: USDC_EIP712_VERSION.to_string(),
         },
     };
 
@@ -1149,7 +1156,7 @@ impl HypergridProviderState {
             }
 
             // Call facilitator /verify
-            let verify_url = url::Url::parse("https://facilitator.x402.rs/verify")
+            let verify_url = url::Url::parse(&format!("{}/verify", X402_FACILITATOR_BASE_URL))
                 .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
 
             let mut verify_headers = HashMap::new();
@@ -1244,7 +1251,7 @@ impl HypergridProviderState {
                 info!("DEBUG: {}", json_str);
             }
 
-            let settle_url = url::Url::parse("https://facilitator.x402.rs/settle")
+            let settle_url = url::Url::parse(&format!("{}/settle", X402_FACILITATOR_BASE_URL))
                 .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
 
             let mut settle_headers = HashMap::new();
