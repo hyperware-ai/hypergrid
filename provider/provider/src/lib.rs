@@ -123,7 +123,7 @@ pub struct Authorization {
 pub struct FacilitatorVerifyRequest {
     #[serde(rename = "x402Version")]
     pub protocol_version: u8,
-    pub payment_header: String,  // Raw base64 X-PAYMENT header string (per GitHub spec)
+    pub payment_payload: PaymentPayload,  // Decoded payment object
     pub payment_requirements: AcceptedPayment,  // Single payment method, not the full PaymentRequirements wrapper
 }
 
@@ -479,7 +479,7 @@ fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str)
         max_timeout_seconds: 60,
         asset: "0x036CbD53842c5426634e7929541eC2318f3dCF7e".to_string(), // Base Sepolia USDC
         extra: ExtraData {
-            name: "USD Coin".to_string(),
+            name: "USDC".to_string(),  // EIP-712 domain name for Base Sepolia USDC
             version: "2".to_string(),
         },
     };
@@ -1133,10 +1133,9 @@ impl HypergridProviderState {
             };
 
             // Build facilitator verify request with the matched payment method
-            // Note: We send the raw base64 header string, not the decoded payload (per GitHub spec)
             let verify_request = FacilitatorVerifyRequest {
                 protocol_version: 1,
-                payment_header: x_payment_str.to_string(),
+                payment_payload: payment_payload.clone(),
                 payment_requirements: payment_method,
             };
 
