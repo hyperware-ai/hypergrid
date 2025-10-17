@@ -52,11 +52,6 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   onProviderUpdate,
   providerRegistration,
   providerUpdate,
-  publicClient,
-  handleProviderUpdated,
-  processUpdateResponse,
-  resetEditState,
-  handleCloseAddNewModal
 }) => {
   const { address: connectedWalletAddress } = useAccount();
   const [showValidation, setShowValidation] = useState(false);
@@ -422,7 +417,8 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
                   providerDescription,
                   instructions,
                   registeredProviderWallet,
-                  price: parseFloat(price) || 0
+                  price: parseFloat(price) || 0,
+                  isLive: isEditMode && editingProvider ? editingProvider.is_live : true
                 }}
                 onValidationSuccess={handleValidationSuccess}
                 onValidationError={handleValidationError}

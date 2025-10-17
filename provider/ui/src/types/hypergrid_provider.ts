@@ -66,6 +66,7 @@ export interface RegisteredProvider {
   registered_provider_wallet: string; // Eth address as string
   price: number; // Price per call
   endpoint: EndpointDefinition;
+  is_live?: boolean; // Optional: undefined = legacy, false = explicitly offline, true = explicitly online
 }
 
 // Request body for the register_provider endpoint
@@ -78,19 +79,10 @@ export interface RegisterProviderRequest {
 // Response type for the register_provider endpoint
 export type RegisterProviderResponse = RustResponse<RegisteredProvider>;
 
-// Request body for the get_registered_providers endpoint
-export interface GetRegisteredProvidersRequest {
-  GetRegisteredProviders: null; // Key matches the Rust function name, value is null since no parameters needed
-}
 
 // Response type for the get_registered_providers endpoint
 export type GetRegisteredProvidersResponse = RustResponse<RegisteredProvider[]>;
 
-// Request body for the update_provider endpoint
-export interface UpdateProvider {
-  provider_name: string;
-  updated_provider: RegisteredProvider;
-}
 
 // Response type for the update_provider endpoint
 export type UpdateProviderResponse = RustResponse<RegisteredProvider>;
@@ -100,15 +92,6 @@ export interface HypergridProviderState {
   registeredProviders: RegisteredProvider[];
 }
 
-// New API type for namehash lookup
-export interface GetProviderNamehashResponse {
-  Ok?: string;
-  Err?: string;
-}
-
-// Define top-level request types for forms
-export type TopLevelRequestType = "getWithPath" | "getWithQuery" | "postWithJson";
-export type AuthChoice = "none" | "query" | "header";
 
 // --- Indexed Provider Types ---
 // Interface for indexed providers from the operator's database

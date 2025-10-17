@@ -37,32 +37,6 @@ export function redactApiKey(value: string): string {
   return `${value.slice(0, 4)}...`;
 }
 
-/**
- * Helper function to describe the structure of a value for documentation
- */
-function describeStructure(value: any): any {
-  if (value === null || value === undefined) {
-    return 'null';
-  }
-  
-  if (Array.isArray(value)) {
-    if (value.length === 0) {
-      return '[]';
-    }
-    return [`array of ${describeStructure(value[0])}`];
-  }
-  
-  if (typeof value === 'object') {
-    const structure: Record<string, any> = {};
-    for (const [key, val] of Object.entries(value)) {
-      structure[key] = describeStructure(val);
-    }
-    return structure;
-  }
-  
-  return typeof value;
-}
-
 
 
 export interface ParsedCurlRequest {
@@ -371,52 +345,6 @@ export function createCurlTemplate(
   };
 }
 
-/**
- * Applies values to a curl template to create an executable request
- */
-export function applyCurlTemplateValues(
-  template: CurlTemplate,
-  values: Record<string, any>
-): ParsedCurlRequest {
-  // Deep clone the parsed request
-  const request = JSON.parse(JSON.stringify(template.parsedRequest));
-  
-  // Apply each modifiable field value
-  template.modifiableFields.forEach(field => {
-    if (values.hasOwnProperty(field.name)) {
-      try {
-        // For body fields, we need to ensure the body object exists
-        if (field.fieldType === 'body' && field.jsonPointer.startsWith('/body')) {
-          if (!request.body) {
-            request.body = {};
-          }
-        }
-        
-        jsonpointer.set(request, field.jsonPointer, values[field.name]);
-      } catch (error) {
-        console.error(`Failed to set value for ${field.jsonPointer}:`, error);
-      }
-    }
-  });
-  
-  // Rebuild the URL if path or query parameters were modified
-  const urlObj = new URL(request.baseUrl);
-  
-  // Update path if segments were modified
-  if (request.pathSegments.length > 0) {
-    urlObj.pathname = '/' + request.pathSegments.join('/');
-  }
-  
-  // Update query parameters
-  urlObj.search = '';
-  Object.entries(request.queryParams).forEach(([key, value]) => {
-    urlObj.searchParams.set(key, String(value));
-  });
-  
-  request.url = urlObj.toString();
-  
-  return request;
-}
 
 /**
  * Converts a curl template to the format expected by the backend

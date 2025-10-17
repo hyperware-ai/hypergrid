@@ -4,9 +4,10 @@ import { RegisteredProvider } from '../types/hypergrid_provider';
 export interface RegisteredProviderViewProps {
   provider: RegisteredProvider;
   onEdit?: (provider: RegisteredProvider) => void;
+  onToggleLive?: (provider: RegisteredProvider) => void;
 }
 
-const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provider, onEdit }) => {
+const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provider, onEdit, onToggleLive }) => {
 
   const formatPrice = (price: number) => {
     if (typeof price !== 'number' || isNaN(price)) return 'N/A';
@@ -37,10 +38,16 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
   };
 
   const handleClick = (e: React.MouseEvent) => {
-    // Only trigger edit if not clicking the button itself
-    if ((e.target as HTMLElement).tagName !== 'BUTTON') {
+    // Only trigger edit if not clicking a button
+    const target = e.target as HTMLElement;
+    if (target.tagName !== 'BUTTON' && !target.closest('button')) {
       onEdit?.(provider);
     }
+  };
+
+  const handleToggleLive = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onToggleLive?.(provider);
   };
 
   return (
@@ -49,7 +56,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
       onClick={handleClick}
     >
       <div className="flex flex-col gap-3">
-        {/* Top row with icon, name, and edit button */}
+        {/* Top row with icon, name, status, and edit button */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 flex-1 min-w-0">
             <span className="text-xl mt-0.5">🔌</span>
@@ -75,10 +82,32 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
           </button>
         </div>
 
-        {/* Bottom row with price */}
-        <div className="text-sm text-gray-700 dark:text-gray-300">
-          <span>💰 Price: </span>
-          <span className="font-semibold text-gray-900 dark:text-gray-100">{formatPrice(provider.price)}</span>
+        {/* Bottom row with price and toggle */}
+        <div className="flex items-center justify-between">
+          <div className="text-sm text-gray-700 dark:text-gray-300">
+            <span>💰 Price: </span>
+            <span className="font-semibold text-gray-900 dark:text-gray-100">{formatPrice(provider.price)}</span>
+          </div>
+          
+          {/* Toggle switch - legacy providers default to "on" */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 dark:text-gray-400">
+              {provider.is_live === false ? 'Off' : 'On'}
+            </span>
+            <button
+              onClick={handleToggleLive}
+              className={`relative inline-flex h-5 w-9 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2 ${
+                provider.is_live === false
+                  ? 'bg-gray-300 dark:bg-gray-600 justify-start'
+                  : 'bg-green-500 dark:bg-green-600 justify-end'
+              }`}
+              aria-label={provider.is_live === false ? 'Turn provider on' : 'Turn provider off'}
+            >
+              <span className={`h-3 w-3 m-1 bg-white transition-all ${
+                provider.is_live === false ? 'rounded-sm' : 'rounded-full'
+              }`} />
+            </button>
+          </div>
         </div>
       </div>
     </div>

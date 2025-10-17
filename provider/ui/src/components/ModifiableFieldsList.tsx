@@ -8,23 +8,6 @@ interface ModifiableFieldsListProps {
   onFieldNameChange: (field: ModifiableField, newName: string) => void;
 }
 
-// Helper to group fields by their parent path
-function groupFieldsByParent(fields: ModifiableField[]) {
-  const groups: Record<string, ModifiableField[]> = {};
-  
-  fields.forEach(field => {
-    // Find the parent path (everything before the last segment)
-    const parts = field.jsonPointer.split('/');
-    const parentPath = parts.slice(0, -1).join('/');
-    
-    if (!groups[parentPath]) {
-      groups[parentPath] = [];
-    }
-    groups[parentPath].push(field);
-  });
-  
-  return groups;
-}
 
 const ModifiableFieldsList: React.FC<ModifiableFieldsListProps> = ({
   modifiableFields,

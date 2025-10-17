@@ -12,7 +12,6 @@ import {
   multicallAbi
 } from './hypermap';
 import { RegisteredProvider } from '../types/hypergrid_provider';
-import React from 'react';
 
 export type ProviderRegistrationStep = 'idle' | 'minting' | 'notes' | 'complete';
 
@@ -217,6 +216,8 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
         description: providerData.description,
         instructions: providerData.instructions,
         price: providerData.price.toString(),
+        // For new registrations through this flow, always include is_live: true
+        isLive: 'true',
       });
 
       console.log('TBA execute args for multicall:', {
@@ -676,43 +677,3 @@ export function useProviderUpdate(callbacks: ProviderUpdateCallbacks) {
     updateProviderNotes,
   };
 }
-
-/**
- * Custom hook for handling animation triggers based on registration state
- */
-export function useRegistrationAnimations(
-  step: ProviderRegistrationStep,
-  mintedProviderAddress: Address | null,
-  onAnimationComplete?: () => void
-) {
-  const [animationState, setAnimationState] = React.useState<{
-    showSuccessAnimation: boolean;
-    showConfetti: boolean;
-  }>({
-    showSuccessAnimation: false,
-    showConfetti: false,
-  });
-
-  React.useEffect(() => {
-    if (step === 'complete' && mintedProviderAddress) {
-      // Trigger success animation
-      setAnimationState({
-        showSuccessAnimation: true,
-        showConfetti: true,
-      });
-      
-      // Optional callback after animation
-      if (onAnimationComplete) {
-        const timer = setTimeout(onAnimationComplete, 3000);
-        return () => clearTimeout(timer);
-      }
-    } else {
-      setAnimationState({
-        showSuccessAnimation: false,
-        showConfetti: false,
-      });
-    }
-  }, [step, mintedProviderAddress, onAnimationComplete]);
-
-  return animationState;
-} 
