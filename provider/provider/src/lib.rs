@@ -17,6 +17,7 @@ use hyperware_process_lib::{
 };
 use crate::constants::{
     HYPR_SUFFIX,
+    USDC_BASE_ADDRESS,
     USDC_SEPOLIA_ADDRESS,
     USDC_EIP712_NAME,
     USDC_EIP712_VERSION,
@@ -484,7 +485,11 @@ fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str)
         mime_type: "application/json".to_string(),
         pay_to: provider.registered_provider_wallet.clone(),
         max_timeout_seconds: 60,
-        asset: USDC_SEPOLIA_ADDRESS.to_string(),
+        asset: if X402_PAYMENT_NETWORK == "base-sepolia" {
+            USDC_SEPOLIA_ADDRESS.to_string()
+        } else {
+            USDC_BASE_ADDRESS.to_string()
+        },
         extra: ExtraData {
             name: USDC_EIP712_NAME.to_string(),
             version: USDC_EIP712_VERSION.to_string(),
@@ -1068,6 +1073,8 @@ impl HypergridProviderState {
             helpers.borrow().current_http_context.as_ref()
                 .and_then(|ctx| ctx.request.url().ok())
                 .map(|url| url.to_string())
+                // NOTE: Fallback URL uses test.hypr - this should never actually be used in production
+                // as ctx.request.url() should always succeed. If this fallback triggers, investigate.
                 .unwrap_or_else(|| format!("http://unknown/provider:hypergrid:test.hypr/xfour?providername={}", provider_name))
         });
 
@@ -1079,9 +1086,7 @@ impl HypergridProviderState {
             let x_payment_str = std::str::from_utf8(x_payment_value.as_bytes())
                 .map_err(|e| format!("X-PAYMENT header is not valid UTF-8: {}", e))?;
 
-            // DEBUG: Log raw X-PAYMENT header
-            info!("DEBUG: Raw X-PAYMENT header (first 200 chars): {}", &x_payment_str.chars().take(200).collect::<String>());
-            info!("DEBUG: X-PAYMENT header length: {} chars", x_payment_str.len());
+            info!("X-PAYMENT header received, length: {} chars", x_payment_str.len());
 
             let payment_payload = match parse_x_payment_header(x_payment_str) {
                 Ok(payload) => payload,
@@ -1095,16 +1100,21 @@ impl HypergridProviderState {
                 }
             };
 
-            // DEBUG: Log parsed payment payload structure
-            info!("DEBUG: Parsed PaymentPayload - protocol_version: {}, scheme: {}, network: {}",
+            // Validate protocol version
+            if payment_payload.protocol_version != 1 {
+                error!("Unsupported x402 protocol version: {}", payment_payload.protocol_version);
+                let error_json = serde_json::json!({
+                    "error": format!("Unsupported x402 protocol version: {}. Expected version 1.", payment_payload.protocol_version)
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::BAD_REQUEST);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+
+            info!("Payment parsed - protocol v{}, scheme: {}, network: {}",
                 payment_payload.protocol_version, payment_payload.scheme, payment_payload.network);
-            info!("DEBUG: Authorization - from: {}, to: {}, value: {}, nonce: {}",
-                payment_payload.payload.authorization.from,
-                payment_payload.payload.authorization.to,
-                payment_payload.payload.authorization.value,
-                payment_payload.payload.authorization.nonce);
-            info!("DEBUG: Signature (first 20 chars): {}",
-                &payment_payload.payload.signature.chars().take(20).collect::<String>());
 
             // Rebuild PaymentRequirements for verification
             let payment_requirements = build_payment_requirements(&provider, &resource_url);
@@ -1149,12 +1159,6 @@ impl HypergridProviderState {
             let verify_body = serde_json::to_vec(&verify_request)
                 .map_err(|e| format!("Failed to serialize verify request: {}", e))?;
 
-            // DEBUG: Log the exact JSON we're sending to facilitator
-            if let Ok(json_str) = serde_json::to_string_pretty(&verify_request) {
-                info!("DEBUG: Sending to facilitator /verify:");
-                info!("DEBUG: {}", json_str);
-            }
-
             // Call facilitator /verify
             let verify_url = url::Url::parse(&format!("{}/verify", X402_FACILITATOR_BASE_URL))
                 .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
@@ -1181,10 +1185,7 @@ impl HypergridProviderState {
                 }
             };
 
-            // DEBUG: Log facilitator response
-            info!("DEBUG: Facilitator /verify response - status: {:?}", verify_response.status());
-            let response_body_str = String::from_utf8_lossy(verify_response.body());
-            info!("DEBUG: Facilitator /verify response body: {}", response_body_str);
+            info!("Facilitator /verify response: {:?}", verify_response.status());
 
             // Parse verify response
             let verify_result: VerifyResponse = serde_json::from_slice(verify_response.body())
@@ -1245,12 +1246,6 @@ impl HypergridProviderState {
             let settle_body = serde_json::to_vec(&verify_request)
                 .map_err(|e| format!("Failed to serialize settle request: {}", e))?;
 
-            // DEBUG: Log settle request
-            if let Ok(json_str) = serde_json::to_string_pretty(&verify_request) {
-                info!("DEBUG: Sending to facilitator /settle:");
-                info!("DEBUG: {}", json_str);
-            }
-
             let settle_url = url::Url::parse(&format!("{}/settle", X402_FACILITATOR_BASE_URL))
                 .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
 
@@ -1266,10 +1261,7 @@ impl HypergridProviderState {
                 settle_body,
             ).await {
                 Ok(http_response) => {
-                    // DEBUG: Log settle response
-                    info!("DEBUG: Facilitator /settle response - status: {:?}", http_response.status());
-                    let settle_body_str = String::from_utf8_lossy(http_response.body());
-                    info!("DEBUG: Facilitator /settle response body: {}", settle_body_str);
+                    info!("Facilitator /settle response: {:?}", http_response.status());
 
                     // Parse the HTTP response body into SettleResponse
                     serde_json::from_slice(http_response.body())
@@ -1297,12 +1289,21 @@ impl HypergridProviderState {
                 }
             };
 
+            // Reject request if settlement fails - provider does not get paid
             if !settle_result.success {
-                // TODO: Decide on settlement failure policy - currently continuing since work was done
-                warn!("Settlement failed but work was completed: {:?}", settle_result.error_reason);
+                error!("Settlement failed, rejecting request: {:?}", settle_result.error_reason);
+                let error_json = serde_json::json!({
+                    "error": "Payment settlement failed. Please try again.",
+                    "reason": settle_result.error_reason.unwrap_or_else(|| "Unknown settlement error".to_string())
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::PAYMENT_REQUIRED);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
             }
 
-            // Mark nonce as used
+            // Mark nonce as used only if settlement succeeded
             self.used_nonces.insert(nonce_key);
 
             // Encode settle response for X-PAYMENT-RESPONSE header

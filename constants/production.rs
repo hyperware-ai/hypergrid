@@ -13,6 +13,6 @@ pub const CIRCLE_PAYMASTER: &str = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec";
 
 // X402 Payment Configuration
 pub const X402_PAYMENT_NETWORK: &str = "base";
-pub const USDC_EIP712_NAME: &str = "USDC";
+pub const USDC_EIP712_NAME: &str = "USD Coin";
 pub const USDC_EIP712_VERSION: &str = "2";
 pub const X402_FACILITATOR_BASE_URL: &str = "https://facilitator.x402.rs";
