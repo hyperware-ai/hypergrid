@@ -13,7 +13,7 @@ use hyperware_process_lib::{
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
-    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, APP_HELPERS},
+    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, get_request_header, get_request_url, get_parsed_query_params},
 };
 use crate::constants::{
     HYPR_SUFFIX,
@@ -1013,22 +1013,10 @@ impl HypergridProviderState {
         info!("x402 endpoint called");
 
         // ===== CHECK FOR X-PAYMENT HEADER =====
-        let x_payment_header = APP_HELPERS.with(|helpers| {
-            helpers
-                .borrow()
-                .current_http_context
-                .as_ref()
-                .and_then(|ctx| ctx.request.headers().get("x-payment").cloned())
-        });
+        let x_payment_header = get_request_header("x-payment");
 
         // ===== SHARED: QUERY PARAMETER VALIDATION =====
-        let params = APP_HELPERS.with(|helpers| {
-            helpers
-                .borrow()
-                .current_http_context
-                .as_ref()
-                .map(|ctx| ctx.request.query_params().clone())
-        });
+        let params = get_parsed_query_params();
 
         let params = match params {
             Some(p) if !p.is_empty() => p,
@@ -1069,26 +1057,17 @@ impl HypergridProviderState {
         };
 
         // ===== SHARED: GET RESOURCE URL =====
-        let resource_url = APP_HELPERS.with(|helpers| {
-            helpers.borrow().current_http_context.as_ref()
-                .and_then(|ctx| ctx.request.url().ok())
-                .map(|url| url.to_string())
-                // NOTE: Fallback URL uses test.hypr - this should never actually be used in production
-                // as ctx.request.url() should always succeed. If this fallback triggers, investigate.
-                .unwrap_or_else(|| format!("http://unknown/provider:hypergrid:test.hypr/xfour?providername={}", provider_name))
-        });
+        // NOTE: Fallback URL uses test.hypr - this should never actually be used in production
+        // as get_request_url() should always succeed in HTTP context. If this fallback triggers, investigate.
+        let resource_url = get_request_url()
+            .unwrap_or_else(|| format!("http://unknown/provider:hypergrid:test.hypr/xfour?providername={}", provider_name));
 
         // ===== BRANCH: PAYMENT VERIFICATION FLOW =====
-        if let Some(x_payment_value) = x_payment_header {
+        if let Some(x_payment_str) = x_payment_header {
             info!("X-PAYMENT header detected, processing payment");
-
-            // Parse X-PAYMENT header (convert HeaderValue to &str)
-            let x_payment_str = std::str::from_utf8(x_payment_value.as_bytes())
-                .map_err(|e| format!("X-PAYMENT header is not valid UTF-8: {}", e))?;
-
             info!("X-PAYMENT header received, length: {} chars", x_payment_str.len());
 
-            let payment_payload = match parse_x_payment_header(x_payment_str) {
+            let payment_payload = match parse_x_payment_header(&x_payment_str) {
                 Ok(payload) => payload,
                 Err(e) => {
                     let error_json = serde_json::json!({"error": format!("Invalid X-PAYMENT header: {}", e)});
