@@ -94,32 +94,3 @@ export function createSmartUpdatePlan(
   };
 }
 
-/**
- * Prepares a provider object for seamless updating by loading original cURL + metadata
- * This creates a new provider object that can be used for registration-like flow
- */
-export function prepareProviderForSeamlessUpdate(
-  originalProvider: RegisteredProvider,
-  updatedMetadata: Partial<RegisteredProvider>
-): RegisteredProvider {
-  // Create new provider object with updated metadata but preserving structure
-  const updatedProvider: RegisteredProvider = {
-    ...originalProvider,
-    ...updatedMetadata,
-    // Always preserve the original provider_id (node identity)
-    provider_id: originalProvider.provider_id,
-  };
-
-  return updatedProvider;
-}
-
-/**
- * Determines if an update should use the fast path (backend only) or full path (onchain + backend)
- */
-export function shouldUseFastUpdatePath(updatePlan: SmartUpdatePlan): boolean {
-  // Use fast path if only offchain updates are needed
-  return !updatePlan.needsOnChainUpdate && updatePlan.needsOffChainUpdate;
-}
-
-
-

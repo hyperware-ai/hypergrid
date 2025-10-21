@@ -5,35 +5,6 @@ interface RustResponse<T> {
   Err?: string;
 }
 
-// Enum for HTTP methods, matching Rust's HttpMethod
-export enum HttpMethod {
-  GET = "GET",
-  POST = "POST",
-}
-
-// --- Added Enum for Request Structure (Matches Rust) ---
-export enum RequestStructureType {
-  GetWithPath = "GetWithPath",
-  GetWithQuery = "GetWithQuery",
-  PostWithJson = "PostWithJson",
-}
-
-// OLD STRUCTURE - KEPT FOR REFERENCE
-// export interface EndpointDefinition {
-//   name: string;
-//   method: HttpMethod;
-//   request_structure: RequestStructureType;
-//   base_url_template: string;
-//   path_param_keys?: string[];
-//   query_param_keys?: string[];
-//   header_keys?: string[];
-//   body_param_keys?: string[];
-//   api_key?: string;
-//   api_key_query_param_name?: string;
-//   api_key_header_name?: string;
-// }
-
-// NEW CURL-BASED STRUCTURE
 export interface ParameterDefinition {
   parameter_name: string;
   json_pointer: string;  // e.g., "/body/user_id", "/headers/X-API-Key"
@@ -123,9 +94,7 @@ export interface IndexedProvider {
 
 // Response types for indexed provider endpoints
 // Note: Backend now returns JSON as strings, so we get string responses that need to be parsed
-export type GetIndexedProvidersResponse = RustResponse<string>; // Backend returns JSON string
 export type SearchIndexedProvidersResponse = RustResponse<string>; // Backend returns JSON string
-export type GetIndexedProviderDetailsResponse = RustResponse<string>; // Backend returns JSON string
 
 // Provider sync status types
 export interface ProviderSyncStatus {

@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Modal from './Modal';
-import CurlJsonViewer from './CurlJsonViewer';
+import CurlRequestInspector from './CurlRequestInspector';
 import ModifiableFieldsList from './ModifiableFieldsList';
 import {
   parseCurlCommand,
@@ -9,23 +9,20 @@ import {
   curlTemplateToBackendFormat,
   ParsedCurlRequest,
   ModifiableField,
-  CurlTemplate
 } from '../utils/enhancedCurlParser';
 
-interface EnhancedCurlImportModalProps {
-  isOpen: boolean;
+interface CurlTemplateEditorProps {
   onClose: () => void;
   onImport: (curlTemplate: any) => void;
-  onParseSuccess?: () => void; // Callback when parsing succeeds
-  onParseClear?: () => void; // Callback when parsing is cleared
-  isInline?: boolean; // New prop to control inline rendering
-  initialCurlCommand?: string; // Initial cURL command to populate the textarea
-  onStateChange?: (state: any) => void; // Callback to notify parent of state changes
-  preservedState?: any; // Preserved state to restore
+  onParseSuccess?: () => void;
+  onParseClear?: () => void;
+  isInline?: boolean;
+  initialCurlCommand?: string;
+  onStateChange?: (state: any) => void;
+  preservedState?: any;
 }
 
-const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
-  isOpen,
+const CurlTemplateEditor: React.FC<CurlTemplateEditorProps> = ({
   onClose,
   onImport,
   onParseSuccess,
@@ -35,6 +32,7 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   onStateChange,
   preservedState
 }) => {
+  // ===== State =====
   const [curlCommand, setCurlCommand] = useState(initialCurlCommand);
   const [parsedRequest, setParsedRequest] = useState<ParsedCurlRequest | null>(null);
   const [potentialFields, setPotentialFields] = useState<ModifiableField[]>([]);
@@ -42,15 +40,105 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   const [parseError, setParseError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'viewer' | 'modifiable'>('viewer');
 
+  // ===== Refs =====
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+  // ===== Callbacks =====
+  const handleParseCurl = useCallback((curlText: string) => {
+    if (!curlText.trim()) {
+      setParsedRequest(null);
+      setPotentialFields([]);
+      setModifiableFields([]);
+      setParseError(null);
+      onParseClear?.();
+      return;
+    }
+
+    try {
+      const parsed = parseCurlCommand(curlText);
+      const potential = identifyPotentialFields(parsed);
+      
+      // Only clear modifiableFields if this is a new/different cURL command
+      const isSameCurl = parsedRequest && parsedRequest.fullCurl === parsed.fullCurl;
+      
+      setParsedRequest(parsed);
+      setPotentialFields(potential);
+      
+      if (!isSameCurl) {
+        setModifiableFields([]);
+      }
+      
+      setParseError(null);
+      onParseSuccess?.();
+    } catch (error) {
+      setParseError(error instanceof Error ? error.message : 'Failed to parse curl command');
+      setParsedRequest(null);
+      setPotentialFields([]);
+      setModifiableFields([]);
+    }
+  }, [parsedRequest, onParseSuccess, onParseClear]);
+
+  const handleFieldToggleModifiable = useCallback((field: ModifiableField) => {
+    const isAlreadyModifiable = modifiableFields.some(f => f.jsonPointer === field.jsonPointer);
+    
+    if (isAlreadyModifiable) {
+      setModifiableFields(modifiableFields.filter(f => f.jsonPointer !== field.jsonPointer));
+    } else {
+      // Remove any conflicting parent/child relationships
+      let newModifiableFields = modifiableFields.filter(f => {
+        if (field.jsonPointer.startsWith(f.jsonPointer + '/')) return false;
+        if (f.jsonPointer.startsWith(field.jsonPointer + '/')) return false;
+        return true;
+      });
+      
+      newModifiableFields.push(field);
+      setModifiableFields(newModifiableFields);
+    }
+  }, [modifiableFields]);
+
+  const handleFieldRemove = useCallback((field: ModifiableField) => {
+    setModifiableFields(prev => prev.filter(f => f.jsonPointer !== field.jsonPointer));
+  }, []);
+
+  const handleFieldNameChange = useCallback((field: ModifiableField, newName: string) => {
+    setModifiableFields(prev => prev.map(f => 
+      f.jsonPointer === field.jsonPointer ? { ...f, name: newName } : f
+    ));
+  }, []);
+
+  const handleImport = useCallback(() => {
+    if (!parsedRequest) return;
+    
+    const template = createCurlTemplate(parsedRequest, modifiableFields);
+    const backendFormat = curlTemplateToBackendFormat(template);
+    onImport(backendFormat);
+    
+    setCurlCommand('');
+    setParsedRequest(null);
+    setPotentialFields([]);
+    setModifiableFields([]);
+    setParseError(null);
+    setActiveTab('viewer');
+    onClose();
+  }, [parsedRequest, modifiableFields, onImport, onClose]);
+
+  const handleClose = useCallback(() => {
+    setCurlCommand('');
+    setParsedRequest(null);
+    setPotentialFields([]);
+    setModifiableFields([]);
+    setParseError(null);
+    setActiveTab('viewer');
+    onClose();
+  }, [onClose]);
+
+  // ===== Effects =====
   // Restore from preserved state
   useEffect(() => {
     if (preservedState) {
       setCurlCommand(preservedState.curlCommand || "");
       setParsedRequest(preservedState.parsedRequest || null);
       setPotentialFields(preservedState.potentialFields || []);
-      console.log('DEBUG: Restoring modifiableFields:', preservedState.modifiableFields);
       setModifiableFields(preservedState.modifiableFields || []);
       setParseError(preservedState.parseError || null);
       setActiveTab(preservedState.activeTab || 'viewer');
@@ -61,73 +149,24 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
 
   // Notify parent of state changes
   useEffect(() => {
-    if (onStateChange) {
-      onStateChange({
-        curlCommand,
-        parsedRequest,
-        potentialFields,
-        modifiableFields,
-        parseError,
-        activeTab
-      });
-    }
+    onStateChange?.({
+      curlCommand,
+      parsedRequest,
+      potentialFields,
+      modifiableFields,
+      parseError,
+      activeTab
+    });
   }, [curlCommand, parsedRequest, potentialFields, modifiableFields, parseError, activeTab, onStateChange]);
 
-  const handleParseCurl = (curlText: string) => {
-    console.log('DEBUG: handleParseCurl called with:', curlText.substring(0, 50) + '...');
-    
-    if (!curlText.trim()) {
-      // Clear everything when input is empty
-      console.log('DEBUG: Clearing all fields because curlText is empty');
-      setParsedRequest(null);
-      setPotentialFields([]);
-      setModifiableFields([]);
-      setParseError(null);
-      // Notify parent that parsing was cleared
-      if (onParseClear) {
-        onParseClear();
-      }
-      return;
-    }
-
-    try {
-      const parsed = parseCurlCommand(curlText);
-      const potential = identifyPotentialFields(parsed);
-      
-      // Only clear modifiableFields if this is a new/different cURL command
-      // If we're re-parsing the same content (like during restoration), preserve existing selections
-      const isSameCurl = parsedRequest && parsedRequest.fullCurl === parsed.fullCurl;
-      
-      console.log('DEBUG: Parsing successful, isSameCurl:', isSameCurl, 'preserving existing modifiableFields:', isSameCurl);
-      setParsedRequest(parsed);
-      setPotentialFields(potential);
-      
-      if (!isSameCurl) {
-        setModifiableFields([]); // Only clear if it's a different cURL
-      }
-      
-      setParseError(null);
-      
-      // Notify parent that parsing succeeded
-      if (onParseSuccess) {
-        onParseSuccess();
-      }
-    } catch (error) {
-      setParseError(error instanceof Error ? error.message : 'Failed to parse curl command');
-      setParsedRequest(null);
-      setPotentialFields([]);
-      setModifiableFields([]);
-    }
-  };
-
-  // Auto-parse when cURL input changes
+  // Auto-parse when cURL input changes (debounced)
   useEffect(() => {
     const timeoutId = setTimeout(() => {
       handleParseCurl(curlCommand);
-    }, 500); // Debounce for 500ms
+    }, 500);
 
     return () => clearTimeout(timeoutId);
-  }, [curlCommand]);
+  }, [curlCommand, handleParseCurl]);
 
   // Auto-import when modifiable fields change
   useEffect(() => {
@@ -145,72 +184,14 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
     }
   }, [parsedRequest, onImport]);
 
-  // Keep textarea scrolled to top whenever content changes
+  // Keep textarea scrolled to top
   useEffect(() => {
     if (textareaRef.current && curlCommand) {
       textareaRef.current.scrollTop = 0;
     }
   }, [curlCommand]);
 
-  const handleFieldToggleModifiable = (field: ModifiableField) => {
-    const isAlreadyModifiable = modifiableFields.some(f => f.jsonPointer === field.jsonPointer);
-    
-    if (isAlreadyModifiable) {
-      // Simple removal - just remove this specific field
-      setModifiableFields(modifiableFields.filter(f => f.jsonPointer !== field.jsonPointer));
-    } else {
-      // Simple addition - just add this specific field
-      // Remove any conflicting parent/child relationships first
-      let newModifiableFields = modifiableFields.filter(f => {
-        // Remove if this field is a parent of the new field
-        if (field.jsonPointer.startsWith(f.jsonPointer + '/')) return false;
-        // Remove if this field is a child of the new field
-        if (f.jsonPointer.startsWith(field.jsonPointer + '/')) return false;
-        return true;
-      });
-      
-      // Add the new field
-      newModifiableFields.push(field);
-      setModifiableFields(newModifiableFields);
-    }
-  };
-
-  const handleFieldRemove = (field: ModifiableField) => {
-    setModifiableFields(modifiableFields.filter(f => f.jsonPointer !== field.jsonPointer));
-  };
-
-  const handleFieldNameChange = (field: ModifiableField, newName: string) => {
-    setModifiableFields(modifiableFields.map(f => 
-      f.jsonPointer === field.jsonPointer ? { ...f, name: newName } : f
-    ));
-  };
-
-  const handleImport = () => {
-    if (!parsedRequest) return;
-    
-    const template = createCurlTemplate(parsedRequest, modifiableFields);
-    const backendFormat = curlTemplateToBackendFormat(template);
-    onImport(backendFormat);
-    
-    // Reset state
-    setCurlCommand('');
-    setParsedRequest(null);
-    setPotentialFields([]);
-    setModifiableFields([]);
-    setParseError(null);
-    setActiveTab('viewer');
-    onClose();
-  };
-
-  const handleClose = () => {
-    setCurlCommand('');
-    setParsedRequest(null);
-    setPotentialFields([]);
-    setModifiableFields([]);
-    setParseError(null);
-    setActiveTab('viewer');
-    onClose();
-  };
+  // ===== Render =====
 
   // If inline, render without modal wrapper
   const content = (
@@ -267,7 +248,7 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
             {/* Tab Content */}
             <div className="min-h-[400px]">
               {activeTab === 'viewer' && (
-                <CurlJsonViewer
+                <CurlRequestInspector
                   parsedRequest={parsedRequest}
                   potentialFields={potentialFields}
                   modifiableFields={modifiableFields}
@@ -305,4 +286,5 @@ const EnhancedCurlImportModal: React.FC<EnhancedCurlImportModalProps> = ({
   );
 };
 
-export default EnhancedCurlImportModal;
+export default CurlTemplateEditor;
+

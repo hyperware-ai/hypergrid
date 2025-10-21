@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import Modal from './Modal';
 import ValidationPanel from "./ValidationPanel";
-import UnifiedTerminalInterface from "./UnifiedTerminalInterface";
+import ProviderConfigurationForm from "./ProviderConfigurationForm";
 import ProviderRegistrationOverlay from "./ProviderRegistrationOverlay";
 import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { RegisteredProvider } from "../types/hypergrid_provider";
@@ -58,12 +58,15 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
   resetEditState,
   handleCloseAddNewModal
 }) => {
+  // ===== State =====
   const { address: connectedWalletAddress } = useAccount();
+  
+  // Validation flow state
   const [showValidation, setShowValidation] = useState(false);
   const [curlTemplateToValidate, setCurlTemplateToValidate] = useState<any>(null);
   const [configuredCurlTemplate, setConfiguredCurlTemplate] = useState<any>(null);
   
-  // Preserve complete state for navigation back from validation
+  // cURL component state preservation
   const [preservedCurlState, setPreservedCurlState] = useState<{
     curlCommand: string;
     parsedRequest: any;
@@ -72,18 +75,16 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     parseError: string | null;
     activeTab: 'viewer' | 'modifiable';
   } | null>(null);
-  
-  // Track current state of the cURL component
   const [currentCurlState, setCurrentCurlState] = useState<any>(null);
 
-  // Hypergrid metadata state (only what we need)
+  // Provider metadata state
   const [providerName, setProviderName] = useState("");
   const [providerDescription, setProviderDescription] = useState("");
   const [instructions, setInstructions] = useState("");
   const [registeredProviderWallet, setRegisteredProviderWallet] = useState("");
   const [price, setPrice] = useState<string>("");
 
-  // Helper function to format price and avoid scientific notation while preserving full precision
+  // ===== Callbacks =====
   const formatPriceForInput = useCallback((price: number): string => {
     if (typeof price !== 'number' || isNaN(price)) return '0';
     
@@ -160,47 +161,18 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     setPreservedCurlState(preservedState);
   }, [editingProvider, formatPriceForInput]);
 
-  // Auto-load existing provider data when in edit mode
-  useEffect(() => {
-    if (isEditMode && editingProvider && isOpen) {
-      // Load the existing provider data immediately
-      handleModifyExistingProvider();
-    }
-  }, [isEditMode, editingProvider, isOpen, handleModifyExistingProvider]);
-
-  const resetFormFields = () => {
-    // Reset metadata form
+  const resetFormFields = useCallback(() => {
     setProviderName("");
     setProviderDescription("");
     setInstructions("");
     setRegisteredProviderWallet("");
     setPrice("");
-
-    // Reset flow state
     setShowValidation(false);
     setCurlTemplateToValidate(null);
     setConfiguredCurlTemplate(null);
     setPreservedCurlState(null);
     setCurrentCurlState(null);
-  };
-
-  // Reset form when modal closes or when switching between edit/new modes
-  useEffect(() => {
-    if (!isOpen) {
-      // Modal is closing - reset everything immediately
-      setTimeout(() => {
-        resetFormFields();
-      }, 0);
-    }
-  }, [isOpen]);
-
-  // Reset form when switching from edit mode to new mode
-  useEffect(() => {
-    if (!isEditMode && isOpen) {
-      // Switched to new provider mode - reset form
-      resetFormFields();
-    }
-  }, [isEditMode, isOpen]);
+  }, []);
 
   const handleCurlImport = useCallback((curlTemplateData: any) => {
     // Store the configured cURL template - this now happens automatically
@@ -221,31 +193,38 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     }
   }, [providerName]);
 
-  // Update instructions when provider name changes (to keep the template current)
-  const handleProviderNameChange = (newName: string) => {
+  const handleProviderNameChange = useCallback((newName: string) => {
     setProviderName(newName);
     
-    // Update instructions template if we have a configured cURL template
     if (configuredCurlTemplate && configuredCurlTemplate.parameters) {
       const parameterNames = configuredCurlTemplate.parameters.map((param: any) => param.parameter_name);
       const callArgsExample = parameterNames.map((name: string) => `["${name}", "{${name}_value}"]`).join(', ');
-      
       const instructionTemplate = `This provider should be called using the following format: {"callArgs": [${callArgsExample}], "providerId": "${window.our?.node || '{node_id}'}.os", "providerName": "${newName || '{provider_name}'}"}`;
-      
       setInstructions(instructionTemplate);
     }
-  };
+  }, [configuredCurlTemplate]);
 
-  const handleValidationSuccess = async (validatedProvider: any) => {
-    // After validation succeeds, prepare for registration/update
+  const handleFinalRegistration = useCallback((validatedProvider: RegisteredProvider) => {
+    if (!isWalletConnected) {
+      const action = isEditMode ? 'update' : 'registration';
+      alert(`Please connect your wallet to complete provider ${action} on the hypergrid.`);
+      return;
+    }
+
+    if (isEditMode && editingProvider) {
+      onProviderUpdate(editingProvider, validatedProvider);
+    } else {
+      onProviderRegistration(validatedProvider);
+    }
+  }, [isWalletConnected, isEditMode, editingProvider, onProviderUpdate, onProviderRegistration]);
+
+  const handleValidationSuccess = useCallback(async (validatedProvider: any) => {
     setShowValidation(false);
-    setPreservedCurlState(null); // Clear preserved state since we're moving forward
-    
-    // Proceed to registration or update with the validated provider object
+    setPreservedCurlState(null);
     handleFinalRegistration(validatedProvider);
-  };
+  }, [handleFinalRegistration]);
 
-  const handleRegisterProvider = () => {
+  const handleRegisterProvider = useCallback(() => {
     if (!configuredCurlTemplate) {
       alert('Please configure your cURL template first');
       return;
@@ -256,17 +235,15 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       return;
     }
 
-    // Preserve the complete cURL component state before going to validation
     if (currentCurlState) {
       setPreservedCurlState(currentCurlState);
     }
 
-    // Move to validation step
     setCurlTemplateToValidate(configuredCurlTemplate);
     setShowValidation(true);
-  };
+  }, [configuredCurlTemplate, providerName, price, registeredProviderWallet, currentCurlState]);
 
-  const handleUpdateProvider = () => {
+  const handleUpdateProvider = useCallback(() => {
     if (!isEditMode || !editingProvider) {
       console.error('Update called but not in edit mode or no provider to edit');
       return;
@@ -282,74 +259,33 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
       return;
     }
 
-    // Preserve the complete cURL component state before going to validation
     if (currentCurlState) {
       setPreservedCurlState(currentCurlState);
     }
 
-    // Move to validation step for updates (same validation flow as registration)
     setCurlTemplateToValidate(configuredCurlTemplate);
     setShowValidation(true);
-  };
+  }, [isEditMode, editingProvider, configuredCurlTemplate, providerName, price, registeredProviderWallet, currentCurlState]);
 
-  const handleFinalRegistration = (validatedProvider: RegisteredProvider) => {
-    if (!isWalletConnected) {
-      const action = isEditMode ? 'update' : 'registration';
-      alert(`Please connect your wallet to complete provider ${action} on the hypergrid.`);
-      return;
-    }
-
-    if (isEditMode && editingProvider) {
-      // Handle provider update with smart update logic
-      handleProviderUpdateFlow(validatedProvider);
-    } else {
-      // Handle new provider registration - use the callback to trigger parent's registration flow
-      onProviderRegistration(validatedProvider);
-    }
-  };
-
-  const handleProviderUpdateFlow = async (validatedProvider: RegisteredProvider) => {
-    if (!editingProvider) return;
-
-    // Use the comprehensive update flow from App.tsx
-    // This integrates with the TBA system properly
-    await onProviderUpdate(editingProvider, validatedProvider);
-  };
-
-  const handleValidationError = (error: string) => {
+  const handleValidationError = useCallback((error: string) => {
     alert(`Validation failed: ${error}`);
-  };
+  }, []);
 
-  const handleValidationCancel = () => {
+  const handleValidationCancel = useCallback(() => {
     setShowValidation(false);
     setCurlTemplateToValidate(null);
-    // Form fields and configuredCurlTemplate are automatically preserved
-    // The preservedCurlState will be passed to the component to restore the textarea
-  };
+  }, []);
 
-  const handleMetadataCancel = () => {
-    setConfiguredCurlTemplate(null);
-  };
-
-
-
-  const handleClose = () => {
-    // Only reset if user explicitly confirms or if successful registration
-    onClose();
-  };
-
-  const handleRegistrationOverlayClose = () => {
+  const handleRegistrationOverlayClose = useCallback(() => {
     setShowValidation(false);
     setCurlTemplateToValidate(null);
-    // Only reset form if registration was successful
     if (providerRegistration.step === 'complete') {
       resetFormFields();
     }
     onClose();
-  };
+  }, [providerRegistration.step, resetFormFields, onClose]);
 
-  const handleForceClose = () => {
-    // Explicit close with confirmation if form has data
+  const handleForceClose = useCallback(() => {
     const hasFormData = providerName || providerDescription || instructions || 
                        registeredProviderWallet || price || configuredCurlTemplate;
     
@@ -360,16 +296,38 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     
     resetFormFields();
     onClose();
-  };
+  }, [providerName, providerDescription, instructions, registeredProviderWallet, price, configuredCurlTemplate, resetFormFields, onClose]);
 
+  // ===== Effects =====
+  // Auto-load existing provider data when in edit mode
+  useEffect(() => {
+    if (isEditMode && editingProvider && isOpen) {
+      handleModifyExistingProvider();
+    }
+  }, [isEditMode, editingProvider, isOpen, handleModifyExistingProvider]);
 
+  // Reset form when modal closes
+  useEffect(() => {
+    if (!isOpen) {
+      setTimeout(() => {
+        resetFormFields();
+      }, 0);
+    }
+  }, [isOpen, resetFormFields]);
 
-  // Auto-populate wallet with connected wallet address when form becomes visible
+  // Reset form when switching from edit mode to new mode
+  useEffect(() => {
+    if (!isEditMode && isOpen) {
+      resetFormFields();
+    }
+  }, [isEditMode, isOpen, resetFormFields]);
+
+  // Auto-populate wallet with connected wallet address
   useEffect(() => {
     if (configuredCurlTemplate && connectedWalletAddress && !registeredProviderWallet) {
       setRegisteredProviderWallet(connectedWalletAddress);
     }
-  }, [configuredCurlTemplate, connectedWalletAddress]);
+  }, [configuredCurlTemplate, connectedWalletAddress, registeredProviderWallet]);
 
   // Handle escape key with confirmation
   useEffect(() => {
@@ -386,13 +344,12 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
     return () => {
       document.removeEventListener('keydown', handleEscapeKey);
     };
-  }, [isOpen, providerName, providerDescription, instructions, registeredProviderWallet, price, configuredCurlTemplate]);
+  }, [isOpen, handleForceClose]);
 
+  // ===== Render =====
   if (!isOpen) {
     return null;
   }
-
-
 
   const title = showValidation
     ? "🔍 Validate Provider Configuration"
@@ -432,8 +389,8 @@ const ProviderConfigModal: React.FC<ProviderConfigModalProps> = ({
               />
             ) : (
               <div className="flex flex-col items-stretch gap-3">
-                {/* Unified Terminal Interface */}
-                <UnifiedTerminalInterface
+                {/* Provider Configuration Form */}
+                <ProviderConfigurationForm
                   onCurlImport={handleCurlImport}
                   onParseSuccess={() => {}}
                   onParseClear={() => {

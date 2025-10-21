@@ -1,12 +1,13 @@
 import React from 'react';
 import { RegisteredProvider } from '../types/hypergrid_provider';
+import { HYPR_SUFFIX } from '../constants';
 
-export interface RegisteredProviderViewProps {
+export interface ProviderCardProps {
   provider: RegisteredProvider;
   onEdit?: (provider: RegisteredProvider) => void;
 }
 
-const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provider, onEdit }) => {
+const ProviderCard: React.FC<ProviderCardProps> = ({ provider, onEdit }) => {
 
   const formatPrice = (price: number) => {
     if (typeof price !== 'number' || isNaN(price)) return 'N/A';
@@ -55,7 +56,7 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
             <span className="text-xl mt-0.5">🔌</span>
             <div className="flex-1 min-w-0">
               <h3 className="text-base font-semibold text-gray-900 dark:text-gray-100 break-words">
-                {provider.provider_name}.grid.hypr
+                {provider.provider_name}{HYPR_SUFFIX}
               </h3>
               {provider.description && (
                 <p className="text-gray-500 dark:text-gray-400 text-sm mt-1">{provider.description}</p>
@@ -85,4 +86,4 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
   );
 };
 
-export default RegisteredProviderView;
+export default ProviderCard;
