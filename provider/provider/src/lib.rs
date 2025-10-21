@@ -72,8 +72,15 @@ pub struct ValidateAndRegisterRequest {
 pub struct PaymentRequirements {
     #[serde(rename = "x402Version")]
     pub protocol_version: u8,
-    pub accepts: Vec<AcceptedPayment>,
-    pub error: String,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepts: Option<Vec<AcceptedPayment>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payer: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -88,13 +95,64 @@ pub struct AcceptedPayment {
     pub pay_to: String,  // Ethereum address
     pub max_timeout_seconds: u64,
     pub asset: String,   // USDC contract address
-    pub extra: ExtraData,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<OutputSchema>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<serde_json::Value>,
 }
 
+// x402scan registry schema types
+// FieldDef describes individual field requirements (type, required, enum, nested properties)
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ExtraData {
-    pub name: String,
-    pub version: String,
+#[serde(rename_all = "camelCase")]
+pub struct FieldDef {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<serde_json::Value>,  // Can be bool or string[]
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", rename = "enum")]
+    pub r#enum: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, FieldDef>>,  // Recursive for nested objects
+}
+
+// InputSchema describes HTTP request requirements (method, params, body structure)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputSchema {
+    pub r#type: String,  // Always "http" for our use case
+
+    pub method: String,  // "GET", "POST", etc
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_type: Option<String>,  // "json", "form-data", "multipart-form-data", "text", "binary"
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_params: Option<HashMap<String, FieldDef>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_fields: Option<HashMap<String, FieldDef>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_fields: Option<HashMap<String, FieldDef>>,
+}
+
+// OutputSchema is the top-level schema wrapper for x402scan registry
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputSchema {
+    pub input: InputSchema,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<serde_json::Value>,  // Flexible JSON for response format
 }
 
 // X-PAYMENT header payload structures (from x402 client)
@@ -467,10 +525,80 @@ fn parse_x_payment_header(header_value: &str) -> Result<PaymentPayload, String> 
         .map_err(|e| format!("Failed to parse X-PAYMENT JSON: {}", e))
 }
 
+/// Convert a ParameterDefinition to x402scan's FieldDef format
+fn parameter_to_field_def(param: &ParameterDefinition) -> FieldDef {
+    FieldDef {
+        r#type: Some(param.value_type.clone()),
+        required: Some(serde_json::Value::Bool(true)),  // All provider params are required
+        description: Some(format!("Parameter: {}", param.parameter_name)),
+        r#enum: None,
+        properties: None,
+    }
+}
+
+/// Build InputSchema from provider's endpoint definition
+fn build_input_schema(endpoint: &EndpointDefinition) -> InputSchema {
+    let mut query_params = HashMap::new();
+    let mut body_fields = HashMap::new();
+    let mut header_fields = HashMap::new();
+
+    // Add the fixed providername parameter
+    query_params.insert(
+        "providername".to_string(),
+        FieldDef {
+            r#type: Some("string".to_string()),
+            required: Some(serde_json::Value::Bool(true)),
+            description: Some("Name of the registered provider to call".to_string()),
+            r#enum: None,
+            properties: None,
+        }
+    );
+
+    // Convert provider's parameters by location
+    for param in &endpoint.parameters {
+        let field_def = parameter_to_field_def(param);
+        match param.location.as_str() {
+            "query" => { query_params.insert(param.parameter_name.clone(), field_def); },
+            "body" => { body_fields.insert(param.parameter_name.clone(), field_def); },
+            "header" => { header_fields.insert(param.parameter_name.clone(), field_def); },
+            "path" => {
+                // Path params are part of the URL, not separate fields
+                // Could document them in description if needed
+            },
+            _ => {},
+        }
+    }
+
+    InputSchema {
+        r#type: "http".to_string(),
+        method: endpoint.method.clone(),
+        body_type: if !body_fields.is_empty() {
+            Some("json".to_string())
+        } else {
+            None
+        },
+        query_params: if !query_params.is_empty() { Some(query_params) } else { None },
+        body_fields: if !body_fields.is_empty() { Some(body_fields) } else { None },
+        header_fields: if !header_fields.is_empty() { Some(header_fields) } else { None },
+    }
+}
+
 /// Build PaymentRequirements structure from provider and resource URL
 fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str) -> PaymentRequirements {
     // Convert USDC price to atomic units (6 decimals)
     let max_amount_atomic = ((provider.price * 1_000_000.0).round() as u64).to_string();
+
+    // Build input schema from provider's endpoint definition
+    let input_schema = build_input_schema(&provider.endpoint);
+
+    // Create output schema for x402scan registry compliance
+    let output_schema = OutputSchema {
+        input: input_schema,
+        output: Some(serde_json::json!({
+            "type": "object",
+            "description": "Response from the provider's API endpoint"
+        })),
+    };
 
     let accepted_payment = AcceptedPayment {
         scheme: "exact".to_string(),
@@ -486,16 +614,18 @@ fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str)
         } else {
             USDC_BASE_ADDRESS.to_string()
         },
-        extra: ExtraData {
-            name: USDC_EIP712_NAME.to_string(),
-            version: USDC_EIP712_VERSION.to_string(),
-        },
+        output_schema: Some(output_schema),
+        extra: Some(serde_json::json!({
+            "name": USDC_EIP712_NAME,
+            "version": USDC_EIP712_VERSION
+        })),
     };
 
     PaymentRequirements {
         protocol_version: 1,
-        accepts: vec![accepted_payment],
-        error: "".to_string(),
+        accepts: Some(vec![accepted_payment]),
+        error: Some("".to_string()),  // Empty string for no error (x402 clients expect this field)
+        payer: None,
     }
 }
 
@@ -1096,12 +1226,15 @@ impl HypergridProviderState {
 
             // Find the matching payment method based on scheme and network
             let payment_method = payment_requirements.accepts
-                .iter()
-                .find(|method| {
-                    method.scheme == payment_payload.scheme &&
-                    method.network == payment_payload.network
-                })
-                .cloned();
+                .as_ref()
+                .and_then(|accepts| {
+                    accepts.iter()
+                        .find(|method| {
+                            method.scheme == payment_payload.scheme &&
+                            method.network == payment_payload.network
+                        })
+                        .cloned()
+                });
 
             let payment_method = match payment_method {
                 Some(method) => {
@@ -1169,7 +1302,7 @@ impl HypergridProviderState {
             if !verify_result.is_valid {
                 warn!("Payment verification failed: {:?}", verify_result.invalid_reason);
                 let mut error_payment_reqs = payment_requirements.clone();
-                error_payment_reqs.error = verify_result.invalid_reason.unwrap_or_else(|| "Payment verification failed".to_string());
+                error_payment_reqs.error = Some(verify_result.invalid_reason.unwrap_or_else(|| "Payment verification failed".to_string()));
                 let error_bytes = serde_json::to_vec(&error_payment_reqs).unwrap();
                 set_response_body(error_bytes);
                 set_response_status(StatusCode::PAYMENT_REQUIRED);
