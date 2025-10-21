@@ -29,7 +29,7 @@ use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
 use std::str::FromStr; // Needed for EthAddress::from_str
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 pub const CHAIN_ID: u64 = hypermap::HYPERMAP_CHAIN_ID;
 
@@ -313,9 +313,6 @@ pub struct RegisteredProvider {
 pub struct HypergridProviderState {
     pub registered_providers: Vec<RegisteredProvider>,
     pub spent_tx_hashes: Vec<String>,
-    // TODO: Replace with persistent storage for production - tracks used payment nonces to prevent replay attacks
-    #[serde(skip)]
-    pub used_nonces: HashSet<String>,
     #[serde(skip, default = "util::default_provider")]
     pub rpc_provider: Provider,
     #[serde(skip, default = "util::default_hypermap")]
@@ -342,7 +339,6 @@ impl HypergridProviderState {
         Self {
             registered_providers: Vec::new(),
             spent_tx_hashes: Vec::new(),
-            used_nonces: HashSet::new(),
             rpc_provider: provider.clone(),
             hypermap: hypermap::Hypermap::new(provider.clone(), hypermap_contract_address),
             vfs_drive_path: None,
@@ -1183,18 +1179,6 @@ impl HypergridProviderState {
 
             info!("Payment verified for payer: {}", verify_result.payer);
 
-            // Check replay protection
-            let nonce_key = format!("{}:{}", payment_payload.network, payment_payload.payload.authorization.nonce);
-            if self.used_nonces.contains(&nonce_key) {
-                warn!("Replay attack detected: nonce {} already used", nonce_key);
-                let error_json = serde_json::json!({"error": "Payment nonce already used (replay attempt)"});
-                let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                set_response_body(error_bytes);
-                set_response_status(StatusCode::BAD_REQUEST);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
-            }
-
             // Call upstream provider API
             let args_vec: Vec<(String, String)> = params.iter()
                 .filter(|(k, _)| k != &"providername")
@@ -1281,9 +1265,6 @@ impl HypergridProviderState {
                 add_response_header("Content-Type".to_string(), "application/json".to_string());
                 return Ok("".to_string());
             }
-
-            // Mark nonce as used only if settlement succeeded
-            self.used_nonces.insert(nonce_key);
 
             // Encode settle response for X-PAYMENT-RESPONSE header
             let settle_json = serde_json::to_vec(&settle_result)
