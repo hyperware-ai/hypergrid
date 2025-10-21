@@ -470,7 +470,7 @@ fn parse_x_payment_header(header_value: &str) -> Result<PaymentPayload, String> 
 /// Build PaymentRequirements structure from provider and resource URL
 fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str) -> PaymentRequirements {
     // Convert USDC price to atomic units (6 decimals)
-    let max_amount_atomic = ((provider.price * 1_000_000.0) as u64).to_string();
+    let max_amount_atomic = ((provider.price * 1_000_000.0).round() as u64).to_string();
 
     let accepted_payment = AcceptedPayment {
         scheme: "exact".to_string(),
