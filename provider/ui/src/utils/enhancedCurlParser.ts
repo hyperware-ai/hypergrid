@@ -161,16 +161,6 @@ export function parseCurlCommand(curlString: string): ParsedCurlRequest {
   }
 }
 
-/**
- * Tries to parse a string as JSON, returns the string if parsing fails
- */
-function tryParseJSON(str: string): any {
-  try {
-    return JSON.parse(str);
-  } catch {
-    return str;
-  }
-}
 
 /**
  * Identifies all potential fields that could be made modifiable in the parsed request
@@ -305,25 +295,6 @@ function addBodyFields(obj: any, basePath: string, fields: ModifiableField[], de
   });
 }
 
-/**
- * Checks if a path segment is likely to be a parameter
- */
-function isLikelyParameter(segment: string): boolean {
-  // Numeric ID
-  if (/^\d+$/.test(segment)) return true;
-  
-  // UUID pattern
-  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(segment)) return true;
-  
-  // Alphanumeric ID (at least 8 characters)
-  if (/^[a-zA-Z0-9]{8,}$/.test(segment)) return true;
-  
-  // Common placeholder patterns
-  if (/^\{[^}]+\}$/.test(segment)) return true;
-  if (/^:[^:]+$/.test(segment)) return true;
-  
-  return false;
-}
 
 /**
  * Suggests a parameter name based on the segment and context

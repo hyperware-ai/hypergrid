@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useMemo, useCallback } from 'react';
 import { validateProviderApi, validateProviderUpdateApi } from '../utils/api';
 
 interface ValidationPanelProps {
-  curlTemplate: any; // The backend format from EnhancedCurlImportModal
+  curlTemplate: any;
   providerMetadata: {
     providerName: string;
     providerDescription: string;
@@ -30,6 +30,7 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   isEditMode = false,
   originalProviderName,
 }) => {
+  // ===== State =====
   const [validationArgs, setValidationArgs] = useState<ValidationArgs>(() => {
     // Pre-populate with example values from the cURL template
     const initialArgs: ValidationArgs = {};
@@ -59,37 +60,18 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   const [validationMessage, setValidationMessage] = useState<string>('');
   const [validationResponse, setValidationResponse] = useState<string | null>(null);
 
-  // Generate sample values for placeholders
-  const getSampleValue = (key: string, paramType: 'path' | 'query' | 'header' | 'body'): string => {
-    switch (paramType) {
-      case 'path':
-        return key === 'id' ? '123' : `sample_${key}`;
-      case 'query':
-        return key === 'limit' ? '10' : `sample_${key}`;
-      case 'header':
-        return key.toLowerCase().includes('version') ? '1.0' : `sample_${key}`;
-      case 'body':
-        return `sample_${key}`;
-      default:
-        return `sample_${key}`;
-    }
-  };
+  // ===== Computed Values =====
+  const allParams = curlTemplate.parameters || [];
 
+  // ===== Callbacks =====
+  const handleValidationArgChange = useCallback((key: string, value: string) => {
+    setValidationArgs(prev => ({
+      ...prev,
+      [key]: value
+    }));
+  }, []);
 
-
-  const handleValidationArgChange = (key: string, value: string) => {
-    console.log('DEBUG: ValidationPanel - arg changed:', key, '=', value);
-    setValidationArgs(prev => {
-      const newArgs = {
-        ...prev,
-        [key]: value
-      };
-      console.log('DEBUG: New validationArgs:', newArgs);
-      return newArgs;
-    });
-  };
-
-  const handleValidate = async () => {
+  const handleValidate = useCallback(async () => {
     setIsValidating(true);
 
     try {
@@ -151,22 +133,18 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
     } finally {
       setIsValidating(false);
     }
-  };
+  }, [curlTemplate, validationArgs, providerMetadata, isEditMode, originalProviderName, onValidationError]);
 
-  // Get all parameters from the cURL template
-  const allParams = curlTemplate.parameters || [];
-
-  // Helper function to format cURL commands for better display
-  const formatCurlCommand = (curl: string): string => {
+  // ===== Helper Functions =====
+  const formatCurlCommand = useCallback((curl: string): string => {
     return curl
       .replace(/\s+/g, ' ') // Normalize whitespace
       .replace(/\s*\\\s*/g, ' \\\n  ') // Format line continuations
       .replace(/(-[A-Za-z])\s+/g, '$1 ') // Ensure single space after flags
       .trim();
-  };
+  }, []);
 
-  // Helper function to format JSON with syntax highlighting
-  const formatJsonResponse = (jsonString: string): JSX.Element => {
+  const formatJsonResponse = useCallback((jsonString: string): JSX.Element => {
     try {
       const parsed = JSON.parse(jsonString);
       const formatted = JSON.stringify(parsed, null, 2);
@@ -183,11 +161,10 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
       // If it's not valid JSON, just display as plain text
       return <span>{jsonString}</span>;
     }
-  };
+  }, []);
 
-  // Generate a substituted cURL template for preview
+  // ===== Memoized Values =====
   const substitutedCurl = useMemo(() => {
-    console.log('DEBUG: useMemo called at', Date.now(), 'with validationArgs:', validationArgs);
     let result = curlTemplate.original_curl || '';
     
     // Simple approach: just replace parameter values directly in the string
@@ -228,12 +205,10 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
         }
     });
     
-    console.log('DEBUG: Final result:', result);
-    
-    // Format the cURL for better readability
     return formatCurlCommand(result);
-  }, [validationArgs, curlTemplate, allParams, JSON.stringify(validationArgs)]);
+  }, [validationArgs, curlTemplate, allParams, formatCurlCommand]);
 
+  // ===== Render =====
   return (
     <div className="flex flex-col items-center max-w-2xl mx-auto">
       {/* Header */}

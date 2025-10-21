@@ -1,12 +1,12 @@
 import React from 'react';
 import { RegisteredProvider } from '../types/hypergrid_provider';
 
-export interface RegisteredProviderViewProps {
+export interface ProviderCardProps {
   provider: RegisteredProvider;
   onEdit?: (provider: RegisteredProvider) => void;
 }
 
-const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provider, onEdit }) => {
+const ProviderCard: React.FC<ProviderCardProps> = ({ provider, onEdit }) => {
 
   const formatPrice = (price: number) => {
     if (typeof price !== 'number' || isNaN(price)) return 'N/A';
@@ -85,4 +85,4 @@ const RegisteredProviderView: React.FC<RegisteredProviderViewProps> = ({ provide
   );
 };
 
-export default RegisteredProviderView;
+export default ProviderCard;

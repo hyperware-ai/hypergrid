@@ -15,8 +15,7 @@ import { QueryClientProvider, QueryClient } from '@tanstack/react-query';
 
 import useHypergridProviderStore from "./store/hypergrid_provider";
 import {
-  RegisteredProvider,
-  IndexedProvider
+  RegisteredProvider
 } from "./types/hypergrid_provider";
 import {
   fetchRegisteredProvidersApi,
@@ -24,7 +23,7 @@ import {
   registerProviderApi,
 } from "./utils/api";
 import ProviderConfigModal from "./components/ProviderConfigModal";
-import RegisteredProviderView from './components/RegisteredProviderView';
+import ProviderCard from './components/ProviderCard';
 
 import { useAccount, usePublicClient } from 'wagmi';
 import { ConnectButton } from '@rainbow-me/rainbowkit';
@@ -61,15 +60,35 @@ const config = getDefaultConfig({
 const queryClient = new QueryClient();
 
 function AppContent() {
+  // ===== Store & Hooks =====
   const { registeredProviders, setRegisteredProviders } = useHypergridProviderStore();
-  const [nodeConnected, setNodeConnected] = useState(true);
-  const [_wsApiInstance, setWsApiInstance] = useState<HyperwareClientApi | undefined>();
-
-  // Blockchain integration
   const { isConnected: isWalletConnected } = useAccount();
   const publicClient = usePublicClient();
 
-  // Blockchain registration
+  // ===== State =====
+  // Connection state
+  const [nodeConnected, setNodeConnected] = useState(true);
+  const [_wsApiInstance, setWsApiInstance] = useState<HyperwareClientApi | undefined>();
+
+  // Modal state
+  const [showForm, setShowForm] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
+
+  // Edit mode state
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editingProvider, setEditingProvider] = useState<RegisteredProvider | null>(null);
+  const [isLoadingProviders, setIsLoadingProviders] = useState(false);
+
+  // Provider loading state
+  const [providersLoading, setProvidersLoading] = useState(false);
+  const [providersError, setProvidersError] = useState<string | null>(null);
+
+  // Providers needing configuration state
+  const [providersNeedingConfig, setProvidersNeedingConfig] = useState<RegisteredProvider[]>([]);
+  const [hasCheckedConfigNeeded, setHasCheckedConfigNeeded] = useState(false);
+
+  // ===== Blockchain Integration =====
   const providerRegistration = useProviderRegistration({
     onRegistrationComplete: async (providerAddress) => {
       // Blockchain registration succeeded, now register in backend
@@ -144,27 +163,144 @@ function AppContent() {
     }
   });
 
-  // Modal state
-  const [showForm, setShowForm] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
+  // ===== Callbacks =====
+  const resetEditState = useCallback(() => {
+    setIsEditMode(false);
+    setEditingProvider(null);
+  }, []);
 
-  // Edit mode state
-  const [isEditMode, setIsEditMode] = useState(false);
-  const [editingProvider, setEditingProvider] = useState<RegisteredProvider | null>(null);
-  const [isLoadingProviders, setIsLoadingProviders] = useState(false);
+  const handleOpenAddNewModal = useCallback(() => {
+    if (isEditMode) {
+      resetEditState();
+    }
+    setShowForm(true);
+  }, [isEditMode, resetEditState]);
 
-  // Provider view state (keeping for potential future use)
-  const [indexedProviders, setIndexedProviders] = useState<IndexedProvider[]>([]);
+  const handleCloseAddNewModal = useCallback(() => {
+    setShowForm(false);
+    resetEditState();
+  }, [resetEditState]);
 
-  // Provider loading state
-  const [providersLoading, setProvidersLoading] = useState(false);
-  const [providersError, setProvidersError] = useState<string | null>(null);
+  const loadAndSetProviders = useCallback(async () => {
+    setProvidersLoading(true);
+    setProvidersError(null);
+    try {
+      const providers = await fetchRegisteredProvidersApi();
+      setRegisteredProviders(providers);
+      console.log("Fetched registered providers:", providers);
+    } catch (error) {
+      console.error("Failed to load registered providers in App:", error);
+      setProvidersError(error instanceof Error ? error.message : 'Failed to load providers');
+      setRegisteredProviders([]);
+    } finally {
+      setTimeout(() => setIsLoadingProviders(false), 1000);
+    }
+  }, [setRegisteredProviders]);
 
-  // Providers needing configuration state
-  const [providersNeedingConfig, setProvidersNeedingConfig] = useState<RegisteredProvider[]>([]);
-  const [hasCheckedConfigNeeded, setHasCheckedConfigNeeded] = useState(false);
+  const checkProvidersNeedingConfiguration = useCallback(async () => {
+    if (hasCheckedConfigNeeded) return;
+    
+    try {
+      const providersNeeding = await fetchProvidersNeedingConfigurationApi();
+      setProvidersNeedingConfig(providersNeeding);
+      setHasCheckedConfigNeeded(true);
+      
+      if (providersNeeding.length > 0) {
+        console.log(`Found ${providersNeeding.length} providers needing endpoint configuration:`, providersNeeding);
+      }
+    } catch (error) {
+      console.error("Failed to check providers needing configuration:", error);
+      setHasCheckedConfigNeeded(true);
+    }
+  }, [hasCheckedConfigNeeded]);
 
+  const handleProviderUpdated = useCallback((updatedProvider: RegisteredProvider) => {
+    const updatedProviders = registeredProviders.map(provider =>
+      provider.provider_name === updatedProvider.provider_name ? updatedProvider : provider
+    );
+    setRegisteredProviders(updatedProviders);
+    console.log("Provider updated locally:", updatedProvider);
+  }, [registeredProviders, setRegisteredProviders]);
+
+  const handleEditProvider = useCallback((provider: RegisteredProvider) => {
+    setEditingProvider(provider);
+    setIsEditMode(true);
+    setShowForm(true);
+  }, []);
+
+  const handleProviderRegistration = useCallback(async (provider: RegisteredProvider) => {
+    console.log("Starting registration for provider:", provider);
+
+    if (isWalletConnected) {
+      providerRegistration.startRegistration(provider);
+    } else {
+      alert('Please connect your wallet to complete provider registration on the hypergrid.');
+    }
+  }, [isWalletConnected, providerRegistration]);
+
+  const processUpdateResponse = useCallback((response: any) => {
+    if (response.Ok) {
+      return { success: true, message: 'Provider updated successfully!' };
+    } else {
+      return { success: false, message: response.Err || 'Unknown error during update' };
+    }
+  }, []);
+
+  const handleProviderUpdate = useCallback(async (provider: RegisteredProvider, formData: any) => {
+    try {
+      const { createSmartUpdatePlan } = await import('./utils/providerFormUtils');
+      const updatePlan = createSmartUpdatePlan(provider, formData);
+
+      if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
+        alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
+        return;
+      }
+
+      console.log('Update plan:', updatePlan);
+
+      if (updatePlan.needsOnChainUpdate) {
+        console.log('Updating on-chain notes...', updatePlan.onChainNotes);
+
+        try {
+          const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
+
+          if (!tbaAddress) {
+            alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
+            return;
+          }
+
+          console.log(`Found TBA address: ${tbaAddress} for provider: ${provider.provider_name}`);
+
+          (window as any).pendingUpdatePlan = updatePlan;
+          await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
+        } catch (error) {
+          console.error('Error during blockchain update:', error);
+          alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
+        }
+      } else if (updatePlan.needsOffChainUpdate) {
+        console.log('Updating off-chain data only (no blockchain changes)...');
+        const response = await updateProviderApi(provider.provider_name, updatePlan.updatedProvider);
+        const feedback = processUpdateResponse(response);
+
+        if (!response.Ok) {
+          alert(feedback.message);
+          return;
+        }
+
+        resetEditState();
+        handleCloseAddNewModal();
+        handleProviderUpdated(response.Ok);
+        alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
+      } else {
+        alert('No changes detected to update.');
+      }
+    } catch (err) {
+      console.error('Failed to update provider: ', err);
+      alert('Failed to update provider.');
+    }
+  }, [isWalletConnected, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal, processUpdateResponse]);
+
+  // ===== Effects =====
   // Close menus on escape key and click outside
   useEffect(() => {
     const handleEscape = (e: KeyboardEvent) => {
@@ -198,75 +334,7 @@ function AppContent() {
     }
   }, [mobileMenuOpen, desktopMenuOpen]);
 
-  const resetEditState = () => {
-    setIsEditMode(false);
-    setEditingProvider(null);
-  };
-
-
-  const handleOpenAddNewModal = () => {
-    console.log('Opening new modal - isEditMode:', isEditMode);
-    if (isEditMode) {
-      resetEditState();
-    }
-    setShowForm(true);
-  };
-
-  const handleCloseAddNewModal = () => {
-    setShowForm(false);
-    resetEditState();
-  };
-
-  const loadAndSetProviders = useCallback(async () => {
-    setProvidersLoading(true);
-    setProvidersError(null);
-    try {
-      const providers = await fetchRegisteredProvidersApi();
-      setRegisteredProviders(providers);
-      console.log("Fetched registered providers:", providers);
-    } catch (error) {
-      console.error("Failed to load registered providers in App:", error);
-      setProvidersError(error instanceof Error ? error.message : 'Failed to load providers');
-      setRegisteredProviders([]);
-      // alert(`Error fetching providers: ${(error as Error).message}`);
-    } finally {
-      setTimeout(() => setIsLoadingProviders(false), 1000);
-    }
-  }, [setRegisteredProviders]);
-
-  const checkProvidersNeedingConfiguration = useCallback(async () => {
-    if (hasCheckedConfigNeeded) {
-      return; // Only check once per app session
-    }
-    
-    try {
-      const providersNeeding = await fetchProvidersNeedingConfigurationApi();
-      setProvidersNeedingConfig(providersNeeding);
-      setHasCheckedConfigNeeded(true);
-      
-      if (providersNeeding.length > 0) {
-        console.log(`Found ${providersNeeding.length} providers needing endpoint configuration:`, providersNeeding);
-      }
-    } catch (error) {
-      console.error("Failed to check providers needing configuration:", error);
-      setHasCheckedConfigNeeded(true); // Mark as checked even on error to prevent retry loops
-    }
-  }, [hasCheckedConfigNeeded]);
-
-  const handleProviderUpdated = useCallback((updatedProvider: RegisteredProvider) => {
-    // Update the provider in the local state
-    const updatedProviders = registeredProviders.map(provider =>
-      provider.provider_name === updatedProvider.provider_name
-        ? updatedProvider
-        : provider
-    );
-    setRegisteredProviders(updatedProviders);
-    console.log("Provider updated locally:", updatedProvider);
-  }, [registeredProviders, setRegisteredProviders]);
-
-
-
-  // Effect to auto-refresh providers
+  // Auto-refresh providers and check for configuration needs
   useEffect(() => {
     // Initial load
     loadAndSetProviders();
@@ -280,104 +348,7 @@ function AppContent() {
     return () => clearInterval(interval);
   }, [loadAndSetProviders, checkProvidersNeedingConfiguration]);
 
-  
-
-  const handleEditProvider = useCallback((provider: RegisteredProvider) => {
-    setEditingProvider(provider);
-    setIsEditMode(true);
-    setShowForm(true);
-  }, []);
-
-  const handleProviderRegistration = useCallback(async (provider: RegisteredProvider) => {
-    console.log("Starting registration for provider:", provider);
-
-    if (isWalletConnected) {
-      providerRegistration.startRegistration(provider);
-    } else {
-      alert('Please connect your wallet to complete provider registration on the hypergrid.');
-    }
-  }, [isWalletConnected, providerRegistration]);
-
-  // Helper function for processing update responses
-  const processUpdateResponse = useCallback((response: any) => {
-    if (response.Ok) {
-      return { success: true, message: 'Provider updated successfully!' };
-    } else {
-      return { success: false, message: response.Err || 'Unknown error during update' };
-    }
-  }, []);
-
-  const handleProviderUpdate = useCallback(async (provider: RegisteredProvider, formData: any) => {
-    // This will handle the smart update system with TBA integration
-    try {
-      const { createSmartUpdatePlan } = await import('./utils/providerFormUtils');
-      const updatePlan = createSmartUpdatePlan(provider, formData);
-
-
-
-      // Check if wallet is needed for on-chain updates
-      if (updatePlan.needsOnChainUpdate && !isWalletConnected) {
-        alert('Please connect your wallet to update Hypergrid metadata on the blockchain.');
-        return;
-      }
-
-      console.log('Update plan:', updatePlan);
-
-      // Check if we need on-chain updates first
-      if (updatePlan.needsOnChainUpdate) {
-        console.log('Updating on-chain notes...', updatePlan.onChainNotes);
-
-        try {
-          // Look up the actual TBA address for this provider from backend
-          const tbaAddress = await lookupProviderTbaAddressFromBackend(provider.provider_name, publicClient);
-
-          if (!tbaAddress) {
-            alert(`No blockchain entry found for provider "${provider.provider_name}". Please register on the hypergrid first.`);
-            return;
-          }
-
-          console.log(`Found TBA address: ${tbaAddress} for provider: ${provider.provider_name}`);
-
-          // Store the update plan for the onUpdateComplete callback to handle backend update
-          (window as any).pendingUpdatePlan = updatePlan;
-
-          // Execute the blockchain update
-          // Backend update will happen in the onUpdateComplete callback AFTER confirmation
-          await providerUpdate.updateProviderNotes(tbaAddress, updatePlan.onChainNotes);
-
-          // Success will be handled by the providerUpdate.onUpdateComplete callback
-        } catch (error) {
-          console.error('Error during blockchain update:', error);
-          alert(`Failed to update blockchain metadata: ${(error as Error).message}`);
-        }
-      } else if (updatePlan.needsOffChainUpdate) {
-        // Only off-chain updates needed (no blockchain transaction required)
-        console.log('Updating off-chain data only (no blockchain changes)...');
-        const response = await updateProviderApi(provider.provider_name, updatePlan.updatedProvider);
-        const feedback = processUpdateResponse(response);
-
-        if (!response.Ok) {
-          alert(feedback.message);
-          return;
-        }
-
-        // Close modal first, then update local state and show success
-        resetEditState();
-        handleCloseAddNewModal();
-        handleProviderUpdated(response.Ok);
-        alert(`Provider "${updatePlan.updatedProvider.provider_name}" updated successfully!`);
-      } else {
-        // No changes detected
-        alert('No changes detected to update.');
-      }
-    } catch (err) {
-      console.error('Failed to update provider: ', err);
-      alert('Failed to update provider.');
-    }
-  }, [isWalletConnected, handleProviderUpdated, publicClient, providerUpdate, resetEditState, handleCloseAddNewModal, processUpdateResponse]);
-
-
-
+  // Initialize WebSocket connection
   useEffect(() => {
     loadAndSetProviders();
     if (window.our?.node && window.our?.process) {
@@ -399,6 +370,7 @@ function AppContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadAndSetProviders]);
 
+  // ===== Render =====
   return (
     <div className={`min-h-screen bg-gray flex grow self-stretch w-full h-screen overflow-hidden`}>
       <header className="flex flex-col py-8 px-6  bg-white dark:bg-black shadow-2xl relative flex-shrink-0 gap-8 max-w-sm w-full items-start">
@@ -461,7 +433,7 @@ function AppContent() {
           {registeredProviders.length > 0 ? (
             <div className="flex flex-col gap-2">
               {registeredProviders.map((provider) => (
-                <RegisteredProviderView
+                <ProviderCard
                   key={provider.provider_id || provider.provider_name}
                   provider={provider}
                   onEdit={handleEditProvider}

@@ -1,8 +1,7 @@
 import React from 'react';
-import EnhancedCurlImportModal from './EnhancedCurlImportModal';
-import HypergridEntryForm from './HypergridEntryForm';
+import CurlTemplateEditor from './CurlTemplateEditor';
 
-interface UnifiedTerminalInterfaceProps {
+interface ProviderConfigurationFormProps {
   // cURL props
   onCurlImport: (curlTemplateData: any) => void;
   onParseSuccess?: () => void;
@@ -27,7 +26,7 @@ interface UnifiedTerminalInterfaceProps {
   isEditMode?: boolean;
 }
 
-const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
+const ProviderConfigurationForm: React.FC<ProviderConfigurationFormProps> = ({
   onCurlImport,
   onParseSuccess,
   onParseClear,
@@ -67,7 +66,7 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
         </div>
         
         <div className="bg-stone-200 dark:bg-gray-900/50 rounded border border-stone-300 dark:border-gray-700 p-1">
-          <EnhancedCurlImportModal
+          <CurlTemplateEditor
             isOpen={true}
             onClose={() => {}}
             onImport={onCurlImport}
@@ -191,4 +190,5 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
   );
 };
 
-export default UnifiedTerminalInterface;
+export default ProviderConfigurationForm;
+
