@@ -19,18 +19,12 @@ export const DEFAULT_PARENT_NAMEHASH = (import.meta.env.VITE_PARENT_NAMEHASH || 
 
 // ABIs - Using the same pattern as operator code
 export const hypermapAbi = parseAbi([
-    'function mint(address owner, bytes calldata node, bytes calldata data, address implementation) external returns (address tba)',
     'function note(bytes calldata noteKey, bytes calldata noteValue) external returns (bytes32 labelhash)',
     'function tbaOf(bytes32 entry) external view returns (address)',
-    'function leaf(bytes32 parenthash, bytes calldata label) external pure returns (bytes32 namehash, bytes32 labelhash)',
 ]);
 
 export const hyperGridNamespaceMinterAbi = parseAbi([
     'function mint(address owner, bytes calldata label) external returns (address)',
-    'function getChildImplementation() external view returns (address)',
-    // Common events that might be emitted during minting
-    'event AccountCreated(address indexed account, address indexed implementation, uint256 chainId, address indexed tokenContract, uint256 tokenId)',
-    'event Transfer(address indexed from, address indexed to, uint256 indexed tokenId)',
 ]);
 
 export const multicallAbi = parseAbi([
@@ -154,6 +148,45 @@ export function generateProviderNotesCallsArray({
             1,                // operation: 1 for DELEGATECALL (critical!)
         ] as const
     };
+}
+
+/**
+ * Creates a TBA execute call configuration
+ */
+export function createTbaExecuteCall(
+  tbaAddress: Address,
+  target: Address,
+  data: Hex,
+  operation: 0 | 1,
+  gas?: bigint
+) {
+  return {
+    address: tbaAddress,
+    abi: tbaExecuteAbi,
+    functionName: 'execute',
+    args: [target, 0n, data, operation],
+    ...(gas && { gas })
+  };
+}
+
+/**
+ * Creates multicall data for multiple note operations
+ */
+export function createMulticallData(notes: Array<{ key: string; value: string }>): Hex {
+  const noteCalls = notes.map(note => 
+    generateNoteCall({ noteKey: note.key, noteValue: note.value })
+  );
+
+  const calls = noteCalls.map(calldata => ({
+    target: HYPERMAP_ADDRESS,
+    callData: calldata,
+  }));
+
+  return encodeFunctionData({
+    abi: multicallAbi,
+    functionName: 'aggregate',
+    args: [calls]
+  });
 }
 
 /**

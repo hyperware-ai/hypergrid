@@ -390,6 +390,17 @@ export function applyCurlTemplateValues(
 }
 
 /**
+ * Formats a cURL command for display
+ */
+export function formatCurlCommand(curl: string): string {
+  return curl
+    .replace(/\s+/g, ' ') // Normalize whitespace
+    .replace(/\s*\\\s*/g, ' \\\n  ') // Format line continuations
+    .replace(/(-[A-Za-z])\s+/g, '$1 ') // Ensure single space after flags
+    .trim();
+}
+
+/**
  * Converts a curl template to the format expected by the backend
  */
 export function curlTemplateToBackendFormat(template: CurlTemplate): any {

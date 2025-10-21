@@ -12,7 +12,6 @@ import {
 } from '../utils/enhancedCurlParser';
 
 interface CurlTemplateEditorProps {
-  isOpen: boolean;
   onClose: () => void;
   onImport: (curlTemplate: any) => void;
   onParseSuccess?: () => void;
@@ -24,7 +23,6 @@ interface CurlTemplateEditorProps {
 }
 
 const CurlTemplateEditor: React.FC<CurlTemplateEditorProps> = ({
-  isOpen,
   onClose,
   onImport,
   onParseSuccess,

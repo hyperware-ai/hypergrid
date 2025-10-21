@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useCallback } from 'react';
 import { validateProviderApi, validateProviderUpdateApi } from '../utils/api';
+import { formatCurlCommand } from '../utils/enhancedCurlParser';
 
 interface ValidationPanelProps {
   curlTemplate: any;
@@ -136,13 +137,6 @@ const ValidationPanel: React.FC<ValidationPanelProps> = ({
   }, [curlTemplate, validationArgs, providerMetadata, isEditMode, originalProviderName, onValidationError]);
 
   // ===== Helper Functions =====
-  const formatCurlCommand = useCallback((curl: string): string => {
-    return curl
-      .replace(/\s+/g, ' ') // Normalize whitespace
-      .replace(/\s*\\\s*/g, ' \\\n  ') // Format line continuations
-      .replace(/(-[A-Za-z])\s+/g, '$1 ') // Ensure single space after flags
-      .trim();
-  }, []);
 
   const formatJsonResponse = useCallback((jsonString: string): JSX.Element => {
     try {

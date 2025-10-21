@@ -82,7 +82,6 @@ function AppContent() {
 
   // Provider loading state
   const [providersLoading, setProvidersLoading] = useState(false);
-  const [providersError, setProvidersError] = useState<string | null>(null);
 
   // Providers needing configuration state
   const [providersNeedingConfig, setProvidersNeedingConfig] = useState<RegisteredProvider[]>([]);
@@ -183,14 +182,12 @@ function AppContent() {
 
   const loadAndSetProviders = useCallback(async () => {
     setProvidersLoading(true);
-    setProvidersError(null);
     try {
       const providers = await fetchRegisteredProvidersApi();
       setRegisteredProviders(providers);
       console.log("Fetched registered providers:", providers);
     } catch (error) {
       console.error("Failed to load registered providers in App:", error);
-      setProvidersError(error instanceof Error ? error.message : 'Failed to load providers');
       setRegisteredProviders([]);
     } finally {
       setTimeout(() => setIsLoadingProviders(false), 1000);

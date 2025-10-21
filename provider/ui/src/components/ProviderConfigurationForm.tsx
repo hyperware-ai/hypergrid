@@ -1,5 +1,6 @@
 import React from 'react';
 import CurlTemplateEditor from './CurlTemplateEditor';
+import {HYPR_SUFFIX } from '../constants';
 
 interface ProviderConfigurationFormProps {
   // cURL props
@@ -67,7 +68,6 @@ const ProviderConfigurationForm: React.FC<ProviderConfigurationFormProps> = ({
         
         <div className="bg-stone-200 dark:bg-gray-900/50 rounded border border-stone-300 dark:border-gray-700 p-1">
           <CurlTemplateEditor
-            isOpen={true}
             onClose={() => {}}
             onImport={onCurlImport}
             onParseSuccess={onParseSuccess}
@@ -105,7 +105,7 @@ const ProviderConfigurationForm: React.FC<ProviderConfigurationFormProps> = ({
                   className="bg-transparent border-none outline-none text-yellow-600 dark:text-yellow-400 placeholder-stone-500 dark:placeholder-gray-600 font-mono text-lg font-medium"
                 />
               )}
-              <span className="text-stone-500 dark:text-gray-500">.grid.hypr</span>
+              <span className="text-stone-500 dark:text-gray-500">{HYPR_SUFFIX}</span>
               <span className="text-stone-500 dark:text-gray-600 text-xs ml-auto">provider namespace</span>
             </div>
           </div>

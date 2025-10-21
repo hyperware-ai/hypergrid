@@ -15,12 +15,6 @@ const CurlRequestInspector: React.FC<CurlRequestInspectorProps> = ({
   modifiableFields,
   onFieldToggleModifiable
 }) => {
-
-
-  const isFieldModifiable = useCallback((jsonPointer: string) => {
-    return modifiableFields.some(f => f.jsonPointer === jsonPointer);
-  }, [modifiableFields]);
-
   const getFieldByPointer = useCallback((pointer: string) => {
     return potentialFields.find(f => f.jsonPointer === pointer);
   }, [potentialFields]);

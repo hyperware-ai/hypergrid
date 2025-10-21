@@ -1,8 +1,7 @@
 import React from 'react';
 import { type Address } from 'viem';
 import {
-  ProviderRegistrationStep,
-  getRegistrationStepText
+  ProviderRegistrationStep
 } from '../registration/hypermapUtils';
 import { ImSpinner8 } from 'react-icons/im';
 
