@@ -4,8 +4,8 @@
     "image": "https://raw.githubusercontent.com/hyperware-ai/hpn/ccd0e9c0d08b2344b06ce4a5b8584f819b92e43e/hypergrid-logo.webp",
     "properties": {
         "package_name": "hypergrid",
-        "current_version": "1.2.1",
-        "publisher": "test.hypr",
+        "current_version": "1.2.2",
+        "publisher": "ware.hypr",
         "mirrors": ["ware.hypr","sam.hypr", "backup-distro-node.os"],
         "code_hashes": {
             "1.0.0": "001a49117374abc3bdb38179d8ce05d76205b008bb55683e116be36f3e1635ce",
@@ -13,7 +13,8 @@
             "1.1.1": "52c826cf4ed84b9138c01a99db09ab17079dd020623951475558a28af19a7c1c",
             "1.1.2": "b8baa26b03cc6b536152638b33595a827764b4ed186f371cb61be33c0276e566",
             "1.2.0": "740ef394e47fcf8e2d66e2eca0ebf8f9276ed7dad59fd12d283c6384ba11fbe7",
-            "1.2.1": "898ddd9e5805b5f4aa70f33a97efeea8e5e58216791713c9f8bc6f6c2c3f205d"
+            "1.2.1": "898ddd9e5805b5f4aa70f33a97efeea8e5e58216791713c9f8bc6f6c2c3f205d",
+            "1.2.2": "5cf2c5d2999db8b28d76b91a850dc54f26eba9a63245b8a02c1c99c3fc5ef46e"
         },
         "wit_version": 1,
         "dependencies": []
