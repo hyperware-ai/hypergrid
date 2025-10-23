@@ -22,11 +22,11 @@ Although it isn't required, in many cases a Provider might have some reason to c
 
 At the moment the best supported way to use Hypergrid as an Operator is via an MCP ([Model Context Protocol](https://modelcontextprotocol.io)) server shim that you can authorize with a simple command to communicate with your Hyperware node, search the Provider registry, and make calls to anything it finds there.
 
-Look at the [Operator Docs](operator/README.md) to learn more about Hypergrid.
+Look at the [Operator docs](operator/README.md) to learn more about Hypergrid.
 
-Look at the [Provider Docs](provider/README.md) to more about Hypergrid.
+Look at the [Provider docs](provider/README.md) to more about Hypergrid.
 
-Look at the [Shim Docs](hypergrid-shim/README.md) to more about Hypergrid.
+Look at the [Shim docs](hypergrid-shim/README.md) to more about Hypergrid.
 
 
 ### Usage
@@ -42,6 +42,9 @@ After gathering the necessary dependancies, you can run:
 sh build.sh # Default is staging which indexes obfusc-grid123.hypr namespace
 sh build.sh --env production # This ensures we are indexing the main namespace: grid.hypr
 ```
+
+### Flow
+![Provider Registration flow](provider/diagrams/ProviderRegistrationFlow.jpg)
 
 
 ### Notes
