@@ -22,11 +22,11 @@ Although it isn't required, in many cases a Provider might have some reason to c
 
 At the moment the best supported way to use Hypergrid as an Operator is via an MCP ([Model Context Protocol](https://modelcontextprotocol.io)) server shim that you can authorize with a simple command to communicate with your Hyperware node, search the Provider registry, and make calls to anything it finds there.
 
-[Operator Docs](operator/README.md) to more about Hypergrid.
+Look at the [Operator Docs](operator/README.md) to learn more about Hypergrid.
 
-[Provider Docs](provider/README.md) to more about Hypergrid.
+Look at the [Provider Docs](provider/README.md) to more about Hypergrid.
 
-[Shim Docs](hypergrid-shim/README.md) to more about Hypergrid.
+Look at the [Shim Docs](hypergrid-shim/README.md) to more about Hypergrid.
 
 
 ### Usage

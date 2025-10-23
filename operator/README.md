@@ -11,4 +11,4 @@ The purpose of the operator is to be the proxy between MCP tool calls (through o
 ## Important note
 For the Operator to function properly, when minting wallets for Hypergrid use, it is important to use the same wallet address that was used to mint the node namespace entry. Otherwise, the TBA system does not work.
 
-Furthermore, there is a version missmatch between MCP shim and provider that is currently in the appstore: the shim NPM package was updated to interact with the hyperapp refactor (which work in progress). So, when trying to use the shim, we must pin the shim version to 1.2.0.
+Furthermore, as of 10/23/2025, there is a version missmatch between MCP shim and provider that is currently in the appstore: the shim NPM package was updated to interact with the hyperapp refactor (which work in progress). So, when trying to use the shim, we must pin the shim version to 1.2.0.
