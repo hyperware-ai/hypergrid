@@ -22,14 +22,35 @@ Although it isn't required, in many cases a Provider might have some reason to c
 
 At the moment the best supported way to use Hypergrid as an Operator is via an MCP ([Model Context Protocol](https://modelcontextprotocol.io)) server shim that you can authorize with a simple command to communicate with your Hyperware node, search the Provider registry, and make calls to anything it finds there.
 
-TODO: detailed overview of the Operator
+Look at the [Operator docs](operator/README.md) to learn more about Hypergrid.
 
-TODO: detailed overview of the Provider
+Look at the [Provider docs](provider/README.md) to more about Hypergrid.
 
-TODO: detailed overview of the shim
+Look at the [Shim docs](hypergrid-shim/README.md) to more about Hypergrid.
+
+
+### Usage
+For stable versions, it is best to get the package directly from our decentralized app store: Hypergrid is published by `ware.hypr`.
+
+For those looking to build the client from source, make sure you have the following:
+
+- [kit (dapp development tool)](https://github.com/hyperware-ai/kit) 
+- [hyperdrive (our app runtime)](https://github.com/hyperware-ai/hyperdrive)
+
+After gathering the necessary dependancies, you can run:
+```bash
+sh build.sh # Default is staging which indexes obfusc-grid123.hypr namespace
+sh build.sh --env production # This ensures we are indexing the main namespace: grid.hypr
+```
+
+### Hypergrid Call Flow
+![Provider Call flow](provider/diagrams/ProviderCallFlow.jpg)
 
 
 ### Notes
 
 If you want to build the Hypergrid client from source, be sure that you're using a branch of `kit` (the Hyperware dev tool) that supports the "Hyperapp" framework. To successfully install the client you must also on a Hyperware runtime version 15.1.0 or higher (this is when the Hyperwallet was introduced as a default system process, Hypergrid will crash without it).
 
+
+### Custom Build Script and Staging/Production environments
+Because operator and provider are (for the time being) two distinct process environments (hyperapp and regular process), the custom build script `build.sh` ensures that the resulting package is installable and works. The script has also been modified to use constants for segmenting staging and production environments (so that ongoing testing work does pollute the grid.hypr namespace)
