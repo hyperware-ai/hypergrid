@@ -43,8 +43,8 @@ sh build.sh # Default is staging which indexes obfusc-grid123.hypr namespace
 sh build.sh --env production # This ensures we are indexing the main namespace: grid.hypr
 ```
 
-### Flow
-![Provider Registration flow](provider/diagrams/ProviderRegistrationFlow.jpg)
+### Hypergrid Call Flow
+![Provider Call flow](provider/diagrams/ProviderCallFlow.jpg)
 
 
 ### Notes
