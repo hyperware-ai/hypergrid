@@ -17,13 +17,9 @@ use hyperware_process_lib::{
 };
 use crate::constants::{
     HYPR_SUFFIX,
-    USDC_BASE_ADDRESS,
-    USDC_SEPOLIA_ADDRESS,
-    USDC_EIP712_NAME,
-    USDC_EIP712_VERSION,
-    X402_PAYMENT_NETWORK,
     X402_FACILITATOR_BASE_URL,
 };
+use crate::util::{parse_x_payment_header, build_payment_requirements};
 use base64ct::{Base64, Encoding};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
@@ -507,125 +503,6 @@ impl HypergridProviderState {
 impl Default for HypergridProviderState {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-// x402 helper functions (standalone, not in impl block to avoid WIT export requirements)
-
-/// Parse X-PAYMENT header value: base64 decode and deserialize to PaymentPayload
-fn parse_x_payment_header(header_value: &str) -> Result<PaymentPayload, String> {
-    // Allocate buffer for decoded data (base64 decoding produces smaller output than input)
-    let max_decoded_len = (header_value.len() * 3) / 4 + 3;
-    let mut decoded_bytes = vec![0u8; max_decoded_len];
-
-    let decoded_slice = Base64::decode(header_value.as_bytes(), &mut decoded_bytes)
-        .map_err(|e| format!("Failed to base64 decode X-PAYMENT header: {}", e))?;
-
-    serde_json::from_slice(decoded_slice)
-        .map_err(|e| format!("Failed to parse X-PAYMENT JSON: {}", e))
-}
-
-/// Convert a ParameterDefinition to x402scan's FieldDef format
-fn parameter_to_field_def(param: &ParameterDefinition) -> FieldDef {
-    FieldDef {
-        r#type: Some(param.value_type.clone()),
-        required: Some(serde_json::Value::Bool(true)),  // All provider params are required
-        description: Some(format!("Parameter: {}", param.parameter_name)),
-        r#enum: None,
-        properties: None,
-    }
-}
-
-/// Build InputSchema from provider's endpoint definition
-fn build_input_schema(endpoint: &EndpointDefinition) -> InputSchema {
-    let mut query_params = HashMap::new();
-    let mut body_fields = HashMap::new();
-    let mut header_fields = HashMap::new();
-
-    // Add the fixed providername parameter
-    query_params.insert(
-        "providername".to_string(),
-        FieldDef {
-            r#type: Some("string".to_string()),
-            required: Some(serde_json::Value::Bool(true)),
-            description: Some("Name of the registered provider to call".to_string()),
-            r#enum: None,
-            properties: None,
-        }
-    );
-
-    // Convert provider's parameters by location
-    for param in &endpoint.parameters {
-        let field_def = parameter_to_field_def(param);
-        match param.location.as_str() {
-            "query" => { query_params.insert(param.parameter_name.clone(), field_def); },
-            "body" => { body_fields.insert(param.parameter_name.clone(), field_def); },
-            "header" => { header_fields.insert(param.parameter_name.clone(), field_def); },
-            "path" => {
-                // Path params are part of the URL, not separate fields
-                // Could document them in description if needed
-            },
-            _ => {},
-        }
-    }
-
-    InputSchema {
-        r#type: "http".to_string(),
-        method: endpoint.method.clone(),
-        body_type: if !body_fields.is_empty() {
-            Some("json".to_string())
-        } else {
-            None
-        },
-        query_params: if !query_params.is_empty() { Some(query_params) } else { None },
-        body_fields: if !body_fields.is_empty() { Some(body_fields) } else { None },
-        header_fields: if !header_fields.is_empty() { Some(header_fields) } else { None },
-    }
-}
-
-/// Build PaymentRequirements structure from provider and resource URL
-fn build_payment_requirements(provider: &RegisteredProvider, resource_url: &str) -> PaymentRequirements {
-    // Convert USDC price to atomic units (6 decimals)
-    let max_amount_atomic = ((provider.price * 1_000_000.0).round() as u64).to_string();
-
-    // Build input schema from provider's endpoint definition
-    let input_schema = build_input_schema(&provider.endpoint);
-
-    // Create output schema for x402scan registry compliance
-    let output_schema = OutputSchema {
-        input: input_schema,
-        output: Some(serde_json::json!({
-            "type": "object",
-            "description": "Response from the provider's API endpoint"
-        })),
-    };
-
-    let accepted_payment = AcceptedPayment {
-        scheme: "exact".to_string(),
-        network: X402_PAYMENT_NETWORK.to_string(),
-        max_amount_required: max_amount_atomic,
-        resource: resource_url.to_string(),
-        description: provider.description.clone(),
-        mime_type: "application/json".to_string(),
-        pay_to: provider.registered_provider_wallet.clone(),
-        max_timeout_seconds: 60,
-        asset: if X402_PAYMENT_NETWORK == "base-sepolia" {
-            USDC_SEPOLIA_ADDRESS.to_string()
-        } else {
-            USDC_BASE_ADDRESS.to_string()
-        },
-        output_schema: Some(output_schema),
-        extra: Some(serde_json::json!({
-            "name": USDC_EIP712_NAME,
-            "version": USDC_EIP712_VERSION
-        })),
-    };
-
-    PaymentRequirements {
-        protocol_version: 1,
-        accepts: Some(vec![accepted_payment]),
-        error: Some("".to_string()),  // Empty string for no error (x402 clients expect this field)
-        payer: None,
     }
 }
 
