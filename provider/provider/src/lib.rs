@@ -4,14 +4,23 @@ use hyperware_process_lib::logging::RemoteLogSettings;
 use hyperware_process_lib::{
     eth::{Provider, Address as EthAddress},
     get_state,
+    http::{
+        StatusCode,
+        Method as HyperwareHttpMethod,
+    },
     hypermap,
     logging::{debug, error, info, warn, init_logging, Level},
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
-    hyperapp::{source, SaveOptions, sleep, get_server},
+    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, get_request_header, get_request_url, get_parsed_query_params},
 };
-use crate::constants::HYPR_SUFFIX;
+use crate::constants::{
+    HYPR_SUFFIX,
+    X402_FACILITATOR_BASE_URL,
+};
+use crate::util::{parse_x_payment_header, build_payment_requirements};
+use base64ct::{Base64, Encoding};
 use rmp_serde;
 use serde::{Deserialize, Serialize};
 use serde_json;
@@ -50,6 +59,155 @@ pub struct DummyResponse {
 pub struct ValidateAndRegisterRequest {
     pub provider: RegisteredProvider,
     pub validation_arguments: Vec<(String, String)>,
+}
+
+// x402 payment protocol structures
+// These use camelCase field names per x402 spec (not Rust's snake_case convention)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentRequirements {
+    #[serde(rename = "x402Version")]
+    pub protocol_version: u8,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepts: Option<Vec<AcceptedPayment>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub payer: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AcceptedPayment {
+    pub scheme: String,
+    pub network: String,
+    pub max_amount_required: String,  // USDC in atomic units (6 decimals)
+    pub resource: String,
+    pub description: String,
+    pub mime_type: String,
+    pub pay_to: String,  // Ethereum address
+    pub max_timeout_seconds: u64,
+    pub asset: String,   // USDC contract address
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_schema: Option<OutputSchema>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extra: Option<serde_json::Value>,
+}
+
+// x402scan registry schema types
+// FieldDef describes individual field requirements (type, required, enum, nested properties)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldDef {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required: Option<serde_json::Value>,  // Can be bool or string[]
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none", rename = "enum")]
+    pub r#enum: Option<Vec<String>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub properties: Option<HashMap<String, FieldDef>>,  // Recursive for nested objects
+}
+
+// InputSchema describes HTTP request requirements (method, params, body structure)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InputSchema {
+    pub r#type: String,  // Always "http" for our use case
+
+    pub method: String,  // "GET", "POST", etc
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_type: Option<String>,  // "json", "form-data", "multipart-form-data", "text", "binary"
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub query_params: Option<HashMap<String, FieldDef>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body_fields: Option<HashMap<String, FieldDef>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub header_fields: Option<HashMap<String, FieldDef>>,
+}
+
+// OutputSchema is the top-level schema wrapper for x402scan registry
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OutputSchema {
+    pub input: InputSchema,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output: Option<serde_json::Value>,  // Flexible JSON for response format
+}
+
+// X-PAYMENT header payload structures (from x402 client)
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PaymentPayload {
+    #[serde(rename = "x402Version")]
+    pub protocol_version: u8,
+    pub scheme: String,
+    pub network: String,
+    pub payload: ExactPayload,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExactPayload {
+    pub signature: String,
+    pub authorization: Authorization,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Authorization {
+    pub from: String,
+    pub to: String,
+    pub value: String,
+    pub valid_after: String,
+    pub valid_before: String,
+    pub nonce: String,
+}
+
+// Facilitator API request/response structures
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FacilitatorVerifyRequest {
+    #[serde(rename = "x402Version")]
+    pub protocol_version: u8,
+    pub payment_payload: PaymentPayload,  // Decoded payment object
+    pub payment_requirements: AcceptedPayment,  // Single payment method, not the full PaymentRequirements wrapper
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VerifyResponse {
+    pub is_valid: bool,
+    pub payer: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub invalid_reason: Option<String>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SettleResponse {
+    pub success: bool,
+    pub payer: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub transaction: Option<String>,
+    pub network: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error_reason: Option<String>,
 }
 
 // Type system for API endpoints
@@ -355,6 +513,10 @@ impl Default for HypergridProviderState {
     endpoints = vec![
         Binding::Http {
             path: "/api",
+            config: HttpBindingConfig::new(false, false, false, None),
+        },
+        Binding::Http {
+            path: "/xfour",
             config: HttpBindingConfig::new(false, false, false, None),
         },
         Binding::Ws {
@@ -841,6 +1003,313 @@ impl HypergridProviderState {
     async fn export_providers(&self) -> Result<String, String> {
         debug!("Exporting providers as JSON");
         self.export_providers_json()
+    }
+
+    /// HTTP 402 Payment Required endpoint for x402 micropayment protocol
+    ///
+    /// This endpoint implements the x402 payment flow:
+    /// 1. Initial request: Client sends query params (providername + provider args), gets 402 response with PaymentRequirements
+    /// 2. Payment retry: Client retries with X-PAYMENT header containing signed payment authorization
+    /// 3. Final response: After payment validation, return actual provider response with X-PAYMENT-RESPONSE header
+    #[http(path = "/xfour")]
+    async fn handle_xfour(&mut self) -> Result<String, String> {
+        info!("x402 endpoint called");
+
+        // ===== CHECK FOR X-PAYMENT HEADER =====
+        let x_payment_header = get_request_header("x-payment");
+
+        // ===== SHARED: QUERY PARAMETER VALIDATION =====
+        let params = get_parsed_query_params();
+
+        let params = match params {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                let error_json = serde_json::json!({"error": "Missing query parameters. Expected ?providername=...&..."});
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::BAD_REQUEST);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+        };
+
+        // ===== SHARED: PROVIDER NAME EXTRACTION =====
+        let provider_name = match params.get("providername") {
+            Some(name) => name,
+            None => {
+                let error_json = serde_json::json!({"error": "Missing required parameter: providername"});
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::BAD_REQUEST);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+        };
+
+        // ===== SHARED: PROVIDER LOOKUP =====
+        let provider = match self.registered_providers.iter().find(|p| &p.provider_name == provider_name).cloned() {
+            Some(p) => p,
+            None => {
+                let error_json = serde_json::json!({"error": format!("Provider not found: {}", provider_name)});
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::NOT_FOUND);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+        };
+
+        // ===== SHARED: GET RESOURCE URL =====
+        // NOTE: Fallback URL uses test.hypr - this should never actually be used in production
+        // as get_request_url() should always succeed in HTTP context. If this fallback triggers, investigate.
+        let resource_url = get_request_url()
+            .unwrap_or_else(|| format!("http://unknown/provider:hypergrid:test.hypr/xfour?providername={}", provider_name));
+
+        // ===== BRANCH: PAYMENT VERIFICATION FLOW =====
+        if let Some(x_payment_str) = x_payment_header {
+            info!("X-PAYMENT header detected, processing payment");
+            info!("X-PAYMENT header received, length: {} chars", x_payment_str.len());
+
+            let payment_payload = match parse_x_payment_header(&x_payment_str) {
+                Ok(payload) => payload,
+                Err(e) => {
+                    let error_json = serde_json::json!({"error": format!("Invalid X-PAYMENT header: {}", e)});
+                    let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                    set_response_body(error_bytes);
+                    set_response_status(StatusCode::BAD_REQUEST);
+                    add_response_header("Content-Type".to_string(), "application/json".to_string());
+                    return Ok("".to_string());
+                }
+            };
+
+            // Validate protocol version
+            if payment_payload.protocol_version != 1 {
+                error!("Unsupported x402 protocol version: {}", payment_payload.protocol_version);
+                let error_json = serde_json::json!({
+                    "error": format!("Unsupported x402 protocol version: {}. Expected version 1.", payment_payload.protocol_version)
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::BAD_REQUEST);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+
+            info!("Payment parsed - protocol v{}, scheme: {}, network: {}",
+                payment_payload.protocol_version, payment_payload.scheme, payment_payload.network);
+
+            // Rebuild PaymentRequirements for verification
+            let payment_requirements = build_payment_requirements(&provider, &resource_url);
+
+            // Find the matching payment method based on scheme and network
+            let payment_method = payment_requirements.accepts
+                .as_ref()
+                .and_then(|accepts| {
+                    accepts.iter()
+                        .find(|method| {
+                            method.scheme == payment_payload.scheme &&
+                            method.network == payment_payload.network
+                        })
+                        .cloned()
+                });
+
+            let payment_method = match payment_method {
+                Some(method) => {
+                    info!("Found matching payment method for scheme: {}, network: {}",
+                        payment_payload.scheme, payment_payload.network);
+                    method
+                },
+                None => {
+                    error!("No matching payment method found for scheme: {}, network: {}",
+                        payment_payload.scheme, payment_payload.network);
+                    let error_json = serde_json::json!({
+                        "error": format!("No matching payment method for scheme: {}, network: {}",
+                            payment_payload.scheme, payment_payload.network)
+                    });
+                    let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                    set_response_body(error_bytes);
+                    set_response_status(StatusCode::BAD_REQUEST);
+                    add_response_header("Content-Type".to_string(), "application/json".to_string());
+                    return Ok("".to_string());
+                }
+            };
+
+            // Build facilitator verify request with the matched payment method
+            let verify_request = FacilitatorVerifyRequest {
+                protocol_version: 1,
+                payment_payload: payment_payload.clone(),
+                payment_requirements: payment_method,
+            };
+
+            let verify_body = serde_json::to_vec(&verify_request)
+                .map_err(|e| format!("Failed to serialize verify request: {}", e))?;
+
+            // Call facilitator /verify
+            let verify_url = url::Url::parse(&format!("{}/verify", X402_FACILITATOR_BASE_URL))
+                .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
+
+            let mut verify_headers = HashMap::new();
+            verify_headers.insert("Content-Type".to_string(), "application/json".to_string());
+
+            let verify_response = match send_async_http_request(
+                HyperwareHttpMethod::POST,
+                verify_url,
+                Some(verify_headers),
+                30,
+                verify_body,
+            ).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    error!("Facilitator /verify request failed: {:?}", e);
+                    let error_json = serde_json::json!({"error": "Payment verification service unavailable"});
+                    let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                    set_response_body(error_bytes);
+                    set_response_status(StatusCode::SERVICE_UNAVAILABLE);
+                    add_response_header("Content-Type".to_string(), "application/json".to_string());
+                    return Ok("".to_string());
+                }
+            };
+
+            info!("Facilitator /verify response: {:?}", verify_response.status());
+
+            // Parse verify response
+            let verify_result: VerifyResponse = serde_json::from_slice(verify_response.body())
+                .map_err(|e| format!("Failed to parse verify response: {}", e))?;
+
+            if !verify_result.is_valid {
+                warn!("Payment verification failed: {:?}", verify_result.invalid_reason);
+                let mut error_payment_reqs = payment_requirements.clone();
+                error_payment_reqs.error = Some(verify_result.invalid_reason.unwrap_or_else(|| "Payment verification failed".to_string()));
+                let error_bytes = serde_json::to_vec(&error_payment_reqs).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::PAYMENT_REQUIRED);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+
+            info!("Payment verified for payer: {}", verify_result.payer);
+
+            // Call upstream provider API
+            let args_vec: Vec<(String, String)> = params.iter()
+                .filter(|(k, _)| k != &"providername")
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect();
+
+            let upstream_response = match call_provider(
+                provider.provider_name.clone(),
+                provider.endpoint.clone(),
+                &args_vec,
+                our().node.to_string(),
+            ).await {
+                Ok(resp) => resp,
+                Err(e) => {
+                    error!("Upstream API call failed: {}", e);
+                    let error_json = serde_json::json!({"error": format!("Provider API call failed: {}", e)});
+                    let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                    set_response_body(error_bytes);
+                    set_response_status(StatusCode::BAD_GATEWAY);
+                    add_response_header("Content-Type".to_string(), "application/json".to_string());
+                    return Ok("".to_string());
+                }
+            };
+
+            info!("Upstream API call successful, settling payment");
+
+            // Call facilitator /settle
+            let settle_body = serde_json::to_vec(&verify_request)
+                .map_err(|e| format!("Failed to serialize settle request: {}", e))?;
+
+            let settle_url = url::Url::parse(&format!("{}/settle", X402_FACILITATOR_BASE_URL))
+                .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
+
+            let mut settle_headers = HashMap::new();
+            settle_headers.insert("Content-Type".to_string(), "application/json".to_string());
+
+            // Call facilitator /settle and parse response
+            let settle_result: SettleResponse = match send_async_http_request(
+                HyperwareHttpMethod::POST,
+                settle_url,
+                Some(settle_headers),
+                30,
+                settle_body,
+            ).await {
+                Ok(http_response) => {
+                    info!("Facilitator /settle response: {:?}", http_response.status());
+
+                    // Parse the HTTP response body into SettleResponse
+                    serde_json::from_slice(http_response.body())
+                        .unwrap_or_else(|e| {
+                            error!("Failed to parse settlement response: {}", e);
+                            SettleResponse {
+                                success: false,
+                                payer: verify_result.payer.clone(),
+                                transaction: None,
+                                network: payment_payload.network.clone(),
+                                error_reason: Some(format!("Failed to parse settlement response: {}", e)),
+                            }
+                        })
+                }
+                Err(e) => {
+                    // HTTP request failed - settlement service unavailable
+                    error!("Facilitator /settle request failed but continuing: {:?}", e);
+                    SettleResponse {
+                        success: false,
+                        payer: verify_result.payer.clone(),
+                        transaction: None,
+                        network: payment_payload.network.clone(),
+                        error_reason: Some(format!("Settlement service error: {:?}", e)),
+                    }
+                }
+            };
+
+            // Reject request if settlement fails - provider does not get paid
+            if !settle_result.success {
+                error!("Settlement failed, rejecting request: {:?}", settle_result.error_reason);
+                let error_json = serde_json::json!({
+                    "error": "Payment settlement failed. Please try again.",
+                    "reason": settle_result.error_reason.unwrap_or_else(|| "Unknown settlement error".to_string())
+                });
+                let error_bytes = serde_json::to_vec(&error_json).unwrap();
+                set_response_body(error_bytes);
+                set_response_status(StatusCode::PAYMENT_REQUIRED);
+                add_response_header("Content-Type".to_string(), "application/json".to_string());
+                return Ok("".to_string());
+            }
+
+            // Encode settle response for X-PAYMENT-RESPONSE header
+            let settle_json = serde_json::to_vec(&settle_result)
+                .map_err(|e| format!("Failed to serialize settle response: {}", e))?;
+
+            // Base64 encode for header
+            let encoded_len = Base64::encoded_len(&settle_json);
+            let mut buf = vec![0u8; encoded_len];
+            let settle_b64 = Base64::encode(&settle_json, &mut buf)
+                .map_err(|e| format!("Failed to base64 encode settlement response: {}", e))?
+                .to_string();
+
+            // Return upstream response with X-PAYMENT-RESPONSE header
+            set_response_body(upstream_response.into_bytes());
+            set_response_status(StatusCode::OK);
+            add_response_header("Content-Type".to_string(), "application/json".to_string());
+            add_response_header("X-PAYMENT-RESPONSE".to_string(), settle_b64);
+
+            info!("Payment flow completed successfully for provider '{}'", provider_name);
+            return Ok("".to_string());
+        }
+
+        // ===== BRANCH: 402 PAYMENT REQUIRED FLOW =====
+        info!("No X-PAYMENT header, returning 402 Payment Required");
+
+        let payment_reqs = build_payment_requirements(&provider, &resource_url);
+        let payment_json = serde_json::to_vec(&payment_reqs)
+            .map_err(|e| format!("Failed to serialize payment requirements: {}", e))?;
+
+        set_response_body(payment_json);
+        set_response_status(StatusCode::PAYMENT_REQUIRED);
+        add_response_header("Content-Type".to_string(), "application/json".to_string());
+
+        info!("Returning 402 Payment Required for provider '{}'", provider_name);
+        Ok("".to_string())
     }
 
     #[http]
