@@ -2,25 +2,19 @@ import React, { useState, useCallback } from 'react';
 import { ModifiableField, ParsedCurlRequest, redactApiKey } from '../utils/enhancedCurlParser';
 import { MdCode, MdCheck, MdRemove, MdSecurity } from 'react-icons/md';
 
-interface CurlJsonViewerProps {
+interface CurlRequestInspectorProps {
   parsedRequest: ParsedCurlRequest;
   potentialFields: ModifiableField[];
   modifiableFields: ModifiableField[];
   onFieldToggleModifiable: (field: ModifiableField) => void;
 }
 
-const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
+const CurlRequestInspector: React.FC<CurlRequestInspectorProps> = ({
   parsedRequest,
   potentialFields,
   modifiableFields,
   onFieldToggleModifiable
 }) => {
-
-
-  const isFieldModifiable = useCallback((jsonPointer: string) => {
-    return modifiableFields.some(f => f.jsonPointer === jsonPointer);
-  }, [modifiableFields]);
-
   const getFieldByPointer = useCallback((pointer: string) => {
     return potentialFields.find(f => f.jsonPointer === pointer);
   }, [potentialFields]);
@@ -403,4 +397,4 @@ const CurlJsonViewer: React.FC<CurlJsonViewerProps> = ({
   );
 };
 
-export default CurlJsonViewer;
+export default CurlRequestInspector;

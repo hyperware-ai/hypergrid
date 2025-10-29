@@ -6,13 +6,12 @@ import {
   hyperGridNamespaceMinterAbi,
   generateProviderNotesCallsArray,
   generateNoteCall,
-  tbaExecuteAbi,
+  createTbaExecuteCall,
+  createMulticallData,
   HYPERMAP_ADDRESS, 
-  MULTICALL_ADDRESS,
-  multicallAbi
+  MULTICALL_ADDRESS
 } from './hypermap';
 import { RegisteredProvider } from '../types/hypergrid_provider';
-import React from 'react';
 
 export type ProviderRegistrationStep = 'idle' | 'minting' | 'notes' | 'complete';
 
@@ -93,7 +92,6 @@ function extractTbaAddressFromLogs(logs: any[], providerName: string): Address |
 
 export function getRegistrationStepText(
   step: ProviderRegistrationStep,
-  currentNoteIndex: number,
   isMinting: boolean,
   isSettingNotes: boolean,
   isMintTxLoading: boolean,
@@ -227,13 +225,13 @@ export function useProviderRegistration(callbacks: ProviderRegistrationCallbacks
       });
 
       // Call TBA.execute(MULTICALL, multicallData, 0, 1)
-      await setNote({
-        address: returnedTbaAddress,
-        abi: tbaExecuteAbi,
-        functionName: 'execute',
-        args: executeArgs,
-        gas: 1000000n,
-      } as any);
+      await setNote(createTbaExecuteCall(
+        returnedTbaAddress,
+        executeArgs[0],
+        executeArgs[2],
+        executeArgs[3],
+        1000000n
+      ) as any);
     } catch (error) {
       console.error('Failed to create notes multicall:', error);
       const errorMessage = `Failed to set notes: ${(error as Error).message}`;
@@ -534,18 +532,12 @@ export function useProviderUpdate(callbacks: ProviderUpdateCallbacks) {
        });
 
        // Direct call to TBA.execute - EXACTLY like the working example
-       await updateNotes({
-         address: tbaAddress,
-         abi: tbaExecuteAbi,
-         functionName: 'execute',
-         args: [
-           HYPERMAP_ADDRESS,  // target: HYPERMAP directly
-           0n,                // value: 0n (try different syntax)
-           noteCalldata,      // data: the note function call
-           0,                 // operation: 0 for CALL (not DELEGATECALL)
-         ],
-         // Remove explicit gas limit to let wagmi estimate
-       } as any);
+       await updateNotes(createTbaExecuteCall(
+         tbaAddress,
+         HYPERMAP_ADDRESS,
+         noteCalldata,
+         0
+       ) as any);
        
        console.log('Single note update transaction sent (not yet confirmed)');
        console.log('Transaction will be monitored for success/failure...');
@@ -607,36 +599,18 @@ export function useProviderUpdate(callbacks: ProviderUpdateCallbacks) {
 
     try {
       // Generate multicall for all notes
-      const noteCalls = notes.map(note => 
-        generateNoteCall({ noteKey: note.key, noteValue: note.value })
-      );
-
-      const calls = noteCalls.map(calldata => ({
-        target: HYPERMAP_ADDRESS,
-        callData: calldata,
-      }));
-
-      const multicallData = encodeFunctionData({
-        abi: multicallAbi,
-        functionName: 'aggregate',
-        args: [calls]
-      });
+      const multicallData = createMulticallData(notes);
 
       console.log('Updating multiple notes with multicall via DELEGATECALL');
 
       // Call TBA.execute(MULTICALL_ADDRESS, multicallData, 0, 1) for multicall - using DELEGATECALL like registration
-      await updateNotes({
-        address: tbaAddress,
-        abi: tbaExecuteAbi,
-        functionName: 'execute',
-        args: [
-          MULTICALL_ADDRESS, // target: Multicall contract
-          0n,               // value: 0 ETH
-          multicallData,    // data: the multicall
-          1,                // operation: 1 for DELEGATECALL (matching registration pattern)
-        ],
-        gas: 1500000n, // Increased gas limit for safety
-      } as any);
+      await updateNotes(createTbaExecuteCall(
+        tbaAddress,
+        MULTICALL_ADDRESS,
+        multicallData,
+        1,
+        1500000n
+      ) as any);
     } catch (error) {
       console.error('Failed to update multiple notes:', error);
       const errorMessage = `Failed to update notes: ${(error as Error).message}`;
@@ -676,43 +650,3 @@ export function useProviderUpdate(callbacks: ProviderUpdateCallbacks) {
     updateProviderNotes,
   };
 }
-
-/**
- * Custom hook for handling animation triggers based on registration state
- */
-export function useRegistrationAnimations(
-  step: ProviderRegistrationStep,
-  mintedProviderAddress: Address | null,
-  onAnimationComplete?: () => void
-) {
-  const [animationState, setAnimationState] = React.useState<{
-    showSuccessAnimation: boolean;
-    showConfetti: boolean;
-  }>({
-    showSuccessAnimation: false,
-    showConfetti: false,
-  });
-
-  React.useEffect(() => {
-    if (step === 'complete' && mintedProviderAddress) {
-      // Trigger success animation
-      setAnimationState({
-        showSuccessAnimation: true,
-        showConfetti: true,
-      });
-      
-      // Optional callback after animation
-      if (onAnimationComplete) {
-        const timer = setTimeout(onAnimationComplete, 3000);
-        return () => clearTimeout(timer);
-      }
-    } else {
-      setAnimationState({
-        showSuccessAnimation: false,
-        showConfetti: false,
-      });
-    }
-  }, [step, mintedProviderAddress, onAnimationComplete]);
-
-  return animationState;
-} 

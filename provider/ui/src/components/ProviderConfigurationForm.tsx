@@ -1,8 +1,8 @@
 import React from 'react';
-import EnhancedCurlImportModal from './EnhancedCurlImportModal';
-import HypergridEntryForm from './HypergridEntryForm';
+import CurlTemplateEditor from './CurlTemplateEditor';
+import {HYPR_SUFFIX } from '../constants';
 
-interface UnifiedTerminalInterfaceProps {
+interface ProviderConfigurationFormProps {
   // cURL props
   onCurlImport: (curlTemplateData: any) => void;
   onParseSuccess?: () => void;
@@ -27,7 +27,7 @@ interface UnifiedTerminalInterfaceProps {
   isEditMode?: boolean;
 }
 
-const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
+const ProviderConfigurationForm: React.FC<ProviderConfigurationFormProps> = ({
   onCurlImport,
   onParseSuccess,
   onParseClear,
@@ -67,8 +67,7 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
         </div>
         
         <div className="bg-stone-200 dark:bg-gray-900/50 rounded border border-stone-300 dark:border-gray-700 p-1">
-          <EnhancedCurlImportModal
-            isOpen={true}
+          <CurlTemplateEditor
             onClose={() => {}}
             onImport={onCurlImport}
             onParseSuccess={onParseSuccess}
@@ -106,7 +105,7 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
                   className="bg-transparent border-none outline-none text-yellow-600 dark:text-yellow-400 placeholder-stone-500 dark:placeholder-gray-600 font-mono text-lg font-medium"
                 />
               )}
-              <span className="text-stone-500 dark:text-gray-500">.grid.hypr</span>
+              <span className="text-stone-500 dark:text-gray-500">{HYPR_SUFFIX}</span>
               <span className="text-stone-500 dark:text-gray-600 text-xs ml-auto">provider namespace</span>
             </div>
           </div>
@@ -191,4 +190,5 @@ const UnifiedTerminalInterface: React.FC<UnifiedTerminalInterfaceProps> = ({
   );
 };
 
-export default UnifiedTerminalInterface;
+export default ProviderConfigurationForm;
+
