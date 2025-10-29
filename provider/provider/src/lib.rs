@@ -13,7 +13,7 @@ use hyperware_process_lib::{
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
-    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, get_request_header, get_request_url, get_parsed_query_params},
+    hyperapp::{SaveOptions, get_server, set_response_status, set_response_body, add_response_header, get_request_header, get_request_url, get_parsed_query_params},
 };
 use crate::constants::{
     HYPR_SUFFIX,
@@ -37,22 +37,6 @@ mod db; // Declare the db module
 use db::*; // Use its public items
 
 pub mod constants; // Declare the constants module
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProviderCall {
-    pub provider_name: String,
-    pub arguments: Vec<(String, String)>,
-    pub payment_tx_hash: Option<String>,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HealthCheckCall {
-    pub provider_name: String, // Provider name for availability checking
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct DummyResponse {
-    pub response: String,
-}
 
 // New structure for validation request
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -210,14 +194,14 @@ pub struct SettleResponse {
     pub error_reason: Option<String>,
 }
 
-// Type system for API endpoints
+// Type system for API endpoints (TODO: Remove this)
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum HttpMethod {
     GET,
     POST,
 }
 
-// --- Added Enum for Request Structure ---
+// --- Added Enum for Request Structure (TODO: Remove this) ---
 #[derive(PartialEq, Clone, Debug, Serialize, Deserialize)]
 pub enum RequestStructureType {
     GetWithPath,
@@ -230,7 +214,6 @@ pub enum TerminalCommand {
     ListProviders,
     RegisterProvider(RegisteredProvider),
     UnregisterProvider(String),
-    TestProvider(ProviderCall),
     ExportProviders,
     ViewDatabase,
 }
@@ -551,45 +534,6 @@ impl HypergridProviderState {
         // add_to_homepage("Hypergrid Provider Dashboard", Some(ICON), Some("/"), None);
     }
 
-    #[local]
-    #[remote]
-    async fn health_ping(&self, request: HealthCheckCall) -> Result<String, String> {
-        info!("Health ping received: {:?}", request);
-        
-        info!("Checking availability for provider: {}", request.provider_name);
-        
-        // Check if provider exists in registry
-        let provider_exists = self
-            .registered_providers
-            .iter()
-            .find(|p| p.provider_name == request.provider_name);
-            
-        match provider_exists {
-            Some(provider) => {
-                // Check if provider has a valid endpoint configuration
-                if provider.endpoint.is_empty() {
-                    let error_msg = format!(
-                        "Provider '{}' exists but needs endpoint configuration", 
-                        request.provider_name
-                    );
-                    warn!("{}", error_msg);
-                    return Err(error_msg);
-                }
-                
-                debug!(
-                    "Provider '{}' is available and configured (price: {} USDC)", 
-                    request.provider_name, 
-                    provider.price
-                );
-                Ok("Ack".to_string())
-            }
-            None => {
-                let error_msg = format!("Provider '{}' not found in registry", request.provider_name);
-                warn!("{}", error_msg);
-                Err(error_msg)
-            }
-        }
-    }
 
     #[http]
     async fn register_provider(
@@ -840,144 +784,6 @@ impl HypergridProviderState {
                 provider_name
             )),
         }
-    }
-
-    #[local]
-    #[remote]
-    async fn call_provider(&mut self, request: ProviderCall) -> Result<String, String> {
-        let mcp_request = match request {
-            ProviderCall { .. } => request,
-        };
-        
-        // Get the source node ID for tracking
-        let source_address = source();
-        let source_node_id = source_address.node().to_string();
-        
-        // Usage tracking log - no sensitive data
-        info!(
-            "provider_call_started: provider={}, provider_node={}, source_node={}, tx_hash={}, arg_count={}",
-            mcp_request.provider_name,
-            our().node,
-            source_node_id,
-            mcp_request.payment_tx_hash.as_deref().unwrap_or("none"),
-            mcp_request.arguments.len()
-        );
-
-        // --- 0. Check if provider exists at all ---
-        // First validate the payment before accessing registered_provider
-        if !self
-            .registered_providers
-            .iter()
-            .any(|p| p.provider_name == mcp_request.provider_name)
-        {
-            let error_msg = format!(
-                "Provider '{}' not found - please make sure to enter a valid, registered provider name",
-                mcp_request.provider_name
-            );
-            // Error tracking log - safe data only
-            error!(
-                "provider_call_failed: provider={}, source_node={}, error_type=provider_not_found, message={}",
-                mcp_request.provider_name,
-                source_node_id,
-                "Provider not found in registry"
-            );
-            return Err(error_msg);
-        }
-
-        // Get the source node ID ---
-        let source_address = source();
-        // goobersync.os
-        let source_node_id = source_address.node().to_string();
-
-        // --- 1. Validate the payment ---
-        if let Err(validation_err) =
-            validate_transaction_payment(&mcp_request, self, source_node_id.clone()).await
-        {
-            // Error tracking log - payment validation failed
-            error!(
-                "provider_call_failed: provider={}, source_node={}, error_type=payment_validation_failed, validation_error={}",
-                mcp_request.provider_name,
-                source_node_id,
-                validation_err
-            );
-            return Err(validation_err);
-        }
-        // We can safely unwrap here since validate_transaction_payment already checked
-        // that the provider exists in the registered_providers list
-        let registered_provider = self
-            .registered_providers
-            .iter()
-            .find(|p| p.provider_name == mcp_request.provider_name)
-            .expect(&format!(
-                "Provider '{}' not found - this should never happen as it was validated in `validate_transaction_payment`",
-                mcp_request.provider_name
-            ));
-
-        // --- 2. Call the provider with retry mechanism ---
-        const MAX_RETRIES: usize = 3;
-        let mut last_error = String::new();
-        let call_start_time = std::time::Instant::now();
-        for attempt in 1..=MAX_RETRIES {
-            debug!("Attempting provider call {} of {}", attempt, MAX_RETRIES);
-
-            let api_call_result = call_provider(
-                // This is the HTTP call_provider
-                registered_provider.provider_name.clone(),
-                registered_provider.endpoint.clone(),
-                &mcp_request.arguments,
-                source_node_id.clone(), // this makes sure User-Agent is node ID
-            )
-            .await;
-
-            match api_call_result {
-                Ok(response) => {
-                    let call_duration = call_start_time.elapsed();
-                    
-                    // Success tracking log - no sensitive data
-                    info!(
-                        "provider_call_success: provider={}, provider_node={}, source_node={}, tx_hash={}, price_usdc={}, attempt={}, duration_ms={}, response_size_bytes={}",
-                        registered_provider.provider_name,
-                        our().node,
-                        source_node_id,
-                        mcp_request.payment_tx_hash.as_deref().unwrap_or("none"),
-                        registered_provider.price,
-                        attempt,
-                        call_duration.as_millis(),
-                        response.len()
-                    );
-                    
-                    if attempt > 1 {
-                        debug!("Provider call succeeded on attempt {} of {} after {:?}", attempt, MAX_RETRIES, call_duration);
-                    }
-                    return Ok(response);
-                },
-                Err(e) => {
-                    last_error = e.clone();
-                    error!(
-                        "provider_call_attempt_failed: provider={}, source_node={}, attempt={}, error_type=api_call_failed",
-                        registered_provider.provider_name,
-                        source_node_id,
-                        attempt
-                    );
-                    // Don't sleep after the last attempt
-                    if attempt < MAX_RETRIES {
-                        // Add a small delay between retries to handle rate limiting and temporary issues
-                        let _ = sleep(500).await;
-                    }
-                }
-            }
-        }
-
-        // If we get here, all retries failed
-        let total_duration = call_start_time.elapsed();
-        error!(
-            "provider_call_failed: provider={}, source_node={}, error_type=all_retries_failed, attempts={}, total_duration_ms={}",
-            registered_provider.provider_name,
-            source_node_id,
-            MAX_RETRIES,
-            total_duration.as_millis()
-        );
-        Err(last_error)
     }
 
     #[http]
@@ -1490,52 +1296,6 @@ impl HypergridProviderState {
                     "Successfully unregistered provider: {}",
                     provider_name
                 ))
-            }
-            TerminalCommand::TestProvider(provider_request) => {
-                debug!(
-                    "Testing provider: {}, with dynamic args: {:?}, and tx hash: {:?}",
-                    provider_request.provider_name,
-                    provider_request.arguments,
-                    provider_request.payment_tx_hash,
-                );
-
-                let source_node_id = "anotherdayanothertestingnodeweb.os".to_string();
-
-                //validate_transaction_payment(&provider_request, self, source_node_id.clone()).await?;
-
-
-                let registered_provider = match self
-                    .registered_providers
-                    .iter()
-                    .find(|p| p.provider_name == provider_request.provider_name)
-                {
-                    Some(provider) => provider,
-                    None => {
-                        let error_msg = format!(
-                            "Provider with name '{}' not found in registered providers.",
-                            provider_request.provider_name
-                        );
-                        warn!("{}", error_msg);
-                        return Err(error_msg);
-                    }
-                };
-
-                debug!("Registered provider: {:?}", registered_provider);
-
-                let result = call_provider(
-                    registered_provider.provider_name.clone(),
-                    registered_provider.endpoint.clone(),
-                    &provider_request.arguments,
-                    source_node_id,
-                )
-                .await;
-
-                debug!("Result: {:?}", result);
-
-                match result {
-                    Ok(response) => Ok(response),
-                    Err(e) => Err(e),
-                }
             }
             TerminalCommand::ExportProviders => {
                 debug!("Exporting providers as JSON");
