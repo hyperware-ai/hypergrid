@@ -38,14 +38,14 @@ use db::*; // Use its public items
 
 pub mod constants; // Declare the constants module
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProviderRequest {
+pub struct ProviderCall {
     pub provider_name: String,
     pub arguments: Vec<(String, String)>,
     pub payment_tx_hash: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct HealthCheckRequest {
+pub struct HealthCheckCall {
     pub provider_name: String, // Provider name for availability checking
 }
 
@@ -230,7 +230,7 @@ pub enum TerminalCommand {
     ListProviders,
     RegisterProvider(RegisteredProvider),
     UnregisterProvider(String),
-    TestProvider(ProviderRequest),
+    TestProvider(ProviderCall),
     ExportProviders,
     ViewDatabase,
 }
@@ -553,7 +553,7 @@ impl HypergridProviderState {
 
     #[local]
     #[remote]
-    async fn health_ping(&self, request: HealthCheckRequest) -> Result<String, String> {
+    async fn health_ping(&self, request: HealthCheckCall) -> Result<String, String> {
         info!("Health ping received: {:?}", request);
         
         info!("Checking availability for provider: {}", request.provider_name);
@@ -844,9 +844,9 @@ impl HypergridProviderState {
 
     #[local]
     #[remote]
-    async fn call_provider(&mut self, request: ProviderRequest) -> Result<String, String> {
+    async fn call_provider(&mut self, request: ProviderCall) -> Result<String, String> {
         let mcp_request = match request {
-            ProviderRequest { .. } => request,
+            ProviderCall { .. } => request,
         };
         
         // Get the source node ID for tracking

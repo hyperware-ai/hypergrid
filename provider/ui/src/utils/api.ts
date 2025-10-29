@@ -1,7 +1,7 @@
 import { 
   RegisteredProvider,
   GetRegisteredProvidersResponse,
-  RegisterProviderRequest,
+  RegisterProviderCall,
   RegisterProviderResponse,
   UpdateProviderResponse,
   IndexedProvider,
@@ -93,7 +93,7 @@ export const registerProviderApi = async (
   provider: RegisteredProvider
 ): Promise<RegisterProviderResponse> => {
   try {
-    const payload: RegisterProviderRequest = {
+    const payload: RegisterProviderCall = {
       RegisterProvider: provider,
     };
 

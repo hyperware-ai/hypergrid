@@ -218,7 +218,7 @@ mod api_tests {
 
     #[test]
     fn test_provider_request_serialization() {
-        let provider_request = ProviderRequest {
+        let provider_request = ProviderCall {
             provider_name: "weather-service".to_string(),
             arguments: vec![
                 ("city".to_string(), "New York".to_string()),
@@ -228,7 +228,7 @@ mod api_tests {
         };
         
         let json = serde_json::to_string(&provider_request).unwrap();
-        let deserialized: ProviderRequest = serde_json::from_str(&json).unwrap();
+        let deserialized: ProviderCall = serde_json::from_str(&json).unwrap();
         
         assert_eq!(provider_request.provider_name, deserialized.provider_name);
         assert_eq!(provider_request.arguments, deserialized.arguments);

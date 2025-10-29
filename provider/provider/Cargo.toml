@@ -18,18 +18,26 @@ branch = "set-response-body"
 git = "https://github.com/hyperware-ai/hyperprocess-macro"
 
 [dependencies.hyperware_process_lib]
+branch = "set-response-body"
 features = [
     "hyperapp",
     "logging",
 ]
-branch = "set-response-body"
 git = "https://github.com/hyperware-ai/process_lib"
+
+[dependencies.provider_caller_utils]
+optional = true
+path = "../target/provider-caller-utils"
 
 [dependencies.serde]
 features = ["derive"]
 version = "1.0"
 
 [features]
+caller-utils = [
+    "dep:caller-utils",
+    "provider_caller_utils",
+]
 simulation-mode = []
 
 [lib]
