@@ -1470,12 +1470,12 @@ fn execute_provider_call(
         "Preparing request for provider process at {}",
         target_address
     );
-    let provider_request_data = ProviderRequest {
+    let provider_request_data = ProviderCall {
         provider_name: provider_name.clone(),
         arguments,
         payment_tx_hash: payment_tx_hash_clone,
     };
-    // Wrap the ProviderRequest data in a JSON structure that mimics the enum variant
+    // Wrap the ProviderCall data in a JSON structure that mimics the enum variant
     let wrapped_request = serde_json::json!({
         "CallProvider": provider_request_data
     });

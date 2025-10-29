@@ -76,7 +76,7 @@ This is the internal representation of the API endpoint that the provider uses t
 The following struct is the format which the provider accepts for making provider calls.
 ```rust
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProviderRequest {
+pub struct ProviderCall {
     pub provider_name: String,
     pub arguments: Vec<(String, String)>,
     pub payment_tx_hash: Option<String>,

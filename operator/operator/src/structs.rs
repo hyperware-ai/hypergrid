@@ -529,11 +529,11 @@ pub enum ClientRequest {
 }
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 pub struct CallProvider {
-    pub request: ProviderRequest,
+    pub request: ProviderCall,
 }
 // changed from HashMap to Vec<String>
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
-pub struct ProviderRequest {
+pub struct ProviderCall {
     pub provider_name: String,
     pub arguments: Vec<(String, String)>,
     #[serde(skip_serializing_if = "Option::is_none")]

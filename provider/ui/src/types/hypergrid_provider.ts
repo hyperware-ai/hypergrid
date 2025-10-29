@@ -69,7 +69,7 @@ export interface RegisteredProvider {
 }
 
 // Request body for the register_provider endpoint
-export interface RegisterProviderRequest {
+export interface RegisterProviderCall {
   RegisterProvider: RegisteredProvider; // Just the provider, no validation arguments
 }
 

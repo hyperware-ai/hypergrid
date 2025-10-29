@@ -1,5 +1,5 @@
 use crate::{
-    EndpointDefinition, ProviderRequest, PaymentPayload, FieldDef, InputSchema, 
+    EndpointDefinition, ProviderCall, PaymentPayload, FieldDef, InputSchema, 
     OutputSchema, AcceptedPayment, PaymentRequirements, ParameterDefinition, 
     RegisteredProvider
 };
@@ -726,7 +726,7 @@ fn parse_parameter_value(value: &str) -> serde_json::Value {
 
 // --- Function to Validate Transaction Payment ---
 pub async fn validate_transaction_payment(
-    mcp_request: &ProviderRequest,
+    mcp_request: &ProviderCall,
     state: &mut super::HypergridProviderState, // Now mutable
     source_node_id: String,                    // Pass source node string directly
 ) -> Result<(), String> {

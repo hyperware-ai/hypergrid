@@ -7,7 +7,7 @@
 //! - Funding status checks
 //! - Spending limit validation
 
-use crate::structs::{State, PaymentAttemptResult, TbaFundingDetails, ProviderRequest, DelegationStatus};
+use crate::structs::{State, PaymentAttemptResult, TbaFundingDetails, ProviderCall, DelegationStatus};
 use crate::http_handlers::send_request_to_provider;
 use crate::wallet::service::{get_decrypted_signer_for_wallet};
 use crate::constants::PUBLISHER;
@@ -372,7 +372,7 @@ fn check_provider_availability(provider_id: &str) -> Result<(), String> {
     //let payment_tx_hash = None; 
 
     info!("Preparing availability check request for provider process at {}", target_address);
-    //let provider_request_data = ProviderRequest {
+    //let provider_request_data = ProviderCall {
     //    provider_name,
     //    arguments,
     //    payment_tx_hash,

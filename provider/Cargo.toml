@@ -8,5 +8,6 @@ members = [
     "provider",
     "target/caller-utils",
     "target/caller-util?",
+    "target/provider-caller-util?",
 ]
 resolver = "2"
