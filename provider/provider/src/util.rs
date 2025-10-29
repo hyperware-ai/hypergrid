@@ -1,5 +1,9 @@
 use crate::{
+<<<<<<< HEAD
     EndpointDefinition, PaymentPayload, FieldDef, InputSchema, 
+=======
+    EndpointDefinition, ProviderCall, PaymentPayload, FieldDef, InputSchema, 
+>>>>>>> ef91391 (fixed some kit WIT-ification errors)
     OutputSchema, AcceptedPayment, PaymentRequirements, ParameterDefinition, 
     RegisteredProvider
 };
