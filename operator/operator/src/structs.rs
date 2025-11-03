@@ -361,15 +361,8 @@ impl State {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "PascalCase")] // Match frontend/old indexer naming
 pub enum McpRequest {
-    // Registry/Provider Actions (from Shim)
+    // Registry Actions (from Shim)
     SearchRegistry(String),
-    CallProvider {
-        #[serde(alias = "providerId")]
-        provider_id: String,
-        #[serde(alias = "providerName")]
-        provider_name: String,
-        arguments: Vec<(String, String)>,
-    },
 }
 
 // NEW: Regular API requests for UI operations - not MCP related
@@ -455,15 +448,8 @@ pub enum ApiRequest {
 #[derive(Clone, Debug, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum HttpMcpRequest {
-    // Registry/Provider Actions (from Shim)
+    // Registry Actions (from Shim)
     SearchRegistry(String),
-    CallProvider {
-        #[serde(alias = "providerId")]
-        provider_id: String,
-        #[serde(alias = "providerName")]
-        provider_name: String,
-        arguments: Vec<(String, String)>,
-    },
 
     // History Action (from UI)
     GetCallHistory {},

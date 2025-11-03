@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
-use crate::constants::PUBLISHER;
-use chrono::Utc;
+// Note: PUBLISHER and Utc imports removed - no longer needed after provider call removal
 use hyperware_process_lib::{
     http::{
         server::{send_response, HttpServerRequest, IncomingHttpRequest},
@@ -13,7 +12,7 @@ use hyperware_process_lib::{
     sqlite::Sqlite,
     vfs, Address, Request as ProcessRequest,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -40,11 +39,6 @@ pub struct ProviderDetails {
     provider_id: String,
 }
 
-/// Result of attempting to fetch provider details
-enum FetchProviderResult {
-    Success(ProviderDetails),
-    NotFound(String),
-}
 
 /// Result of attempting a payment
 enum PaymentResult {
@@ -53,11 +47,6 @@ enum PaymentResult {
     Failed(PaymentAttemptResult),
 }
 
-/// Result of calling a provider
-enum ProviderCallResult {
-    Success(Vec<u8>),
-    Failed(anyhow::Error),
-}
 
 const SPIDER_PROCESS_ID: (&str, &str, &str) = ("spider", "spider", "sys");
 
@@ -314,33 +303,18 @@ fn handle_shim_auth_error(auth_error: AuthError) -> anyhow::Result<()> {
 // ===========================================================================================
 
 /// Main MCP request dispatcher - routes Model Context Provider operations
-/// Only handles SearchRegistry and CallProvider - the actual MCP operations
+/// Only handles SearchRegistry - provider call functionality has been removed
 fn handle_mcp(
-    our: &Address,
+    _our: &Address,
     req: McpRequest,
-    state: &mut State,
+    _state: &mut State,
     db: &Sqlite,
-    client_config_opt: Option<HotWalletAuthorizedClient>,
+    _client_config_opt: Option<HotWalletAuthorizedClient>,
 ) -> anyhow::Result<()> {
     info!("MCP request: {:?}", req);
     match req {
         // Registry operations
         McpRequest::SearchRegistry(query) => handle_search_registry(db, query),
-
-        // Provider operations
-        McpRequest::CallProvider {
-            provider_id,
-            provider_name,
-            arguments,
-        } => handle_provider_call_request(
-            our,
-            state,
-            db,
-            provider_id,
-            provider_name,
-            arguments,
-            client_config_opt,
-        ),
     }
 }
 
@@ -428,31 +402,16 @@ fn handle_api_actions(state: &mut State) -> anyhow::Result<()> {
 // DEPRECATED: This function handles the old combined HttpMcpRequest format
 // It remains for backwards compatibility but should be phased out
 fn handle_legacy_mcp(
-    our: &Address,
+    _our: &Address,
     req: HttpMcpRequest,
     state: &mut State,
     db: &Sqlite,
-    client_config_opt: Option<HotWalletAuthorizedClient>,
+    _client_config_opt: Option<HotWalletAuthorizedClient>,
 ) -> anyhow::Result<()> {
     info!("mcp request: {:?}", req);
     match req {
         // Registry operations
         HttpMcpRequest::SearchRegistry(query) => handle_search_registry(db, query),
-
-        // Provider operations
-        HttpMcpRequest::CallProvider {
-            provider_id,
-            provider_name,
-            arguments,
-        } => handle_provider_call_request(
-            our,
-            state,
-            db,
-            provider_id,
-            provider_name,
-            arguments,
-            client_config_opt,
-        ),
 
         // History operations
         HttpMcpRequest::GetCallHistory {} => handle_get_call_history(state),
@@ -714,201 +673,9 @@ fn handle_get_linked_wallets(state: &mut State) -> anyhow::Result<()> {
 }
 
 // ===========================================================================================
-// PROVIDER CALL HANDLING - payment & provider interaction flow
+// PROVIDER CALL HANDLING - REMOVED: Provider call functionality has been stripped out
+// Payment and wallet determination functions remain for reuse in minting namespace entries
 // ===========================================================================================
-
-/// Main entry point for provider calls - orchestrates payment and execution
-fn handle_provider_call_request(
-    our: &Address,
-    state: &mut State,
-    db: &Sqlite,
-    provider_id: String,
-    provider_name: String,
-    arguments: Vec<(String, String)>,
-    client_config_opt: Option<HotWalletAuthorizedClient>,
-) -> anyhow::Result<()> {
-    info!(
-        "Handling call request for provider ID='{}', Name='{}'",
-        provider_id, provider_name
-    );
-
-    let timestamp_start_ms = Utc::now().timestamp_millis() as u128;
-    let call_args_json = serde_json::to_string(&arguments).unwrap_or_else(|_| "{}".to_string());
-    // Always use provider_name for lookup since it's unique and specific
-    // If provider_name is empty, this is an invalid request
-    if provider_name.is_empty() {
-        return send_json_response(
-            StatusCode::BAD_REQUEST,
-            &json!({
-                "error": "Provider name is required",
-                "details": "Cannot route request without a specific provider name"
-            }),
-        );
-    }
-    let lookup_key_for_db = provider_name.clone();
-
-    // Fetch provider details from database
-    match fetch_provider_details(db, &lookup_key_for_db) {
-        FetchProviderResult::Success(provider_details) => execute_provider_flow(
-            our,
-            state,
-            provider_details,
-            provider_name,
-            arguments,
-            timestamp_start_ms,
-            call_args_json,
-            client_config_opt,
-        ),
-        FetchProviderResult::NotFound(returned_lookup_key) => {
-            error!("Provider '{}' not found in local DB.", returned_lookup_key);
-            let wallet_id_for_failure = client_config_opt
-                .as_ref()
-                .map(|config| config.associated_hot_wallet_address.clone())
-                .or_else(|| state.selected_wallet_id.clone());
-            record_call_failure(
-                state,
-                timestamp_start_ms,
-                returned_lookup_key.clone(),
-                if provider_id.is_empty() {
-                    "".to_string()
-                } else {
-                    provider_id.clone()
-                },
-                call_args_json,
-                PaymentAttemptResult::Skipped {
-                    reason: format!("DB Lookup Failed: Key '{}' not found", returned_lookup_key),
-                },
-                wallet_id_for_failure,
-                Some(provider_name.clone()),
-                client_config_opt.as_ref(),
-            );
-            send_json_response(
-                StatusCode::NOT_FOUND,
-                &json!({
-                    "error": format!("Provider '{}' not found", returned_lookup_key)
-                }),
-            )
-        }
-    }
-}
-
-/// Execute the full provider flow: health check, payment (if needed), then provider call
-fn execute_provider_flow(
-    our: &Address,
-    state: &mut State,
-    provider_details: ProviderDetails,
-    provider_name: String,
-    arguments: Vec<(String, String)>,
-    timestamp_start_ms: u128,
-    call_args_json: String,
-    client_config_opt: Option<HotWalletAuthorizedClient>,
-) -> anyhow::Result<()> {
-    // First, do a health check ping to see if the provider is responsive
-    match perform_provider_health_check(&provider_details, Some(&provider_name)) {
-        Ok(()) => {
-            info!(
-                "Provider {} health check passed",
-                provider_details.provider_id
-            );
-        }
-        Err(health_error) => {
-            error!(
-                "Provider {} health check failed: {:?}",
-                provider_details.provider_id, health_error
-            );
-            let wallet_id_for_failure = client_config_opt
-                .as_ref()
-                .map(|config| config.associated_hot_wallet_address.clone())
-                .or_else(|| state.selected_wallet_id.clone());
-            record_call_failure(
-                state,
-                timestamp_start_ms,
-                provider_details.provider_id.clone(),
-                provider_details.provider_id.clone(),
-                call_args_json,
-                PaymentAttemptResult::Skipped {
-                    reason: format!("Provider health check failed: {}", health_error),
-                },
-                wallet_id_for_failure,
-                Some(provider_name.clone()),
-                client_config_opt.as_ref(),
-            );
-            return send_json_response(
-                StatusCode::SERVICE_UNAVAILABLE,
-                &json!({
-                    "error": "Provider is not responding",
-                    "details": format!("Health check failed: {}", health_error)
-                }),
-            );
-        }
-    }
-
-    // Provider is responsive, proceed with payment if required
-    match handle_payment(state, &provider_details, client_config_opt.as_ref()) {
-        PaymentResult::NotRequired => {
-            info!(
-                "No payment required for provider {}",
-                provider_details.provider_id
-            );
-            execute_provider_call(
-                our,
-                state,
-                &provider_details,
-                provider_name,
-                arguments,
-                timestamp_start_ms,
-                call_args_json,
-                None,
-                client_config_opt,
-            )
-        }
-        PaymentResult::Success(tx_hash) => {
-            info!(
-                "Payment successful for provider {}: tx={}",
-                provider_details.provider_id, tx_hash
-            );
-            execute_provider_call(
-                our,
-                state,
-                &provider_details,
-                provider_name,
-                arguments,
-                timestamp_start_ms,
-                call_args_json,
-                Some(tx_hash),
-                client_config_opt,
-            )
-        }
-        PaymentResult::Failed(payment_result) => {
-            error!(
-                "Payment failed for provider {}: {:?}",
-                provider_details.provider_id, payment_result
-            );
-            let wallet_id_for_failure = client_config_opt
-                .as_ref()
-                .map(|config| config.associated_hot_wallet_address.clone())
-                .or_else(|| state.selected_wallet_id.clone());
-            record_call_failure(
-                state,
-                timestamp_start_ms,
-                provider_details.provider_id.clone(),
-                provider_details.provider_id.clone(),
-                call_args_json,
-                payment_result.clone(),
-                wallet_id_for_failure,
-                Some(provider_name.clone()),
-                client_config_opt.as_ref(),
-            );
-            send_json_response(
-                StatusCode::PAYMENT_REQUIRED,
-                &json!({
-                    "error": "Pre-payment failed or was skipped.",
-                    "details": payment_result
-                }),
-            )
-        }
-    }
-}
 
 // --- Registry Operations ---
 
@@ -1319,49 +1086,6 @@ fn handle_withdraw_usdc(
     }
 }
 
-// Helper function to fetch provider details from the database
-fn fetch_provider_details(db: &Sqlite, lookup_key: &str) -> FetchProviderResult {
-    info!("Fetching provider details for lookup key: {}", lookup_key);
-
-    match dbm::get_provider_details(db, lookup_key) {
-        Ok(Some(details_map)) => extract_provider_from_json(details_map, lookup_key),
-        _ => FetchProviderResult::NotFound(lookup_key.to_string()),
-    }
-}
-
-fn extract_provider_from_json(
-    details_map: HashMap<String, Value>,
-    lookup_key: &str,
-) -> FetchProviderResult {
-    let provider_id = match details_map.get("provider_id").and_then(Value::as_str) {
-        Some(id) => id.to_string(),
-        None => return FetchProviderResult::NotFound(lookup_key.to_string()),
-    };
-
-    let wallet = details_map
-        .get("wallet")
-        .and_then(Value::as_str)
-        .map(String::from)
-        .unwrap_or_else(|| "0x0".to_string());
-
-    let price = details_map
-        .get("price")
-        .and_then(Value::as_str)
-        .map(String::from)
-        .unwrap_or_else(|| "0.0".to_string());
-
-    info!(
-        "Provider details: ID={}, Wallet={}, Price={}",
-        provider_id, wallet, price
-    );
-
-    FetchProviderResult::Success(ProviderDetails {
-        wallet_address: wallet,
-        price_str: price,
-        provider_id,
-    })
-}
-
 // Helper function to authenticate a shim client
 fn authenticate_shim_client<'a>(
     state: &'a State,
@@ -1445,136 +1169,6 @@ fn determine_ui_payment_wallet(state: &State) -> Result<String, PaymentAttemptRe
     Ok(selected_id.clone())
 }
 
-// Helper function to execute provider call (no payment)
-fn execute_provider_call(
-    _our: &Address,
-    state: &mut State,
-    provider_details: &ProviderDetails,
-    provider_name: String,
-    arguments: Vec<(String, String)>,
-    timestamp_start_ms: u128,
-    call_args_json: String,
-    payment_tx_hash: Option<String>,
-    client_config_opt: Option<HotWalletAuthorizedClient>,
-) -> anyhow::Result<()> {
-    // Prepare target address
-    let target_address = Address::new(
-        &provider_details.provider_id,
-        ("provider", "hypergrid", PUBLISHER),
-    );
-
-    let payment_tx_hash_clone = payment_tx_hash.clone();
-
-    // Prepare request
-    info!(
-        "Preparing request for provider process at {}",
-        target_address
-    );
-    let provider_request_data = ProviderCall {
-        provider_name: provider_name.clone(),
-        arguments,
-        payment_tx_hash: payment_tx_hash_clone,
-    };
-    // Wrap the ProviderCall data in a JSON structure that mimics the enum variant
-    let wrapped_request = serde_json::json!({
-        "CallProvider": provider_request_data
-    });
-    let request_body_bytes = serde_json::to_vec(&wrapped_request)?;
-
-    // Send request
-    info!("Sending ping to provider at {}", target_address);
-    let provider_call_result =
-        match send_request_to_provider(target_address.clone(), request_body_bytes) {
-            Ok(Ok(response)) => ProviderCallResult::Success(response),
-            Ok(Err(e)) => ProviderCallResult::Failed(e),
-            Err(e) => ProviderCallResult::Failed(e),
-        };
-
-    // Record call outcome
-    let response_timestamp_ms = Utc::now().timestamp_millis() as u128;
-    let call_success = matches!(provider_call_result, ProviderCallResult::Success(_));
-
-    let payment_result = if let Some(tx) = payment_tx_hash {
-        Some(PaymentAttemptResult::Success {
-            tx_hash: tx,
-            amount_paid: provider_details.price_str.clone(),
-            currency: "USDC".to_string(),
-        })
-    } else {
-        Some(PaymentAttemptResult::Skipped {
-            reason: "Zero Price".to_string(),
-        })
-    };
-
-    // Determine the correct operator_wallet_id based on the call context
-    let actual_operator_wallet_id = client_config_opt
-        .as_ref()
-        .map(|config| config.associated_hot_wallet_address.clone())
-        .or_else(|| state.selected_wallet_id.clone());
-
-    let record = CallRecord {
-        timestamp_start_ms,
-        provider_lookup_key: provider_details.provider_id.clone(),
-        target_provider_id: provider_details.provider_id.clone(),
-        call_args_json,
-        response_json: match &provider_call_result {
-            ProviderCallResult::Success(body) => Some(String::from_utf8_lossy(body).to_string()),
-            _ => None,
-        },
-        call_success,
-        response_timestamp_ms,
-        payment_result,
-        duration_ms: response_timestamp_ms - timestamp_start_ms,
-        operator_wallet_id: actual_operator_wallet_id,
-        client_id: client_config_opt.as_ref().map(|c| c.id.clone()),
-        provider_name: Some(provider_name.clone()),
-    };
-
-    state.call_history.push(record);
-    limit_call_history(state);
-    // Live-cover the new call via single-receipt fetch if needed
-    if let Some(tba) = &state.operator_tba_address {
-        if let Some(db) = &state.db_conn {
-            if let Some(crate::structs::PaymentAttemptResult::Success { .. }) = &state
-                .call_history
-                .last()
-                .and_then(|r| r.payment_result.clone())
-            {
-                let provider = state.hypermap.provider.clone();
-                let _ =
-                    crate::ledger::verify_calls_covering(state, db, &provider, &tba.to_lowercase());
-            }
-        }
-    }
-    state.save();
-
-    // Handle final response
-    match provider_call_result {
-        ProviderCallResult::Success(provider_response_body) => {
-            info!("Provider call successful. Preparing final HTTP response.");
-            send_response(
-                StatusCode::OK,
-                Some(HashMap::from([(
-                    String::from("Content-Type"),
-                    String::from("application/json"),
-                )])),
-                provider_response_body,
-            );
-            info!("Final HTTP response sent to http-server.");
-            Ok(())
-        }
-        ProviderCallResult::Failed(provider_comm_error) => {
-            error!("Provider failed to respond: {:?}", provider_comm_error);
-            send_json_response(
-                StatusCode::BAD_GATEWAY,
-                &json!({
-                    "error": format!("Provider {} failed to respond: {:?}",
-                    target_address, provider_comm_error)
-                }),
-            )
-        }
-    }
-}
 ///// Checks the availability of a provider by sending a test request.
 //fn check_provider_availability(provider_id: &str) -> Result<(), String> {
 //    info!("Checking provider availability for ID: {}", provider_id);
@@ -1621,105 +1215,6 @@ fn execute_provider_call(
 //    }
 //}
 
-/// Perform a lightweight health check on a provider before payment
-
-fn perform_provider_health_check(provider_details: &ProviderDetails, provider_name: Option<&str>) -> anyhow::Result<()> {
-    info!("Performing health check for provider {}", provider_details.provider_id);
-    
-    let target_address = Address::new(
-        &provider_details.provider_id,
-        ("provider", "hypergrid", PUBLISHER),
-    );
-
-    let health_check_request = serde_json::json!({
-        "provider_name": provider_name.unwrap_or(&provider_details.provider_id)
-    });
-
-    let dummy_argument = serde_json::json!({
-        "argument": "swag"
-    });
-
-    let wrapped_request = serde_json::json!({
-        "HealthPing": health_check_request
-    });
-
-    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let err_msg = format!("Failed to serialize provider availability request: {}", e);
-            error!("{}", err_msg);
-            return Err(anyhow::anyhow!("{}", err_msg));
-        }
-    };
-
-    info!(
-        "Sending health check ping to provider at {}",
-        target_address
-    );
-    match ProcessRequest::new()
-        .target(target_address.clone())
-        .body(request_body_bytes)
-        .send_and_await_response(3)
-    {
-        Ok(Ok(response)) => {
-            // Try to parse the response as DummyResponse
-            match serde_json::from_slice::<serde_json::Value>(&response.body()) {
-                Ok(response_json) => {
-                    info!(
-                        "Provider {} responded to health check: {:?}",
-                        provider_details.provider_id, response_json
-                    );
-                }
-                Err(_) => {
-                    info!(
-                        "Provider {} responded to health check (non-JSON response)",
-                        provider_details.provider_id
-                    );
-                }
-            }
-            Ok(())
-        }
-        Ok(Err(send_error)) => {
-            error!(
-                "Provider {} health check failed: {:?}",
-                provider_details.provider_id, send_error
-            );
-            Err(anyhow::anyhow!(
-                "Provider communication error: {}",
-                send_error
-            ))
-        }
-        Err(timeout_error) => {
-            error!(
-                "Provider {} health check timed out: {:?}",
-                provider_details.provider_id, timeout_error
-            );
-            Err(anyhow::anyhow!("Provider timeout: {}", timeout_error))
-        }
-    }
-}
-
-pub fn send_request_to_provider(
-    target: Address,
-    body: Vec<u8>,
-) -> anyhow::Result<Result<Vec<u8>, anyhow::Error>> {
-    info!("Sending request to provider: {}", target);
-    let res = ProcessRequest::new()
-        .target(target.clone())
-        .body(body)
-        .send_and_await_response(10)?;
-
-    match res {
-        Ok(response_message) => {
-            info!("Received successful response from {}", target);
-            Ok(Ok(response_message.body().to_vec()))
-        }
-        Err(send_error) => {
-            error!("Error receiving response from {}: {:?}", target, send_error);
-            Ok(Err::<Vec<u8>, anyhow::Error>(anyhow::anyhow!(send_error)))
-        }
-    }
-}
 
 fn limit_call_history(state: &mut State) {
     let max_history = 100;
@@ -2026,49 +1521,6 @@ pub fn handle_configure_authorized_client(
         .body(response_body_bytes)?)
 }
 
-// Helper function to record call failure before returning error
-fn record_call_failure(
-    state: &mut State,
-    timestamp_start_ms: u128,
-    lookup_key: String,
-    target_provider_id: String,
-    call_args_json: String,
-    payment_result: PaymentAttemptResult,
-    operator_wallet_id: Option<String>,
-    provider_name_opt: Option<String>,
-    client_config_opt: Option<&HotWalletAuthorizedClient>,
-) {
-    let record = CallRecord {
-        timestamp_start_ms,
-        provider_lookup_key: lookup_key,
-        target_provider_id, // Use best guess ID passed in
-        call_args_json,
-        response_json: None,
-        call_success: false, // Indicate call failed
-        response_timestamp_ms: Utc::now().timestamp_millis() as u128,
-        payment_result: Some(payment_result),
-        duration_ms: Utc::now().timestamp_millis() as u128 - timestamp_start_ms,
-        operator_wallet_id, // Use passed-in operator_wallet_id
-        client_id: client_config_opt.map(|c| c.id.clone()),
-        provider_name: provider_name_opt,
-    };
-    state.call_history.push(record);
-    limit_call_history(state);
-    if let Some(tba) = &state.operator_tba_address {
-        if let Some(db) = &state.db_conn {
-            if let Some(crate::structs::PaymentAttemptResult::Success { .. }) = &state
-                .call_history
-                .last()
-                .and_then(|r| r.payment_result.clone())
-            {
-                let provider = state.hypermap.provider.clone();
-                let _ =
-                    crate::ledger::verify_calls_covering(state, db, &provider, &tba.to_lowercase());
-            }
-        }
-    }
-    state.save();
-}
 
 // --- Payment Handling ---
 

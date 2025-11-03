@@ -207,19 +207,3 @@ pub fn search_provider(db: &Sqlite, query: String) -> Result<Vec<HashMap<String,
     let data = db.read(s, params)?;
     Ok(data)
 }
-
-pub fn get_provider_details(db: &Sqlite, id_or_name: &str) -> Result<Option<HashMap<String, Value>>> {
-    let s1 = "SELECT * FROM providers WHERE provider_id = ?1 LIMIT 1".to_string();
-    let p1 = vec![serde_json::Value::String(id_or_name.to_string())];
-    let data1 = db.read(s1, p1)?;
-
-    if !data1.is_empty() {
-        return Ok(data1.into_iter().next());
-    }
-
-    let s2 = "SELECT * FROM providers WHERE name = ?1 LIMIT 1".to_string();
-    let p2 = vec![serde_json::Value::String(id_or_name.to_string())];
-    let data2 = db.read(s2, p2)?;
-
-    Ok(data2.into_iter().next()) 
-} 

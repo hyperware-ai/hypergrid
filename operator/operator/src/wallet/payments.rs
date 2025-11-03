@@ -7,8 +7,7 @@
 //! - Funding status checks
 //! - Spending limit validation
 
-use crate::structs::{State, PaymentAttemptResult, TbaFundingDetails, ProviderCall, DelegationStatus};
-use crate::http_handlers::send_request_to_provider;
+use crate::structs::{State, PaymentAttemptResult, TbaFundingDetails, DelegationStatus};
 use crate::wallet::service::{get_decrypted_signer_for_wallet};
 use crate::constants::PUBLISHER;
 
@@ -359,65 +358,6 @@ fn perform_tba_payment_execution(
     }
 }
 
-/// Checks the availability of a provider by sending a test request.
-fn check_provider_availability(provider_id: &str) -> Result<(), String> {
-    info!("Checking provider availability for ID: {}", provider_id);
-
-    let target_address = HyperwareAddress::new(
-        provider_id,
-        ("hypergrid-provider", "hypergrid-provider", PUBLISHER)
-    );
-    //let provider_name = format!("{}", provider_id); 
-    //let arguments = vec![]; 
-    //let payment_tx_hash = None; 
-
-    info!("Preparing availability check request for provider process at {}", target_address);
-    //let provider_request_data = ProviderCall {
-    //    provider_name,
-    //    arguments,
-    //    payment_tx_hash,
-    //};
-
-    //let wrapped_request = serde_json::json!({
-    //    "CallProvider": provider_request_data 
-    //});
-
-    let DummyArgument = serde_json::json!({
-        "argument": "swag"
-    });
-
-    let wrapped_request = serde_json::json!({
-        "HealthPing": DummyArgument
-    });
-
-    let request_body_bytes = match serde_json::to_vec(&wrapped_request) {
-        Ok(bytes) => bytes,
-        Err(e) => {
-            let err_msg = format!("Failed to serialize provider availability request: {}", e);
-            error!("{}", err_msg);
-            return Err(err_msg);
-        }
-    };
-
-    info!("Sending request body bytes to provider: {:?}", request_body_bytes);
-
-    match send_request_to_provider(target_address.clone(), request_body_bytes) {
-        Ok(Ok(response)) => {
-            info!("Provider at {} responded successfully to availability check: {:?}", target_address, response);
-            Ok(())
-        }
-        Ok(Err(e)) => {
-            let err_msg = format!("Provider at {} failed availability check: {}", target_address, e);
-            error!("{}", err_msg);
-            Err(err_msg)
-        }
-        Err(e) => {
-            let err_msg = format!("Error sending availability check to provider at {}: {}", target_address, e);
-            error!("{}", err_msg);
-            Err(err_msg)
-        }
-    }
-}
 
 /// Main handler for Operator TBA withdrawals.
 pub fn handle_operator_tba_withdrawal(
