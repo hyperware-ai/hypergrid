@@ -4,11 +4,13 @@ mod http_handlers;
 //mod wallet_manager;
 mod db;
 mod chain;
+mod curl_parser;
 mod helpers;
 mod identity;
 mod authorized_services;
 pub mod constants;
 pub mod ledger;
+mod minting;
 // Keep local module for functions not yet available in the library
 pub mod hyperwallet_client;
 

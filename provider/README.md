@@ -1,3 +1,6 @@
+<<<<<<< HEAD
+# Provider
+=======
 # The Provider
 
 ## Usage
@@ -76,7 +79,7 @@ This is the internal representation of the API endpoint that the provider uses t
 The following struct is the format which the provider accepts for making provider calls.
 ```rust
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct ProviderCall {
+pub struct ProviderRequest {
     pub provider_name: String,
     pub arguments: Vec<(String, String)>,
     pub payment_tx_hash: Option<String>,
@@ -87,12 +90,17 @@ pub struct ProviderCall {
 
 ## Notes and thoughts
 ### State sync
-It's important to maintain synchronization between off-chain and on-chain state, as any divergence would lead to lead to loss of funds (reasons mentioned earlier). Currently, the provider piggybacks of the operator-created DB for Hypergrid indexing, and there there is logic that warns users when there is a missmatch in state (e.g. if someone modifies the provider namespace entry outside the designated flow). More recently, we also introduced a heuristic for 'turning off' providers, which mints and updates the optional is_live note. To prevent this from becoming a breaking change, I set it up so that the protocol doesn't use it do discern provider availability by default (since not everyone might update their providers), and it is only enforced for providers that go through the flow of minting it (to signal that a provider is not valid anymore). Once the time comes for next major version, it is suggested to enforce the protocol to consider the note more aggresively so every provider is on the same page.
+It's important to maintain synchronization between off-chain and in-chain state, as any divergence would lead to lead to loss of funds (reasons mentioned earlier). Currently, the provider piggybacks of the operator-created DB for Hypergrid indexing, and there there is logic that warns users when there is a missmatch in state (e.g. if someone modifies the provider namespace entry outside the designated flow). More recently, we also introduced a heuristic for 'turning off' providers, which mints and updates the optional is_live note. Because this is breaking change, the protocol doesn't use it do discern provider availability by default (since not everyone might update their providers), and it is only enforced for providers that go through the flow of minting it (to signal that a provider is not valid anymore). Once the time comes for next major version, it is suggested to enforce the protocol to consider the note more aggresively so every provider is on the same page.
 
-Another thing to note is that, due to a shift in how providers are registered (we now use a curl-based approach), there is migration logic that should be removed in the next version bump that allows for breaking changes. There weren't a lot of providers that registered by that point, but it is nonetheless important to mention.
+To that point, we also introduced yet another breaking change early on that changed how providers are registered (prior to the curl based logic), and there is logic for doing the migration to new state that should probably be removed once breaking changes are allowed.
 
 ### Provider updates
-It is recommended to only update provider details (off-chain and on-chain) through the provider FE: the logic for initial registration and subsequent updates ensures proper synchronization. The logic exists in the interest of minimizing the number of faulty providers on the namespace.
+It is recommended to only update provider details (offchain and onchain) through the provider FE: provider updates follow almost a similar flow to registration new providers, This ensures that the introduces changes don't break the provider call flow (again in the interest of preventing faulty payments). 
 
 ### Hypergrid provider call monitorning
-One shortcoming of the protocol is the fact that, if providers share the same wallet for recieving payments, relying stricly on on-chain data makes it impossible to discern and attribute traffic that a particular provider gets. Hence, both processes (remotely) share their logs with `hypergrid_logger` process that aggregates these logs. Only logs at the `info` level are propagated for observability purposes (like tracking provider traffic and run-time errors).
+One shortcoming of the protocol is the fact that, if providers share the same wallet for recieving payments, relying stricly on on-chain data makes it impossible to discern and attribute trafic that a particular provider gets. Hence, both processes (remotely) share their logs with `hypergrid_logger` process that aggregates these logs. Only logs at the `info` level are propagated for observability purposes (like tracking provider traffic and run-time errors).
+
+
+
+
+>>>>>>> 3aeb5af (Added better documentation of the project)

@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 // Note: PUBLISHER and Utc imports removed - no longer needed after provider call removal
 use hyperware_process_lib::{
+    eth,
     http::{
         server::{send_response, HttpServerRequest, IncomingHttpRequest},
         Method, Response as HttpResponse, StatusCode,
@@ -12,16 +13,21 @@ use hyperware_process_lib::{
     sqlite::Sqlite,
     vfs, Address, Request as ProcessRequest,
 };
+use alloy_primitives::{Address as EthAddress};
+use std::str::FromStr;
+use crate::constants::{PUBLISHER} ;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::{
     authorized_services::{HotWalletAuthorizedClient, ServiceCapabilities},
+    curl_parser,
     db as dbm,
     graph::handle_get_hypergrid_graph_layout,
     helpers::send_json_response,
     hyperwallet_client::{payments as hyperwallet_payments, service as hyperwallet_service},
+    minting,
     structs::{
         ApiRequest, ConfigureAuthorizedClientRequest, ConfigureAuthorizedClientResponse,
         McpRequest, *,
@@ -305,16 +311,25 @@ fn handle_shim_auth_error(auth_error: AuthError) -> anyhow::Result<()> {
 /// Main MCP request dispatcher - routes Model Context Provider operations
 /// Only handles SearchRegistry - provider call functionality has been removed
 fn handle_mcp(
-    _our: &Address,
+    our: &Address,
     req: McpRequest,
-    _state: &mut State,
+    state: &mut State,
     db: &Sqlite,
-    _client_config_opt: Option<HotWalletAuthorizedClient>,
+    client_config_opt: Option<HotWalletAuthorizedClient>,
 ) -> anyhow::Result<()> {
     info!("MCP request: {:?}", req);
     match req {
         // Registry operations
         McpRequest::SearchRegistry(query) => handle_search_registry(db, query),
+        // Provider registration
+        McpRequest::RegisterProvider {
+            provider_config,
+            validation_arguments,
+        } => handle_register_provider(our, state, db, client_config_opt, provider_config, validation_arguments),
+        // cURL parsing
+        McpRequest::ParseCurl {
+            curl_command,
+        } => handle_parse_curl(curl_command),
     }
 }
 
@@ -683,6 +698,219 @@ fn handle_search_registry(db: &Sqlite, query: String) -> anyhow::Result<()> {
     info!("Searching registry for: {}", query);
     let data = dbm::search_provider(db, query)?;
     send_json_response(StatusCode::OK, &json!(data))
+}
+
+// --- Provider Registration ---
+
+/// Handles provider registration flow:
+/// 1. Validates provider config with provider process
+/// 2. Mints namespace entry using operator's hot wallet  
+/// 3. Sets provider notes via TBA execute with multicall
+fn handle_register_provider(
+    our: &Address,
+    state: &mut State,
+    _db: &Sqlite,
+    client_config_opt: Option<HotWalletAuthorizedClient>,
+    provider_config: serde_json::Value,
+    validation_arguments: Vec<(String, String)>,
+) -> anyhow::Result<()> {
+    info!("Handling provider registration request");
+    
+    // Step 1: Parse provider config from JSON
+    let mut provider: RegisteredProviderForValidation = serde_json::from_value(provider_config.clone())
+        .map_err(|e| anyhow::anyhow!("Failed to parse provider config: {}", e))?;
+    
+    // Auto-fill provider_id from current node if not provided or empty
+    if provider.provider_id.is_empty() {
+        provider.provider_id = our.node.to_string();
+        info!("Auto-filled provider_id from current node: {}", provider.provider_id);
+    }
+    
+    info!("Parsed provider config: name={}, id={}", provider.provider_name, provider.provider_id);
+    
+    // Step 2: Validate with provider process
+    // Construct provider address: provider:hypergrid:ware.hypr on the provider's node
+    let provider_address = Address::new(&provider.provider_id, ("provider", "hypergrid", PUBLISHER ));
+    
+    // Create validation request
+    let validation_payload = json!({
+        "ValidateProvider": [provider_config, validation_arguments]
+    });
+    
+    info!("Sending validation request to provider at {}", provider_address);
+    let validation_request = ProcessRequest::to(provider_address)
+        .body(serde_json::to_vec(&validation_payload)?)
+        .send_and_await_response(60); // 60 second timeout for validation
+    
+    let validation_response = match validation_request {
+        Ok(Ok(response)) => {
+            let response_body = response.body();
+            let response_str = String::from_utf8_lossy(response_body);
+            info!("Provider validation response: {}", response_str);
+            
+            // Parse Rust Result format: {"Ok": "...json..."} or {"Err": "error"}
+            let result: serde_json::Value = serde_json::from_str(&response_str)
+                .map_err(|e| anyhow::anyhow!("Failed to parse validation response: {}", e))?;
+            
+            if let Some(err) = result.get("Err").and_then(|v| v.as_str()) {
+                return send_json_response(
+                    StatusCode::BAD_REQUEST,
+                    &json!({ "error": format!("Provider validation failed: {}", err) }),
+                );
+            }
+            
+            if let Some(ok_value) = result.get("Ok").and_then(|v| v.as_str()) {
+                // Parse the inner JSON
+                let validation_data: serde_json::Value = serde_json::from_str(ok_value)
+                    .map_err(|e| anyhow::anyhow!("Failed to parse validation data: {}", e))?;
+                validation_data
+            } else {
+                return send_json_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &json!({ "error": "Invalid validation response format" }),
+                );
+            }
+        }
+        Ok(Err(e)) => {
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({ "error": format!("Provider validation request failed: {:?}", e) }),
+            );
+        }
+        Err(e) => {
+            return send_json_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &json!({ "error": format!("Failed to contact provider process: {:?}", e) }),
+            );
+        }
+    };
+    
+    info!("Provider validation successful, proceeding to mint namespace entry");
+    
+    // Step 3: Mint namespace entry using grid.hypr TBA as parent
+    // Providers are minted directly under grid.hypr, so we use HYPERGRID_ADDRESS (grid.hypr TBA)
+    // The operator TBA (grid-wallet.{node}) will sign the transaction via hot wallet
+    let grid_hypr_tba = EthAddress::from_str(crate::constants::HYPERGRID_ADDRESS)
+        .map_err(|e| anyhow::anyhow!("Invalid HYPERGRID_ADDRESS: {}", e))?;
+    
+    // 2. Determine signer wallet
+    let wallet_id = determine_signer_wallet(state, client_config_opt.as_ref())
+        .map_err(|e| {
+            let err_msg = match e {
+                PaymentAttemptResult::Skipped { reason } => reason,
+                _ => format!("{:?}", e),
+            };
+            anyhow::anyhow!("Failed to determine signer wallet: {}", err_msg)
+        })?;
+    
+    // Get signer from wallet - use the same pattern as payments
+    let hot_wallet_signer = match state.managed_wallets.get(&wallet_id) {
+        Some(wallet) => {
+            match &wallet.storage {
+                hyperware_process_lib::wallet::KeyStorage::Decrypted(signer) => signer.clone(),
+                hyperware_process_lib::wallet::KeyStorage::Encrypted(_) => {
+                    return send_json_response(
+                        StatusCode::BAD_REQUEST,
+                        &json!({ "error": format!("Wallet {} is encrypted and requires password. Please unlock it first.", wallet_id) }),
+                    );
+                }
+            }
+        }
+        None => {
+            return send_json_response(
+                StatusCode::BAD_REQUEST,
+                &json!({ "error": format!("Wallet {} not found", wallet_id) }),
+            );
+        }
+    };
+    
+    // 3. Get provider wallet address (the owner of the new TBA)
+    let provider_wallet = EthAddress::from_str(&provider.registered_provider_wallet)
+        .map_err(|e| anyhow::anyhow!("Invalid provider wallet address: {}", e))?;
+    
+    // 4. Get TBA implementation address
+    let implementation = EthAddress::from_str("0x44a8Bd4f9370b248c91d54773Ac4a457B3454b50")
+        .map_err(|e| anyhow::anyhow!("Invalid HYPER_ACCOUNT_IMPL: {}", e))?;
+    
+    // 5. Format price as string
+    let price_str = format!("{:.6}", provider.price);
+    
+    // 6. Mint namespace entry with notes in one transaction via operator TBA
+    let eth_provider = eth::Provider::new(8453, 60);
+    info!("Minting namespace entry with notes: provider_name={}, owner={}", provider.provider_name, provider_wallet);
+    
+    let mint_receipt = minting::mint_namespace_entry_with_notes(
+        grid_hypr_tba,
+        provider_wallet,
+        &provider.provider_name,
+        &provider.provider_id,
+        &provider.registered_provider_wallet,
+        &provider.description,
+        &provider.instructions,
+        &price_str,
+        implementation,
+        &hot_wallet_signer,
+        &eth_provider,
+    )
+    .map_err(|e| anyhow::anyhow!("Failed to mint namespace entry: {}", e))?;
+    
+    info!("Mint transaction submitted: {:?}", mint_receipt.hash);
+    
+    // 7. Extract TBA address from transaction logs (for response)
+    let provider_tba = minting::extract_tba_from_logs(mint_receipt.hash, &eth_provider)
+        .map_err(|e| anyhow::anyhow!("Failed to extract TBA address: {}", e))?;
+    
+    info!("Extracted provider TBA address: {}", provider_tba);
+    
+    // Return success response with transaction hash
+    // Notes are already set via initialization, so only one transaction
+    send_json_response(
+        StatusCode::OK,
+        &json!({
+            "status": "success",
+            "message": "Provider successfully registered on-chain with notes",
+            "provider_tba": provider_tba.to_string(),
+            "mint_tx_hash": format!("{:?}", mint_receipt.hash),
+        }),
+    )
+}
+
+// Struct for parsing provider config during registration
+// This must match the RegisteredProvider structure from the provider process exactly
+// All fields will be included in the mint call when registering on-chain
+#[derive(serde::Deserialize, Debug)]
+struct RegisteredProviderForValidation {
+    provider_name: String,
+    provider_id: String,
+    description: String,
+    instructions: String,
+    registered_provider_wallet: String,
+    price: f64,
+    endpoint: serde_json::Value, // EndpointDefinition as JSON (will be deserialized to EndpointDefinition)
+}
+
+// --- cURL Parsing ---
+
+/// Handles cURL parsing request - parses cURL command and builds EndpointDefinition
+/// Returns EndpointDefinition format matching provider's expected structure
+fn handle_parse_curl(
+    curl_command: String,
+) -> anyhow::Result<()> {
+    info!("Parsing cURL command");
+    
+    // Parse the cURL command
+    let parsed = curl_parser::parse_curl_command(&curl_command)
+        .map_err(|e| anyhow::anyhow!("Failed to parse cURL: {}", e))?;
+    
+    // Identify modifiable fields
+    let fields = curl_parser::identify_modifiable_fields(&parsed, None);
+    
+    // Build endpoint definition matching provider's EndpointDefinition structure
+    let endpoint = curl_parser::build_endpoint_from_parsed(&parsed, &fields)
+        .map_err(|e| anyhow::anyhow!("Failed to build endpoint: {}", e))?;
+    
+    // Return EndpointDefinition format that provider expects
+    send_json_response(StatusCode::OK, &endpoint)
 }
 
 // --- History Operations ---

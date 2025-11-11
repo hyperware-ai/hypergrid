@@ -11,6 +11,7 @@ pub const USDC_BASE_ADDRESS: &str = "0x833589fcd6edb6e08f4c7c32d4f71b54bda02913"
 pub const USDC_SEPOLIA_ADDRESS: &str = "0x036CbD53842c5426634e7929541eC2318f3dCF7e";
 pub const CIRCLE_PAYMASTER: &str = "0x0578cFB241215b77442a541325d6A4E6dFE700Ec";
 
+
 // X402 Payment Configuration
 pub const X402_PAYMENT_NETWORK: &str = "base";
 pub const USDC_EIP712_NAME: &str = "USD Coin";

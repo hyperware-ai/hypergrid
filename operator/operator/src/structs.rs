@@ -363,6 +363,17 @@ impl State {
 pub enum McpRequest {
     // Registry Actions (from Shim)
     SearchRegistry(String),
+    // Provider Registration (from Spider/Shim)
+    RegisterProvider {
+        #[serde(rename = "providerConfig")]
+        provider_config: serde_json::Value,
+        #[serde(rename = "validationArguments")]
+        validation_arguments: Vec<(String, String)>,
+    },
+    // cURL Parsing (from Spider)
+    ParseCurl {
+        curl_command: String,
+    },
 }
 
 // NEW: Regular API requests for UI operations - not MCP related
