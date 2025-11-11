@@ -24,6 +24,21 @@ interface ToolResult {
   result: string;
 }
 
+const formatMessageContent = (content: SpiderMessage['content']): string => {
+  if (!content) return '';
+  if (typeof content === 'string') return content;
+  if ('Text' in content && typeof content.Text === 'string') {
+    return content.Text;
+  }
+  if ('BaseSixFourAudio' in content) {
+    return '[Audio message]';
+  }
+  if ('Audio' in content) {
+    return '[Audio message]';
+  }
+  return '';
+};
+
 // Tool Call Modal Component
 function ToolCallModal({ toolCall, toolResult, onClose }: {
   toolCall: ToolCall;
@@ -675,13 +690,18 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
           const toolResults = nextMsg?.role === 'tool' && nextMsg.toolResultsJson
             ? JSON.parse(nextMsg.toolResultsJson) as ToolResult[]
             : null;
+          const displayContent = formatMessageContent(msg.content);
+          const trimmedContent = displayContent.trim();
+          const shouldShowMessage =
+            msg.role !== 'tool' &&
+            trimmedContent.length > 0 &&
+            !displayContent.includes('Processing iteration') &&
+            !displayContent.includes('[Tool calls pending]') &&
+            !displayContent.includes('Executing tool calls');
 
           return (
             <React.Fragment key={index}>
-              {msg.role !== 'tool' && msg.content && msg.content.trim() &&
-               !msg.content.includes('Processing iteration') &&
-               !msg.content.includes('[Tool calls pending]') &&
-               !msg.content.includes('Executing tool calls') && (
+              {shouldShowMessage && (
                 <div className={`mb-4 ${msg.role === 'user' ? 'text-right' : 'text-left'}`}>
                   <div
                     className={`inline-block max-w-[80%] px-4 py-2 rounded-lg ${
@@ -696,11 +716,11 @@ export default function SpiderChat({ spiderApiKey, onConnectClick, onApiKeyRefre
                     }}
                   >
                     {msg.role === 'user' ? (
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                      <p className="whitespace-pre-wrap break-words">{displayContent}</p>
                     ) : (
                       <div className="prose prose-sm max-w-none break-words">
                         <ReactMarkdown>
-                          {msg.content}
+                          {displayContent || ''}
                         </ReactMarkdown>
                       </div>
                     )}
