@@ -13,7 +13,7 @@ use hyperware_process_lib::{
     our,
     vfs::{create_drive, create_file, open_file},
     Address,
-    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, set_response_body, add_response_header, get_request_header, get_request_url, get_parsed_query_params},
+    hyperapp::{source, SaveOptions, sleep, get_server, set_response_status, add_response_header, get_request_header, get_request_url, get_query_params},
 };
 use crate::constants::{
     HYPR_SUFFIX,
@@ -33,7 +33,7 @@ mod util; // Declare the util module
 use util::*; // Use its public items
 pub use util::call_provider;
 
-mod db; // Declare the db module  
+mod db; // Declare the db module
 use db::*; // Use its public items
 
 pub mod constants; // Declare the constants module
@@ -532,9 +532,9 @@ impl Default for HypergridProviderState {
 impl HypergridProviderState {
     #[init]
     async fn initialize(&mut self) {
-        let remote_logger: RemoteLogSettings = RemoteLogSettings { 
-            target: Address::new("hypergrid-logger.hypr", ("logging", "logging", "nick.hypr")), 
-            level: Level::INFO 
+        let remote_logger: RemoteLogSettings = RemoteLogSettings {
+            target: Address::new("hypergrid-logger.hypr", ("logging", "logging", "nick.hypr")),
+            level: Level::INFO
         };
         // Initialize tracing-based logging for the provider process
         init_logging(Level::DEBUG, Level::INFO, Some(remote_logger), None, Some(250 * 1024 * 1024)).expect("Failed to initialize logging"); // 250MB log files
@@ -555,30 +555,30 @@ impl HypergridProviderState {
     #[remote]
     async fn health_ping(&self, request: HealthCheckCall) -> Result<String, String> {
         info!("Health ping received: {:?}", request);
-        
+
         info!("Checking availability for provider: {}", request.provider_name);
-        
+
         // Check if provider exists in registry
         let provider_exists = self
             .registered_providers
             .iter()
             .find(|p| p.provider_name == request.provider_name);
-            
+
         match provider_exists {
             Some(provider) => {
                 // Check if provider has a valid endpoint configuration
                 if provider.endpoint.is_empty() {
                     let error_msg = format!(
-                        "Provider '{}' exists but needs endpoint configuration", 
+                        "Provider '{}' exists but needs endpoint configuration",
                         request.provider_name
                     );
                     warn!("{}", error_msg);
                     return Err(error_msg);
                 }
-                
+
                 debug!(
-                    "Provider '{}' is available and configured (price: {} USDC)", 
-                    request.provider_name, 
+                    "Provider '{}' is available and configured (price: {} USDC)",
+                    request.provider_name,
                     provider.price
                 );
                 Ok("Ack".to_string())
@@ -619,7 +619,7 @@ impl HypergridProviderState {
 
         // Provider ID is set by frontend to match node identity
         self.registered_providers.push(provider.clone());
-        
+
         // Success tracking log
         debug!(
             "provider_registration_success: provider={}, total_providers={}",
@@ -848,11 +848,11 @@ impl HypergridProviderState {
         let mcp_request = match request {
             ProviderCall { .. } => request,
         };
-        
+
         // Get the source node ID for tracking
         let source_address = source();
         let source_node_id = source_address.node().to_string();
-        
+
         // Usage tracking log - no sensitive data
         info!(
             "provider_call_started: provider={}, provider_node={}, source_node={}, tx_hash={}, arg_count={}",
@@ -932,7 +932,7 @@ impl HypergridProviderState {
             match api_call_result {
                 Ok(response) => {
                     let call_duration = call_start_time.elapsed();
-                    
+
                     // Success tracking log - no sensitive data
                     info!(
                         "provider_call_success: provider={}, provider_node={}, source_node={}, tx_hash={}, price_usdc={}, attempt={}, duration_ms={}, response_size_bytes={}",
@@ -945,7 +945,7 @@ impl HypergridProviderState {
                         call_duration.as_millis(),
                         response.len()
                     );
-                    
+
                     if attempt > 1 {
                         debug!("Provider call succeeded on attempt {} of {} after {:?}", attempt, MAX_RETRIES, call_duration);
                     }
@@ -1012,24 +1012,25 @@ impl HypergridProviderState {
     /// 2. Payment retry: Client retries with X-PAYMENT header containing signed payment authorization
     /// 3. Final response: After payment validation, return actual provider response with X-PAYMENT-RESPONSE header
     #[http(path = "/xfour")]
-    async fn handle_xfour(&mut self) -> Result<String, String> {
+    async fn handle_xfour(&mut self) -> Vec<u8> {
         info!("x402 endpoint called");
+
+        // responses are always JSON; default to BAD_REQUEST error
+        add_response_header("Content-Type".to_string(), "application/json".to_string());
+        set_response_status(StatusCode::BAD_REQUEST);
 
         // ===== CHECK FOR X-PAYMENT HEADER =====
         let x_payment_header = get_request_header("x-payment");
 
         // ===== SHARED: QUERY PARAMETER VALIDATION =====
-        let params = get_parsed_query_params();
+        let params = get_query_params();
 
         let params = match params {
             Some(p) if !p.is_empty() => p,
             _ => {
                 let error_json = serde_json::json!({"error": "Missing query parameters. Expected ?providername=...&..."});
                 let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                set_response_body(error_bytes);
-                set_response_status(StatusCode::BAD_REQUEST);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
+                return error_bytes;
             }
         };
 
@@ -1039,10 +1040,7 @@ impl HypergridProviderState {
             None => {
                 let error_json = serde_json::json!({"error": "Missing required parameter: providername"});
                 let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                set_response_body(error_bytes);
-                set_response_status(StatusCode::BAD_REQUEST);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
+                return error_bytes;
             }
         };
 
@@ -1052,10 +1050,8 @@ impl HypergridProviderState {
             None => {
                 let error_json = serde_json::json!({"error": format!("Provider not found: {}", provider_name)});
                 let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                set_response_body(error_bytes);
                 set_response_status(StatusCode::NOT_FOUND);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
+                return error_bytes;
             }
         };
 
@@ -1075,10 +1071,7 @@ impl HypergridProviderState {
                 Err(e) => {
                     let error_json = serde_json::json!({"error": format!("Invalid X-PAYMENT header: {}", e)});
                     let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                    set_response_body(error_bytes);
-                    set_response_status(StatusCode::BAD_REQUEST);
-                    add_response_header("Content-Type".to_string(), "application/json".to_string());
-                    return Ok("".to_string());
+                    return error_bytes;
                 }
             };
 
@@ -1089,10 +1082,7 @@ impl HypergridProviderState {
                     "error": format!("Unsupported x402 protocol version: {}. Expected version 1.", payment_payload.protocol_version)
                 });
                 let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                set_response_body(error_bytes);
-                set_response_status(StatusCode::BAD_REQUEST);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
+                return error_bytes;
             }
 
             info!("Payment parsed - protocol v{}, scheme: {}, network: {}",
@@ -1127,10 +1117,7 @@ impl HypergridProviderState {
                             payment_payload.scheme, payment_payload.network)
                     });
                     let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                    set_response_body(error_bytes);
-                    set_response_status(StatusCode::BAD_REQUEST);
-                    add_response_header("Content-Type".to_string(), "application/json".to_string());
-                    return Ok("".to_string());
+                    return error_bytes;
                 }
             };
 
@@ -1142,11 +1129,11 @@ impl HypergridProviderState {
             };
 
             let verify_body = serde_json::to_vec(&verify_request)
-                .map_err(|e| format!("Failed to serialize verify request: {}", e))?;
+                .expect("Failed to serialize verify request");
 
             // Call facilitator /verify
             let verify_url = url::Url::parse(&format!("{}/verify", X402_FACILITATOR_BASE_URL))
-                .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
+                .expect("Invalid facilitator URL");
 
             let mut verify_headers = HashMap::new();
             verify_headers.insert("Content-Type".to_string(), "application/json".to_string());
@@ -1163,10 +1150,8 @@ impl HypergridProviderState {
                     error!("Facilitator /verify request failed: {:?}", e);
                     let error_json = serde_json::json!({"error": "Payment verification service unavailable"});
                     let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                    set_response_body(error_bytes);
                     set_response_status(StatusCode::SERVICE_UNAVAILABLE);
-                    add_response_header("Content-Type".to_string(), "application/json".to_string());
-                    return Ok("".to_string());
+                    return error_bytes;
                 }
             };
 
@@ -1174,17 +1159,15 @@ impl HypergridProviderState {
 
             // Parse verify response
             let verify_result: VerifyResponse = serde_json::from_slice(verify_response.body())
-                .map_err(|e| format!("Failed to parse verify response: {}", e))?;
+                .expect("Failed to parse verify response");
 
             if !verify_result.is_valid {
                 warn!("Payment verification failed: {:?}", verify_result.invalid_reason);
                 let mut error_payment_reqs = payment_requirements.clone();
                 error_payment_reqs.error = Some(verify_result.invalid_reason.unwrap_or_else(|| "Payment verification failed".to_string()));
                 let error_bytes = serde_json::to_vec(&error_payment_reqs).unwrap();
-                set_response_body(error_bytes);
                 set_response_status(StatusCode::PAYMENT_REQUIRED);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
+                return error_bytes;
             }
 
             info!("Payment verified for payer: {}", verify_result.payer);
@@ -1206,10 +1189,8 @@ impl HypergridProviderState {
                     error!("Upstream API call failed: {}", e);
                     let error_json = serde_json::json!({"error": format!("Provider API call failed: {}", e)});
                     let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                    set_response_body(error_bytes);
                     set_response_status(StatusCode::BAD_GATEWAY);
-                    add_response_header("Content-Type".to_string(), "application/json".to_string());
-                    return Ok("".to_string());
+                    return error_bytes;
                 }
             };
 
@@ -1217,10 +1198,10 @@ impl HypergridProviderState {
 
             // Call facilitator /settle
             let settle_body = serde_json::to_vec(&verify_request)
-                .map_err(|e| format!("Failed to serialize settle request: {}", e))?;
+                .expect("Failed to serialize settle request");
 
             let settle_url = url::Url::parse(&format!("{}/settle", X402_FACILITATOR_BASE_URL))
-                .map_err(|e| format!("Invalid facilitator URL: {}", e))?;
+                .expect("Invalid facilitator URL");
 
             let mut settle_headers = HashMap::new();
             settle_headers.insert("Content-Type".to_string(), "application/json".to_string());
@@ -1270,31 +1251,27 @@ impl HypergridProviderState {
                     "reason": settle_result.error_reason.unwrap_or_else(|| "Unknown settlement error".to_string())
                 });
                 let error_bytes = serde_json::to_vec(&error_json).unwrap();
-                set_response_body(error_bytes);
                 set_response_status(StatusCode::PAYMENT_REQUIRED);
-                add_response_header("Content-Type".to_string(), "application/json".to_string());
-                return Ok("".to_string());
+                return error_bytes;
             }
 
             // Encode settle response for X-PAYMENT-RESPONSE header
             let settle_json = serde_json::to_vec(&settle_result)
-                .map_err(|e| format!("Failed to serialize settle response: {}", e))?;
+                .expect("Failed to serialize settle response");
 
             // Base64 encode for header
             let encoded_len = Base64::encoded_len(&settle_json);
             let mut buf = vec![0u8; encoded_len];
             let settle_b64 = Base64::encode(&settle_json, &mut buf)
-                .map_err(|e| format!("Failed to base64 encode settlement response: {}", e))?
+                .expect("Failed to base64 encode settlement response")
                 .to_string();
 
             // Return upstream response with X-PAYMENT-RESPONSE header
-            set_response_body(upstream_response.into_bytes());
             set_response_status(StatusCode::OK);
-            add_response_header("Content-Type".to_string(), "application/json".to_string());
             add_response_header("X-PAYMENT-RESPONSE".to_string(), settle_b64);
 
             info!("Payment flow completed successfully for provider '{}'", provider_name);
-            return Ok("".to_string());
+            return upstream_response.into_bytes();
         }
 
         // ===== BRANCH: 402 PAYMENT REQUIRED FLOW =====
@@ -1302,14 +1279,12 @@ impl HypergridProviderState {
 
         let payment_reqs = build_payment_requirements(&provider, &resource_url);
         let payment_json = serde_json::to_vec(&payment_reqs)
-            .map_err(|e| format!("Failed to serialize payment requirements: {}", e))?;
+            .expect("Failed to serialize payment requirements");
 
-        set_response_body(payment_json);
         set_response_status(StatusCode::PAYMENT_REQUIRED);
-        add_response_header("Content-Type".to_string(), "application/json".to_string());
 
         info!("Returning 402 Payment Required for provider '{}'", provider_name);
-        Ok("".to_string())
+        payment_json
     }
 
     #[http]
