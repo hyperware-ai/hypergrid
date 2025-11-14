@@ -1,4 +1,4 @@
-world operator-sortugdev-dot-os-v0 {
+world operator-ware-dot-hypr-v0 {
     import operator;
     include process-v1;
 }
