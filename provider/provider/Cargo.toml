@@ -14,16 +14,16 @@ optional = true
 path = "../target/caller-utils"
 
 [dependencies.hyperprocess_macro]
-branch = "set-response-body"
 git = "https://github.com/hyperware-ai/hyperprocess-macro"
+rev = "3f21349"
 
 [dependencies.hyperware_process_lib]
-branch = "set-response-body"
 features = [
     "hyperapp",
     "logging",
 ]
 git = "https://github.com/hyperware-ai/process_lib"
+rev = "b390253"
 
 [dependencies.provider_caller_utils]
 optional = true
