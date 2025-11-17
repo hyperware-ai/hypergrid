@@ -65,6 +65,16 @@ cp "constants/$ENVIRONMENT.rs" provider/provider/src/constants.rs
 cp "constants/$ENVIRONMENT.ts" operator/ui/src/constants.ts
 cp "constants/$ENVIRONMENT.ts" provider/ui/src/constants.ts
 
+# Determine SHA256 command based on platform
+if command -v sha256sum > /dev/null 2>&1; then
+    SHA256_CMD="sha256sum"
+elif command -v shasum > /dev/null 2>&1; then
+    SHA256_CMD="shasum -a 256"
+else
+    echo "Error: No SHA256 command found" >&2
+    exit 1
+fi
+
 # Set publisher based on environment
 if [[ "$ENVIRONMENT" == "staging" ]]; then
     PUBLISHER="test.hypr"
@@ -93,7 +103,7 @@ if [ -d "pkg" ]; then
     if [ -f "pkg/manifest.json" ]; then
         cp pkg/manifest.json /tmp/hpn_manifest_backup.json
     fi
-    
+
     # Remove everything else in pkg
     find pkg -mindepth 1 ! -name 'manifest.json' -exec rm -rf {} + 2>/dev/null || true
 else
@@ -244,3 +254,7 @@ echo -e "${BLUE}Package contents:${NC}"
 ls -la pkg/
 echo -e "\n${BLUE}Target directory:${NC}"
 ls -la target/
+
+echo ""
+echo "sha256sum target/$ZIP_NAME:"
+$SHA256_CMD "target/$ZIP_NAME"
