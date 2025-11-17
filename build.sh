@@ -228,9 +228,9 @@ mkdir -p target
 ZIP_NAME="hypergrid:${ZIP_PUBLISHER}.zip"
 echo "Creating target/$ZIP_NAME..."
 
-# Remove old zip if it exists
-if [ -f "target/$ZIP_NAME" ]; then
-    rm "target/$ZIP_NAME"
+# Remove target dir contents if dir exists
+if [ -d "target" ]; then
+    rm -f target/*
 fi
 
 # Create the zip file from pkg directory contents
