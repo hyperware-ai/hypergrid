@@ -606,12 +606,21 @@ pub struct SpiderChatRequest {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct SpiderMessage {
     pub role: String,
-    pub content: String,
+    pub content: SpiderMessageContent,
     #[serde(rename = "toolCallsJson")]
     pub tool_calls_json: Option<String>,
     #[serde(rename = "toolResultsJson")]
     pub tool_results_json: Option<String>,
     pub timestamp: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum SpiderMessageContent {
+    PlainText(String),
+    Text { Text: String },
+    Audio { Audio: Vec<u8> },
+    BaseSixFourAudio { BaseSixFourAudio: String },
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

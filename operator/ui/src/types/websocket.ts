@@ -85,10 +85,17 @@ export interface PongMessage {
   type: 'pong';
 }
 
-// Types matching spider/spider/src/types.rs exactly
+// Types matching spider/spider/src/types.rs Message struct
+export type SpiderMessageContent =
+  | string
+  | { Text: string }
+  | { Audio: number[] }
+  | { BaseSixFourAudio: string }
+  | null;
+
 export interface SpiderMessage {
   role: string;
-  content: string;
+  content: SpiderMessageContent;
   toolCallsJson?: string | null;
   toolResultsJson?: string | null;
   timestamp: number;
